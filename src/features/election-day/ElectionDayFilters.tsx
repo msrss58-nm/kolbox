@@ -27,7 +27,7 @@ export function ElectionDayFilters({
   onStatusFilterChange: (values: RideStatusFilterValue[]) => void;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap gap-2">
+    <>
       <MultiSelectDropdown
         emptyLabel={ELECTION_DAY_TEXT.coordinatorFilter.all}
         options={coordinators.map((c) => ({ value: c, label: c }))}
@@ -49,6 +49,6 @@ export function ElectionDayFilters({
         onChange={(values) => onStatusFilterChange(values as RideStatusFilterValue[])}
         className="md:w-52"
       />
-    </div>
+    </>
   );
 }

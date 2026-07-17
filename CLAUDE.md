@@ -1,6 +1,6 @@
 # KolBox (קולבוקס)
 
-Campaign & election management web platform: import a voter registry, let activists classify voters (supporter/potential/opponent), track everything on an analytics dashboard, and (post-MVP) run an election-day war room.
+Campaign & election management web platform: import a voter registry, let activists classify voters (supporter/potential/opponent), track everything on an analytics dashboard, and run an election-day ride-coordination screen (`/election-day`, built - see task-plan.md §4 P1). The full turnout/polling-station war room is still post-MVP.
 
 **Read `task-plan.md` first** - it holds the full feature plan, architecture, MVP scope, and a Progress Log.
 
@@ -11,9 +11,9 @@ KolBox turns a raw voter registry into a get-out-the-vote machine. The core loop
 1. **Load data** - import the voter registry (Excel/CSV/JSON) or start from the bundled demo dataset.
 2. **Classify** - activists search the registry and tag voters they know: supporter (תומך) / potential (מתלבט) / opponent (מתנגד).
 3. **Track** - a dashboard turns raw tags into campaign-manager insight: coverage, trend, top cities, activist leaderboard.
-4. _(Post-MVP)_ **Election day** - freeze tagging, track turnout live, chase supporters who haven't voted.
+4. **Election day** - `/election-day`, a ride-coordination war room: import a separate ride-list, filter by coordinator/city/status, a global countdown clock, call/WhatsApp a voter or route the request to a pre-registered driver, mark rides arranged and voters voted. Built in full - see task-plan.md §4 P1. _(Still post-MVP: live turnout tracking across polling stations, the broader "freeze tagging" GOTV chase-list flow.)_
 
-MVP = Core Campaign Management mode only (no election day). Auth is real (Supabase) - pulled forward from post-MVP; see task-plan.md §5.5. Voter/activist/classification _data_ still lives in `MockApi` + localStorage, not yet migrated to Supabase.
+MVP = Core Campaign Management mode only. Auth is real (Supabase) - pulled forward from post-MVP; see task-plan.md §5.5. Election Day's ride-coordination mode was also pulled forward and built in full this session; the remaining polling-station turnout war room is not. Voter/activist/classification _data_ still lives in `MockApi` + localStorage, not yet migrated to Supabase (Election Day's ride-list/coordinators data too).
 
 ## Non-negotiable requirements
 
@@ -92,7 +92,7 @@ Plain commits - author is the repo owner, no AI co-author trailer, no mention of
 
 ## Stack
 
-React 19 · Vite 7 · TypeScript (strict) · Tailwind CSS v4 (CSS-config via `@theme`, no tailwind.config.js) · Recharts · zustand · react-router v7 (library mode) · lucide-react · xlsx (SheetJS) for Excel import/export
+React 19 · Vite 7 · TypeScript (strict) · Tailwind CSS v4 (CSS-config via `@theme`, no tailwind.config.js) · Recharts · zustand · react-router v7 (library mode) · lucide-react · xlsx (SheetJS) for Excel import/export · react-datepicker (themed via `.kb-datepicker*` overrides in `index.css`) for the election-day deadline field
 
 ## Commands
 
@@ -130,7 +130,7 @@ src/
 │   ├── voters/               # registry list, filters, drawer, classification, useVoterRegistry
 │   ├── activists/            # podium, roster, drawer, ranks, useActivists
 │   ├── import/                # 3-step wizard (upload/map/summary), useImportWizard
-│   └── election-day/          # (post-MVP) war room
+│   └── election-day/          # ride-coordination screen (built, see task-plan.md §4 P1) - full turnout war room still post-MVP
 ├── services/
 │   ├── api/                  # ApiClient interface + MockApi implementation
 │   ├── storage/               # localStorage adapter

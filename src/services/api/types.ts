@@ -6,6 +6,7 @@ import type {
   ClassificationEvent,
   ElectionDayVoter,
   PollingStation,
+  RideCoordinator,
   RideStatusEvent,
   TrendPoint,
   Voter,
@@ -66,6 +67,7 @@ export interface ImportSummary {
 }
 
 export interface NewElectionDayVoter {
+  masad: string;
   firstName: string;
   lastName: string;
   street: string;
@@ -73,6 +75,11 @@ export interface NewElectionDayVoter {
   city: string;
   phone: string;
   coordinator: string;
+}
+
+export interface NewRideCoordinator {
+  name: string;
+  phone: string;
 }
 
 /**
@@ -130,8 +137,19 @@ export interface ApiClient {
   // election day - independent ride-coordination dataset (see types.ts ElectionDayVoter)
   importElectionDayVoters(rows: NewElectionDayVoter[]): Promise<{ count: number }>;
   listElectionDayVoters(): Promise<ElectionDayVoter[]>;
+  /** Clears the ride-list and its activity log (not the deadline). */
+  clearElectionDayVoters(): Promise<void>;
   setRideArranged(id: string, arranged: boolean): Promise<ElectionDayVoter>;
   listRideStatusEvents(): Promise<RideStatusEvent[]>;
   getElectionDayDeadline(): Promise<string | null>;
   setElectionDayDeadline(deadline: string | null): Promise<string | null>;
+  /** `minutesFromNow: null` cancels an existing reminder. */
+  setReminder(id: string, minutesFromNow: number | null): Promise<ElectionDayVoter>;
+  setVoted(id: string, voted: boolean): Promise<ElectionDayVoter>;
+  setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter>;
+
+  // election day - fixed, pre-registered ride-coordinator roster
+  listRideCoordinators(): Promise<RideCoordinator[]>;
+  addRideCoordinator(input: NewRideCoordinator): Promise<RideCoordinator>;
+  deleteRideCoordinator(id: string): Promise<void>;
 }

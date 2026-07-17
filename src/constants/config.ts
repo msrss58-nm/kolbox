@@ -56,4 +56,7 @@ export const APP_CONFIG = {
   /** Election day ride-list pagination - page-size choices and the default selection. */
   electionDayPageSizeOptions: [10, 25, 50, 100] as number[],
   defaultElectionDayPageSize: 10,
+
+  /** Election day contact-modal notes textarea autosave debounce. */
+  electionDayNotesAutosaveMs: 800,
 } as const;

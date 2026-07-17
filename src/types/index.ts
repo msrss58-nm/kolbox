@@ -88,6 +88,7 @@ export interface CurrentUser {
  */
 export interface ElectionDayVoter {
   id: string;
+  masad: string; // מסד - polling/registration number, optional, set at import time
   firstName: string;
   lastName: string;
   street: string;
@@ -95,8 +96,21 @@ export interface ElectionDayVoter {
   city: string;
   phone: string;
   coordinator: string; // אחראי הסעה - free text, set at import time
+  notes: string; // free-text notes, autosaved from the contact modal
   rideArranged: boolean;
   rideArrangedAt: string | null; // ISO timestamp
+  reminderAt: string | null; // ISO timestamp - when a follow-up reminder should fire
+  voted: boolean;
+  votedAt: string | null; // ISO timestamp
+}
+
+/** נהג/אחראי הסעות - a fixed, pre-registered ride-coordinator contact that a
+ * voter's ride request can be routed to (distinct from the per-voter
+ * `coordinator` free-text field imported from the ride list). */
+export interface RideCoordinator {
+  id: string;
+  name: string;
+  phone: string;
 }
 
 /** A single ride-status change on an `ElectionDayVoter` - powers the recent

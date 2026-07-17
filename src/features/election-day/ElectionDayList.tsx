@@ -12,11 +12,13 @@ function SortableHeader({
   active,
   dir,
   onClick,
+  centered,
 }: {
   label: string;
   active: boolean;
   dir: SortDir;
   onClick: () => void;
+  centered?: boolean;
 }) {
   const Icon = active ? (dir === "asc" ? ArrowUp : ArrowDown) : ChevronsUpDown;
   return (
@@ -24,12 +26,13 @@ function SortableHeader({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1 text-xs font-bold",
+        "flex min-w-0 items-center gap-1 truncate text-xs font-bold",
+        centered && "justify-center",
         active ? "text-primary-600" : "text-slate-400 hover:text-slate-600",
       )}
     >
-      {label}
-      <Icon className="size-3" />
+      <span className="truncate">{label}</span>
+      <Icon className="size-3 shrink-0" />
     </button>
   );
 }
@@ -44,30 +47,41 @@ function ListHeader({
   onSort: (key: ElectionDaySortKey) => void;
 }) {
   return (
-    <div className="hidden border-b border-slate-100 px-4 py-2.5 md:grid md:grid-cols-[1.3fr_0.8fr_1fr_0.9fr_0.9fr_auto] md:items-center md:gap-3">
-      <span className="text-xs font-bold text-slate-400">
+    <div className="hidden border-b border-slate-100 px-4 py-2.5 text-center md:grid md:grid-cols-[0.5fr_1.1fr_0.8fr_0.5fr_0.7fr_0.9fr_0.8fr_1fr_7rem] md:items-center md:gap-3">
+      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
+        {ELECTION_DAY_TEXT.list.columns.masad}
+      </span>
+      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
         {ELECTION_DAY_TEXT.list.columns.name}
+      </span>
+      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
+        {ELECTION_DAY_TEXT.list.columns.street}
+      </span>
+      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
+        {ELECTION_DAY_TEXT.list.columns.houseNumber}
       </span>
       <SortableHeader
         label={ELECTION_DAY_TEXT.list.columns.city}
         active={sortBy === "city"}
         dir={sortDir}
         onClick={() => onSort("city")}
+        centered
       />
-      <span className="text-xs font-bold text-slate-400">
-        {ELECTION_DAY_TEXT.list.columns.address}
-      </span>
-      <span className="text-xs font-bold text-slate-400">
+      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
         {ELECTION_DAY_TEXT.list.columns.phone}
       </span>
-      <span className="text-xs font-bold text-slate-400">
+      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
         {ELECTION_DAY_TEXT.list.columns.coordinator}
+      </span>
+      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
+        {ELECTION_DAY_TEXT.list.columns.notes}
       </span>
       <SortableHeader
         label={ELECTION_DAY_TEXT.list.columns.status}
         active={sortBy === "status"}
         dir={sortDir}
         onClick={() => onSort("status")}
+        centered
       />
     </div>
   );

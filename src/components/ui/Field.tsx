@@ -1,7 +1,7 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 import { cn } from "../../lib/utils";
 
-const fieldClasses =
+export const fieldClasses =
   "h-11 w-full rounded-xl bg-white px-3.5 text-sm text-slate-800 shadow-sm ring-1 ring-slate-200 transition placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-slate-50 disabled:text-slate-400";
 
 export function Field({

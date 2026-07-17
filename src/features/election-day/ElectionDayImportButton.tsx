@@ -1,5 +1,4 @@
 import { useRef } from "react";
-import { Upload } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 
@@ -31,8 +30,7 @@ export function ElectionDayImportButton({
         loading={busy}
         title={ELECTION_DAY_TEXT.import.columnsHint}
       >
-        <Upload className="size-4" />
-        {ELECTION_DAY_TEXT.import.button}
+        📁 {ELECTION_DAY_TEXT.import.button}
       </Button>
     </>
   );

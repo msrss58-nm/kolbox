@@ -4,6 +4,7 @@ import type { ParsedSheet } from "../../services/excel/excel";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 
 type FieldKey =
+  | "masad"
   | "firstName"
   | "lastName"
   | "street"
@@ -13,6 +14,7 @@ type FieldKey =
   | "coordinator";
 
 const AUTO_DETECT: Record<FieldKey, RegExp> = {
+  masad: /מסד|קלפי|registration|polling/i,
   firstName: /שם\s*פרטי|first/i,
   lastName: /שם\s*משפחה|last/i,
   street: /רחוב|street/i,
@@ -40,6 +42,7 @@ function cell(row: (string | number | null)[], col: number | undefined): string 
  * for a phone call even without a full address. */
 export function parseElectionDaySheet(sheet: ParsedSheet): NewElectionDayVoter[] {
   const cols = {
+    masad: detectColumn(sheet.headers, "masad"),
     firstName: detectColumn(sheet.headers, "firstName"),
     lastName: detectColumn(sheet.headers, "lastName"),
     street: detectColumn(sheet.headers, "street"),
@@ -66,6 +69,7 @@ export function parseElectionDaySheet(sheet: ParsedSheet): NewElectionDayVoter[]
     const coordinator = cell(row, cols.coordinator);
     if (!firstName || !lastName || !phone || !coordinator) continue;
     rows.push({
+      masad: cell(row, cols.masad),
       firstName,
       lastName,
       phone,

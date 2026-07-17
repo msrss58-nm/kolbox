@@ -1,10 +1,16 @@
-import { Phone } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { fieldClasses } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
+import { APP_CONFIG } from "../../constants/config";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { telHref, whatsAppHref } from "../../lib/phone";
 import { cn } from "../../lib/utils";
-import type { ElectionDayVoter } from "../../types";
+import type { ElectionDayVoter, RideCoordinator } from "../../types";
+import { DriverSelectMenu } from "./DriverSelectMenu";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { isReminderActive } from "./reminderStatus";
+import { ReminderMenu } from "./ReminderMenu";
 
 function WhatsAppIcon({ className }: { className?: string }) {
   return (
@@ -15,61 +21,139 @@ function WhatsAppIcon({ className }: { className?: string }) {
   );
 }
 
+/** Free-text notes with a debounced autosave - mirrors the reference app's
+ * behavior (save ~800ms after typing stops, small status label). Tracks the
+ * currently-open contact's id (render-phase compare, per CLAUDE.md) so the
+ * draft resets whenever a different contact's modal opens, since this is one
+ * long-lived component instance reused across every row's modal open. */
+function NotesField({
+  contact,
+  onSave,
+}: {
+  contact: ElectionDayVoter;
+  onSave: (id: string, notes: string) => void;
+}) {
+  const [draft, setDraft] = useState(contact.notes);
+  const [trackedId, setTrackedId] = useState(contact.id);
+  const [hasEdited, setHasEdited] = useState(false);
+  if (contact.id !== trackedId) {
+    setTrackedId(contact.id);
+    setDraft(contact.notes);
+    setHasEdited(false);
+  }
+
+  const debouncedDraft = useDebouncedValue(draft, APP_CONFIG.electionDayNotesAutosaveMs);
+  const savedRef = useRef(contact.notes);
+  useEffect(() => {
+    if (debouncedDraft === savedRef.current) return;
+    savedRef.current = debouncedDraft;
+    onSave(contact.id, debouncedDraft);
+  }, [debouncedDraft, contact.id, onSave]);
+
+  const isPending = hasEdited && draft !== debouncedDraft;
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-sm font-semibold text-slate-700">
+          {ELECTION_DAY_TEXT.notes.label}
+        </span>
+        {hasEdited && (
+          <span className="text-xs font-semibold text-primary-600">
+            {isPending ? ELECTION_DAY_TEXT.notes.saving : ELECTION_DAY_TEXT.notes.saved}
+          </span>
+        )}
+      </div>
+      <textarea
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setHasEdited(true);
+        }}
+        placeholder={ELECTION_DAY_TEXT.notes.placeholder}
+        rows={3}
+        className={cn(fieldClasses, "h-auto resize-none py-2.5")}
+      />
+    </div>
+  );
+}
+
 export function ElectionDayContactModal({
   contact,
   onClose,
   onToggleRideArranged,
+  onSetReminder,
+  onCancelReminder,
+  onToggleVoted,
+  onSetNotes,
+  rideCoordinators,
+  onSendToDriver,
 }: {
   contact: ElectionDayVoter | null;
   onClose: () => void;
   onToggleRideArranged: (contact: ElectionDayVoter, arranged: boolean) => void;
+  onSetReminder: (contact: ElectionDayVoter, minutes: number) => void;
+  onCancelReminder: (contact: ElectionDayVoter) => void;
+  onToggleVoted: (contact: ElectionDayVoter, voted: boolean) => void;
+  onSetNotes: (id: string, notes: string) => void;
+  rideCoordinators: RideCoordinator[];
+  onSendToDriver: (contact: ElectionDayVoter, coordinatorId: string) => void;
 }) {
   const fullName = contact ? `${contact.firstName} ${contact.lastName}` : "";
   const address = contact
     ? [contact.street, contact.houseNumber || ""].filter(Boolean).join(" ")
     : "";
+  const reminderActive = isReminderActive(contact?.reminderAt ?? null);
 
   return (
     <Modal open={contact !== null} onClose={onClose} title={fullName}>
       {contact && (
         <div className="space-y-5">
-          {(contact.city || address) && (
-            <div>
-              <p className="text-xs font-semibold text-slate-400">
-                {ELECTION_DAY_TEXT.list.columns.address}
-              </p>
-              <p className="text-sm font-semibold text-slate-700">
+          <div className="space-y-2 rounded-xl bg-slate-50 p-3.5 text-sm">
+            {(contact.city || address) && (
+              <p className="text-slate-700">
+                📍{" "}
+                <span className="font-semibold">
+                  {ELECTION_DAY_TEXT.list.columns.address}:
+                </span>{" "}
                 {[contact.city, address].filter(Boolean).join(" · ")}
               </p>
-            </div>
-          )}
-
-          <div>
-            <p className="text-xs font-semibold text-slate-400">
-              {ELECTION_DAY_TEXT.coordinatorFilter.label}
+            )}
+            {contact.masad && (
+              <p className="text-slate-700">
+                🆔{" "}
+                <span className="font-semibold">
+                  {ELECTION_DAY_TEXT.list.columns.masad}:
+                </span>{" "}
+                {contact.masad}
+              </p>
+            )}
+            <p className="text-slate-700">
+              📞{" "}
+              <span className="font-semibold">
+                {ELECTION_DAY_TEXT.list.columns.phone}:
+              </span>{" "}
+              <span dir="ltr" className="tabular-nums">
+                {contact.phone}
+              </span>
             </p>
-            <p className="text-sm font-semibold text-slate-700">{contact.coordinator}</p>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold text-slate-400">
-              {ELECTION_DAY_TEXT.list.columns.phone}
-            </p>
-            <p className="text-sm font-semibold tabular-nums text-slate-700" dir="ltr">
-              {contact.phone}
+            <p className="text-slate-700">
+              👤{" "}
+              <span className="font-semibold">
+                {ELECTION_DAY_TEXT.coordinatorFilter.label}:
+              </span>{" "}
+              {contact.coordinator}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
             <Button
-              className="w-full"
-              variant="primary"
+              className="w-full bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00]"
               onClick={() => {
                 window.location.href = telHref(contact.phone);
               }}
             >
-              <Phone className="size-4" />
-              {ELECTION_DAY_TEXT.modal.call}
+              📞 {ELECTION_DAY_TEXT.modal.call}
             </Button>
             <Button
               className="w-full bg-[#25D366] text-white hover:bg-[#1ebe57] active:bg-[#1aa64d]"
@@ -90,6 +174,41 @@ export function ElectionDayContactModal({
           </div>
 
           <Button
+            variant={contact.voted ? "secondary" : "primary"}
+            className={cn("w-full", contact.voted && "text-slate-600")}
+            onClick={() => onToggleVoted(contact, !contact.voted)}
+          >
+            {contact.voted
+              ? `↩️ ${ELECTION_DAY_TEXT.voted.notVoted}`
+              : `👍 ${ELECTION_DAY_TEXT.voted.voted}`}
+          </Button>
+
+          <div className="grid grid-cols-3 gap-2.5">
+            <ReminderMenu onSelect={(minutes) => onSetReminder(contact, minutes)} />
+            <Button
+              variant="danger"
+              disabled={!reminderActive}
+              onClick={() => onCancelReminder(contact)}
+            >
+              ❌ {ELECTION_DAY_TEXT.reminder.cancelButton}
+            </Button>
+            <DriverSelectMenu
+              coordinators={rideCoordinators}
+              onSelect={(coordinatorId) => onSendToDriver(contact, coordinatorId)}
+            />
+          </div>
+          {reminderActive && contact.reminderAt && (
+            <p className="-mt-3 text-xs text-slate-400">
+              {ELECTION_DAY_TEXT.reminder.activeLabel(
+                new Date(contact.reminderAt).toLocaleTimeString("he-IL", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              )}
+            </p>
+          )}
+
+          <Button
             variant={contact.rideArranged ? "secondary" : "primary"}
             className={cn("w-full", contact.rideArranged && "text-slate-600")}
             onClick={() => onToggleRideArranged(contact, !contact.rideArranged)}
@@ -98,6 +217,8 @@ export function ElectionDayContactModal({
               ? ELECTION_DAY_TEXT.modal.markNotArranged
               : ELECTION_DAY_TEXT.modal.markArranged}
           </Button>
+
+          <NotesField contact={contact} onSave={onSetNotes} />
         </div>
       )}
     </Modal>

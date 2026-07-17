@@ -6,6 +6,7 @@ import type {
   ClassificationEvent,
   ElectionDayVoter,
   PollingStation,
+  RideCoordinator,
   RideStatusEvent,
   TrendPoint,
   Voter,
@@ -20,6 +21,7 @@ import type {
   ImportSummary,
   NewActivist,
   NewElectionDayVoter,
+  NewRideCoordinator,
   NewVoter,
   Paged,
   VoterQuery,
@@ -29,6 +31,7 @@ const STORE_KEY = "dataset-v1";
 const ELECTION_DAY_VOTERS_KEY = "election-day-voters-v1";
 const ELECTION_DAY_DEADLINE_KEY = "election-day-deadline-v1";
 const ELECTION_DAY_EVENTS_KEY = "election-day-events-v1";
+const RIDE_COORDINATORS_KEY = "election-day-ride-coordinators-v1";
 const DAY_MS = 86_400_000;
 
 /** Simulated network latency so loaders/skeletons are visible & realistic. */
@@ -45,12 +48,14 @@ export class MockApi implements ApiClient {
   private electionDayVoters: ElectionDayVoter[];
   private electionDayDeadline: string | null;
   private rideStatusEvents: RideStatusEvent[];
+  private rideCoordinators: RideCoordinator[];
 
   constructor() {
     this.data = loadJson<Dataset>(STORE_KEY) ?? generateDataset();
     this.electionDayVoters = loadJson<ElectionDayVoter[]>(ELECTION_DAY_VOTERS_KEY) ?? [];
     this.electionDayDeadline = loadJson<string | null>(ELECTION_DAY_DEADLINE_KEY) ?? null;
     this.rideStatusEvents = loadJson<RideStatusEvent[]>(ELECTION_DAY_EVENTS_KEY) ?? [];
+    this.rideCoordinators = loadJson<RideCoordinator[]>(RIDE_COORDINATORS_KEY) ?? [];
   }
 
   /** Debounced persistence - mutations land in localStorage at most every `persistDebounceMs`. */
@@ -435,8 +440,12 @@ export class MockApi implements ApiClient {
     this.electionDayVoters = rows.map((r) => ({
       ...r,
       id: `edv-${crypto.randomUUID().slice(0, 8)}`,
+      notes: "",
       rideArranged: false,
       rideArrangedAt: null,
+      reminderAt: null,
+      voted: false,
+      votedAt: null,
     }));
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     // A fresh import is a new ride-list for the day - last time's log no longer applies.
@@ -448,6 +457,14 @@ export class MockApi implements ApiClient {
   async listElectionDayVoters(): Promise<ElectionDayVoter[]> {
     await latency();
     return [...this.electionDayVoters];
+  }
+
+  async clearElectionDayVoters(): Promise<void> {
+    await latency();
+    this.electionDayVoters = [];
+    this.rideStatusEvents = [];
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    saveJson(ELECTION_DAY_EVENTS_KEY, this.rideStatusEvents);
   }
 
   async setRideArranged(id: string, arranged: boolean): Promise<ElectionDayVoter> {
@@ -478,6 +495,31 @@ export class MockApi implements ApiClient {
     return [...this.rideStatusEvents].reverse();
   }
 
+  async setReminder(
+    id: string,
+    minutesFromNow: number | null,
+  ): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.reminderAt =
+      minutesFromNow === null
+        ? null
+        : new Date(Date.now() + minutesFromNow * 60_000).toISOString();
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
+  async setVoted(id: string, voted: boolean): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.voted = voted;
+    contact.votedAt = voted ? new Date().toISOString() : null;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
   async getElectionDayDeadline(): Promise<string | null> {
     await latency();
     return this.electionDayDeadline;
@@ -488,5 +530,36 @@ export class MockApi implements ApiClient {
     this.electionDayDeadline = deadline;
     saveJson(ELECTION_DAY_DEADLINE_KEY, deadline);
     return deadline;
+  }
+
+  async setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.notes = notes;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
+  async listRideCoordinators(): Promise<RideCoordinator[]> {
+    await latency();
+    return [...this.rideCoordinators];
+  }
+
+  async addRideCoordinator(input: NewRideCoordinator): Promise<RideCoordinator> {
+    await latency();
+    const coordinator: RideCoordinator = {
+      id: `rc-${crypto.randomUUID().slice(0, 8)}`,
+      ...input,
+    };
+    this.rideCoordinators.push(coordinator);
+    saveJson(RIDE_COORDINATORS_KEY, this.rideCoordinators);
+    return coordinator;
+  }
+
+  async deleteRideCoordinator(id: string): Promise<void> {
+    await latency();
+    this.rideCoordinators = this.rideCoordinators.filter((c) => c.id !== id);
+    saveJson(RIDE_COORDINATORS_KEY, this.rideCoordinators);
   }
 }

@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import { CLASSIFICATION_LABELS } from "../../constants/labels";
-import type { Voter } from "../../types";
+import type { ElectionDayVoter, Voter } from "../../types";
 
 export interface ParsedSheet {
   headers: string[];
@@ -98,6 +98,27 @@ export function exportVotersToExcel(voters: Voter[]) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "פנקס בוחרים");
   XLSX.writeFile(wb, "kolbox-voters.xlsx");
+}
+
+/** Download the election-day ride-coordination list as a voting report. */
+export function exportElectionDayVotersToExcel(contacts: ElectionDayVoter[]) {
+  const data = contacts.map((c) => ({
+    מסד: c.masad,
+    "שם פרטי": c.firstName,
+    "שם משפחה": c.lastName,
+    עיר: c.city,
+    רחוב: c.street,
+    "מס' בית": c.houseNumber,
+    טלפון: c.phone,
+    אחראי: c.coordinator,
+    הערות: c.notes,
+    "הסעה תואמה": c.rideArranged ? "כן" : "לא",
+    הצביע: c.voted ? "כן" : "לא",
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "דוח הצבעות");
+  XLSX.writeFile(wb, "kolbox-voting-report.xlsx");
 }
 
 /** Download an empty import template with the expected headers. */
