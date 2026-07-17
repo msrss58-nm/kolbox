@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+/* stylelint-disable no-unknown-at-rules */
+@theme {
+  /* Typography - Heebo carries both Hebrew and Latin beautifully */
+  --font-sans: "Heebo", ui-sans-serif, system-ui, sans-serif;
+
+  /* Brand - indigo→violet */
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-primary-950: #1e1b4b;
+
+  /* Classification semantics (סיווג) */
+  --color-supporter: #10b981; /* תומך */
+  --color-supporter-soft: #d1fae5;
+  --color-potential: #f59e0b; /* מתלבט */
+  --color-potential-soft: #fef3c7;
+  --color-opponent: #f43f5e; /* מתנגד */
+  --color-opponent-soft: #ffe4e6;
+  --color-unclassified: #94a3b8; /* לא מסווג */
+  --color-unclassified-soft: #f1f5f9;
+
+  /* Surfaces */
+  --color-sidebar: #0f172a;
+  --color-sidebar-hover: #1e293b;
+  --color-surface: #f8fafc;
+
+  /* Motion */
+  --animate-fade-in-up: fade-in-up 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in-down: fade-in-down 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in: fade-in 0.25s ease-out both;
+  --animate-scale-in: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes fade-in-down {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+}
+/* stylelint-enable no-unknown-at-rules */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-surface font-sans text-slate-800 antialiased;
+    font-feature-settings: "tnum"; /* tabular numbers for stats/IDs */
+  }
+
+  /* Thin, unobtrusive scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme(--color-slate-300) transparent;
+  }
+
+  ::selection {
+    @apply bg-primary-200 text-primary-950;
+  }
+
+  /* Tailwind v4 resets buttons to cursor:default - restore pointer on
+     everything interactive (disabled controls keep the default cursor) */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  summary,
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  label:has(> input[type="checkbox"]:not(:disabled)),
+  label:has(> input[type="radio"]:not(:disabled)) {
+    cursor: pointer;
+  }
+}
+
+@layer utilities {
+  /* Skeleton shimmer block */
+  .skeleton {
+    @apply animate-shimmer rounded-md bg-slate-200;
+    background-image: linear-gradient(
+      90deg,
+      theme(--color-slate-200) 25%,
+      theme(--color-slate-100) 50%,
+      theme(--color-slate-200) 75%
+    );
+    background-size: 200% 100%;
+  }
+
+  /* Minimum touch target for mobile (CLAUDE.md: ≥44px) */
+  .touch-target {
+    @apply min-h-11 min-w-11;
+  }
+}

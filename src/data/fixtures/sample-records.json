@@ -1,0 +1,49 @@
+{
+  "_readme": "One example row per persisted entity, matching src/types/index.ts exactly. Reference for the future Supabase schema (see task-plan.md §P2) and for anyone reading the data model without digging through TypeScript. Not imported by app code - see src/data/generator.ts for the real seed data generator.",
+
+  "voter": {
+    "id": "v-a1b2c3d4",
+    "nationalId": "123456782",
+    "firstName": "נועה",
+    "lastName": "כהן",
+    "city": "אשקלון",
+    "street": "הרצל",
+    "houseNumber": 12,
+    "phone": "050-1234567",
+    "birthYear": 1988,
+    "pollingStationId": "st-14",
+    "classification": "supporter",
+    "classifiedBy": "act-3",
+    "classifiedAt": "2026-06-30T09:15:00.000Z",
+    "notes": null,
+    "familyId": "fam-207",
+    "votedAt": null
+  },
+
+  "activist": {
+    "id": "act-3",
+    "firstName": "דניאל",
+    "lastName": "שרעבי",
+    "phone": "054-5585744",
+    "area": "כפר סבא",
+    "joinedAt": "2026-05-01T08:00:00.000Z",
+    "lastActiveAt": "2026-07-14T17:42:00.000Z",
+    "tagCount": 462
+  },
+
+  "pollingStation": {
+    "id": "st-14",
+    "number": 14,
+    "city": "אשקלון",
+    "address": "בי\"ס יסודי אורנים, רח' הרצל 40",
+    "registeredVoters": 512
+  },
+
+  "classificationEvent": {
+    "id": "ev-9f8e7d6c",
+    "voterId": "v-a1b2c3d4",
+    "activistId": "act-3",
+    "classification": "supporter",
+    "at": "2026-06-30T09:15:00.000Z"
+  }
+}

@@ -1,0 +1,105 @@
+/**
+ * Domain model for KolBox - types and interfaces only.
+ * Display labels for these enums live in `constants/labels.ts`.
+ * See CLAUDE.md for the Hebrew↔English vocabulary.
+ */
+
+/** סיווג - how a voter relates to the campaign. */
+export type Classification = "supporter" | "potential" | "opponent" | "unclassified";
+
+/** בוחר - a voter registry record. */
+export interface Voter {
+  id: string; // internal id
+  nationalId: string; // ת"ז, 9 digits with valid checksum
+  firstName: string;
+  lastName: string;
+  city: string;
+  street: string;
+  houseNumber: number;
+  phone: string | null;
+  birthYear: number;
+  pollingStationId: string;
+  classification: Classification;
+  classifiedBy: string | null; // Activist.id
+  classifiedAt: string | null; // ISO timestamp
+  notes: string | null;
+  familyId: string | null; // shared by household members (auto-family classification)
+  /** Election-day only (post-MVP): ISO timestamp when marked as voted. */
+  votedAt: string | null;
+}
+
+/** Gamified activist ranks, by tag count (thresholds in lib/ranks.ts). */
+export type ActivistRank =
+  | "turai" // טוראי
+  | "rabat" // רב"ט
+  | "samal" // סמל
+  | "rasar" // רס"ר
+  | "segen" // סגן
+  | "seren" // סרן
+  | "aluf"; // אלוף
+
+/** פעיל - a field user who classifies voters. */
+export interface Activist {
+  id: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  area: string; // city / region scope
+  joinedAt: string; // ISO
+  lastActiveAt: string; // ISO
+  tagCount: number; // derived, kept denormalized for lists
+}
+
+/** קלפי - a polling station. */
+export interface PollingStation {
+  id: string;
+  number: number;
+  city: string;
+  address: string; // e.g. school name + street
+  registeredVoters: number;
+}
+
+/** A single classification action - powers history & trend charts. */
+export interface ClassificationEvent {
+  id: string;
+  voterId: string;
+  activistId: string;
+  classification: Classification;
+  at: string; // ISO
+}
+
+/** Roles for real (Supabase-backed) auth. */
+export type UserRole = "manager" | "activist" | "observer";
+
+/** A signed-in user, built from their Supabase auth session + profiles row. */
+export interface CurrentUser {
+  id: string; // Supabase auth user id - also profiles.id
+  email: string;
+  name: string;
+  /** null = pending approval (see profiles.role in the Supabase schema). */
+  role: UserRole | null;
+  activistId: string | null; // set when role === "activist" (mirrors `id`)
+}
+
+/** Aggregates for the dashboard. */
+export interface CampaignStats {
+  totalVoters: number;
+  byClassification: Record<Classification, number>;
+  coveragePct: number; // classified / total
+  activeActivists: number; // active in the last 7 days
+  goal: number; // campaign supporter target
+  classificationsLast7Days: number;
+}
+
+export interface CityBreakdown {
+  city: string;
+  total: number;
+  supporters: number;
+}
+
+export interface TrendPoint {
+  date: string; // yyyy-mm-dd
+  supporter: number;
+  potential: number;
+  opponent: number;
+}
