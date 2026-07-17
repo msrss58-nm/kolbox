@@ -16,7 +16,9 @@ export function PendingApprovalScreen() {
           <Clock3 className="size-7 text-amber-500" />
         </div>
         <div className="space-y-2">
-          <h1 className="text-xl font-extrabold text-slate-800">{AUTH_TEXT.pending.title}</h1>
+          <h1 className="text-xl font-extrabold text-slate-800">
+            {AUTH_TEXT.pending.title}
+          </h1>
           <p className="text-sm text-slate-500">{AUTH_TEXT.pending.hint}</p>
         </div>
         <Button variant="secondary" onClick={() => void signOut()}>

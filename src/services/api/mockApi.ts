@@ -4,7 +4,9 @@ import type {
   CityBreakdown,
   Classification,
   ClassificationEvent,
+  ElectionDayVoter,
   PollingStation,
+  RideStatusEvent,
   TrendPoint,
   Voter,
 } from "../../types";
@@ -17,12 +19,16 @@ import type {
   ImportRow,
   ImportSummary,
   NewActivist,
+  NewElectionDayVoter,
   NewVoter,
   Paged,
   VoterQuery,
 } from "./types";
 
 const STORE_KEY = "dataset-v1";
+const ELECTION_DAY_VOTERS_KEY = "election-day-voters-v1";
+const ELECTION_DAY_DEADLINE_KEY = "election-day-deadline-v1";
+const ELECTION_DAY_EVENTS_KEY = "election-day-events-v1";
 const DAY_MS = 86_400_000;
 
 /** Simulated network latency so loaders/skeletons are visible & realistic. */
@@ -36,9 +42,15 @@ const latency = () =>
 export class MockApi implements ApiClient {
   private data: Dataset;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private electionDayVoters: ElectionDayVoter[];
+  private electionDayDeadline: string | null;
+  private rideStatusEvents: RideStatusEvent[];
 
   constructor() {
     this.data = loadJson<Dataset>(STORE_KEY) ?? generateDataset();
+    this.electionDayVoters = loadJson<ElectionDayVoter[]>(ELECTION_DAY_VOTERS_KEY) ?? [];
+    this.electionDayDeadline = loadJson<string | null>(ELECTION_DAY_DEADLINE_KEY) ?? null;
+    this.rideStatusEvents = loadJson<RideStatusEvent[]>(ELECTION_DAY_EVENTS_KEY) ?? [];
   }
 
   /** Debounced persistence - mutations land in localStorage at most every `persistDebounceMs`. */
@@ -301,7 +313,13 @@ export class MockApi implements ApiClient {
     const existing = this.data.activists.find((a) => a.id === id);
     if (existing) return existing;
     const now = new Date().toISOString();
-    const activist: Activist = { ...info, id, joinedAt: now, lastActiveAt: now, tagCount: 0 };
+    const activist: Activist = {
+      ...info,
+      id,
+      joinedAt: now,
+      lastActiveAt: now,
+      tagCount: 0,
+    };
     this.data.activists.push(activist);
     this.persist();
     return activist;
@@ -408,5 +426,67 @@ export class MockApi implements ApiClient {
     await latency();
     this.data = { voters: [], activists: [], stations: [], events: [] };
     this.persist();
+  }
+
+  // --------------------------------------------------------------- election day
+
+  async importElectionDayVoters(rows: NewElectionDayVoter[]): Promise<{ count: number }> {
+    await latency();
+    this.electionDayVoters = rows.map((r) => ({
+      ...r,
+      id: `edv-${crypto.randomUUID().slice(0, 8)}`,
+      rideArranged: false,
+      rideArrangedAt: null,
+    }));
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    // A fresh import is a new ride-list for the day - last time's log no longer applies.
+    this.rideStatusEvents = [];
+    saveJson(ELECTION_DAY_EVENTS_KEY, this.rideStatusEvents);
+    return { count: this.electionDayVoters.length };
+  }
+
+  async listElectionDayVoters(): Promise<ElectionDayVoter[]> {
+    await latency();
+    return [...this.electionDayVoters];
+  }
+
+  async setRideArranged(id: string, arranged: boolean): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    const from = contact.rideArranged;
+    contact.rideArranged = arranged;
+    contact.rideArrangedAt = arranged ? new Date().toISOString() : null;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+
+    this.rideStatusEvents.push({
+      id: `ede-${crypto.randomUUID().slice(0, 8)}`,
+      contactId: contact.id,
+      contactName: `${contact.firstName} ${contact.lastName}`,
+      coordinator: contact.coordinator,
+      from,
+      to: arranged,
+      at: new Date().toISOString(),
+    });
+    saveJson(ELECTION_DAY_EVENTS_KEY, this.rideStatusEvents);
+
+    return contact;
+  }
+
+  async listRideStatusEvents(): Promise<RideStatusEvent[]> {
+    await latency();
+    return [...this.rideStatusEvents].reverse();
+  }
+
+  async getElectionDayDeadline(): Promise<string | null> {
+    await latency();
+    return this.electionDayDeadline;
+  }
+
+  async setElectionDayDeadline(deadline: string | null): Promise<string | null> {
+    await latency();
+    this.electionDayDeadline = deadline;
+    saveJson(ELECTION_DAY_DEADLINE_KEY, deadline);
+    return deadline;
   }
 }

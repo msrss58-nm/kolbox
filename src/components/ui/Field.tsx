@@ -22,14 +22,32 @@ export function Field({
   );
 }
 
+const PICKER_TYPES = new Set(["date", "datetime-local", "time", "month", "week"]);
+
 export function Input({
   className,
   invalid,
+  type,
+  onClick,
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
+  const isPicker = type !== undefined && PICKER_TYPES.has(type);
   return (
     <input
-      className={cn(fieldClasses, invalid && "ring-2 ring-opponent", className)}
+      type={type}
+      className={cn(
+        fieldClasses,
+        invalid && "ring-2 ring-opponent",
+        isPicker && "cursor-pointer",
+        className,
+      )}
+      onClick={(e) => {
+        onClick?.(e);
+        // Native date/time inputs only open their picker when the tiny
+        // calendar icon is clicked - showPicker() makes the whole field act
+        // as the trigger, which is what users expect from a "date field".
+        if (isPicker) e.currentTarget.showPicker?.();
+      }}
       {...props}
     />
   );

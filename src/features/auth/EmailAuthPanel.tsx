@@ -63,14 +63,18 @@ export function EmailAuthPanel() {
     return (
       <form onSubmit={(e) => void confirmCode(e)} className="space-y-5 animate-fade-in">
         <div className="space-y-1 text-center lg:text-start">
-          <h2 className="text-2xl font-extrabold text-slate-800">{AUTH_TEXT.codeStep.title}</h2>
+          <h2 className="text-2xl font-extrabold text-slate-800">
+            {AUTH_TEXT.codeStep.title}
+          </h2>
           <p className="text-sm text-slate-500">{AUTH_TEXT.codeStep.subtitle(email)}</p>
         </div>
 
         <Field label={AUTH_TEXT.codeStep.codeLabel} error={error ?? undefined}>
           <Input
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))}
+            onChange={(e) =>
+              setCode(e.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH))
+            }
             inputMode="numeric"
             dir="ltr"
             className="text-center text-lg tracking-[0.5em]"
@@ -125,7 +129,9 @@ export function EmailAuthPanel() {
       className="space-y-5 animate-fade-in"
     >
       <div className="space-y-1 text-center lg:text-start">
-        <h2 className="text-2xl font-extrabold text-slate-800">{AUTH_TEXT.emailStep.title}</h2>
+        <h2 className="text-2xl font-extrabold text-slate-800">
+          {AUTH_TEXT.emailStep.title}
+        </h2>
         <p className="text-sm text-slate-500">{AUTH_TEXT.emailStep.subtitle}</p>
       </div>
 

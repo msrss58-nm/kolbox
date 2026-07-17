@@ -3,6 +3,7 @@ import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { ElectionDayPage } from "../features/election-day/ElectionDayPage";
 import { ImportPage } from "../features/import/ImportPage";
 import { TeamPage } from "../features/team/TeamPage";
 import { VotersPage } from "../features/voters/VotersPage";
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: ROUTES.voters, element: <VotersPage /> },
       { path: ROUTES.activists, element: <ActivistsPage /> },
       { path: ROUTES.import, element: <ImportPage /> },
+      { path: ROUTES.electionDay, element: <ElectionDayPage /> },
       { path: ROUTES.team, element: <TeamPage /> },
     ],
     // ],

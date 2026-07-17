@@ -49,4 +49,11 @@ export const APP_CONFIG = {
 
   /** Dashboard "supporters by city" bar chart - top N cities shown. */
   dashboardTopCitiesCount: 8,
+
+  /** Election day countdown clock refresh interval. */
+  electionDayCountdownTickMs: 1000,
+
+  /** Election day ride-list pagination - page-size choices and the default selection. */
+  electionDayPageSizeOptions: [10, 25, 50, 100] as number[],
+  defaultElectionDayPageSize: 10,
 } as const;

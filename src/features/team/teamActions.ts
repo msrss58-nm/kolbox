@@ -30,7 +30,10 @@ export interface UpdateMemberPatch {
 }
 
 /** Edits name/phone/area/role directly - RLS already lets a manager update any profile. */
-export async function updateTeamMember(userId: string, patch: UpdateMemberPatch): Promise<void> {
+export async function updateTeamMember(
+  userId: string,
+  patch: UpdateMemberPatch,
+): Promise<void> {
   const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
   if (error) throw new Error(error.message);
 }

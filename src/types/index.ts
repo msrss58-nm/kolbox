@@ -81,6 +81,38 @@ export interface CurrentUser {
   activistId: string | null; // set when role === "activist" (mirrors `id`)
 }
 
+/**
+ * יום הבחירות - a ride-coordination contact. Loaded from its own dedicated
+ * Excel file (שם פרטי/שם משפחה/רחוב/מס בית/עיר/טלפון/אחראי) - independent of
+ * the voter registry above.
+ */
+export interface ElectionDayVoter {
+  id: string;
+  firstName: string;
+  lastName: string;
+  street: string;
+  houseNumber: number;
+  city: string;
+  phone: string;
+  coordinator: string; // אחראי הסעה - free text, set at import time
+  rideArranged: boolean;
+  rideArrangedAt: string | null; // ISO timestamp
+}
+
+/** A single ride-status change on an `ElectionDayVoter` - powers the recent
+ * activity log (unlike the voter's own `rideArranged` field, this survives
+ * a later toggle back). Denormalizes name/coordinator so the log reads
+ * correctly even if the contact is later removed by a re-import. */
+export interface RideStatusEvent {
+  id: string;
+  contactId: string;
+  contactName: string;
+  coordinator: string;
+  from: boolean;
+  to: boolean;
+  at: string; // ISO timestamp
+}
+
 /** Aggregates for the dashboard. */
 export interface CampaignStats {
   totalVoters: number;

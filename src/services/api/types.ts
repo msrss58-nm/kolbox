@@ -4,7 +4,9 @@ import type {
   CityBreakdown,
   Classification,
   ClassificationEvent,
+  ElectionDayVoter,
   PollingStation,
+  RideStatusEvent,
   TrendPoint,
   Voter,
 } from "../../types";
@@ -63,6 +65,16 @@ export interface ImportSummary {
   skipped: { row: number; reason: string }[];
 }
 
+export interface NewElectionDayVoter {
+  firstName: string;
+  lastName: string;
+  street: string;
+  houseNumber: number;
+  city: string;
+  phone: string;
+  coordinator: string;
+}
+
 /**
  * The single data-access seam of the app.
  * MVP: implemented by MockApi (in-memory + localStorage).
@@ -114,4 +126,12 @@ export interface ApiClient {
   importVoters(rows: ImportRow[]): Promise<ImportSummary>;
   resetToDemo(): Promise<void>;
   clearAll(): Promise<void>;
+
+  // election day - independent ride-coordination dataset (see types.ts ElectionDayVoter)
+  importElectionDayVoters(rows: NewElectionDayVoter[]): Promise<{ count: number }>;
+  listElectionDayVoters(): Promise<ElectionDayVoter[]>;
+  setRideArranged(id: string, arranged: boolean): Promise<ElectionDayVoter>;
+  listRideStatusEvents(): Promise<RideStatusEvent[]>;
+  getElectionDayDeadline(): Promise<string | null>;
+  setElectionDayDeadline(deadline: string | null): Promise<string | null>;
 }

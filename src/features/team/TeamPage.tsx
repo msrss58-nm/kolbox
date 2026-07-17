@@ -45,7 +45,9 @@ export function TeamPage() {
     <>
       <PageHeader
         title={TEAM_TEXT.title}
-        subtitle={members ? TEAM_TEXT.subtitle(members.length) : TEAM_TEXT.loadingSubtitle}
+        subtitle={
+          members ? TEAM_TEXT.subtitle(members.length) : TEAM_TEXT.loadingSubtitle
+        }
         actions={
           <Button onClick={() => setModalMember("new")}>
             <Plus className="size-4" />
@@ -104,7 +106,10 @@ export function TeamPage() {
                       {member.email}
                     </p>
                   </div>
-                  <span className="hidden truncate text-sm tabular-nums text-slate-600 md:block" dir="ltr">
+                  <span
+                    className="hidden truncate text-sm tabular-nums text-slate-600 md:block"
+                    dir="ltr"
+                  >
                     {member.email}
                   </span>
                   <span className="hidden text-sm text-slate-600 md:block">

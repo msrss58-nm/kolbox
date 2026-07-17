@@ -47,9 +47,7 @@ export function TeamMemberModal({
   }
 
   const isSelf = initial?.id === currentUserId;
-  const valid = initial
-    ? name.trim()
-    : name.trim() && email.trim() && area.trim();
+  const valid = initial ? name.trim() : name.trim() && email.trim() && area.trim();
 
   const { run: save, busy: submitting } = useAsyncAction(
     async () => {
@@ -77,7 +75,9 @@ export function TeamMemberModal({
     },
     {
       successMessage: (result) =>
-        initial ? TEAM_MODAL_TEXT.toast.updated : TEAM_MODAL_TEXT.toast.added(result.name),
+        initial
+          ? TEAM_MODAL_TEXT.toast.updated
+          : TEAM_MODAL_TEXT.toast.added(result.name),
     },
   );
 

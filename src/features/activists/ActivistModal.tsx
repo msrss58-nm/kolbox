@@ -96,10 +96,18 @@ export function ActivistModal({
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label={ACTIVIST_MODAL_TEXT.fields.firstName}>
-            <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+            <Input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              required
+            />
           </Field>
           <Field label={ACTIVIST_MODAL_TEXT.fields.lastName}>
-            <Input value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+            <Input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              required
+            />
           </Field>
         </div>
         {!initial && (
@@ -132,7 +140,9 @@ export function ActivistModal({
             required
           />
         </Field>
-        {!initial && <p className="text-xs text-slate-400">{ACTIVIST_MODAL_TEXT.inviteHint}</p>}
+        {!initial && (
+          <p className="text-xs text-slate-400">{ACTIVIST_MODAL_TEXT.inviteHint}</p>
+        )}
         <div className="flex gap-2 pt-2">
           <Button type="submit" loading={submitting} disabled={!valid} className="flex-1">
             {initial ? ACTIVIST_MODAL_TEXT.submitEdit : ACTIVIST_MODAL_TEXT.submitAdd}

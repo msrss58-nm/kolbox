@@ -4,6 +4,7 @@ import {
   ShieldCheck,
   Upload,
   Users,
+  Vote,
   type LucideIcon,
 } from "lucide-react";
 
@@ -15,6 +16,7 @@ export const ROUTES = {
   activists: "/activists",
   import: "/import",
   team: "/team",
+  electionDay: "/election-day",
 } as const;
 
 export interface NavItem {
@@ -33,5 +35,6 @@ export const NAV_ITEMS: NavItem[] = [
   { to: ROUTES.voters, label: "בוחרים", icon: Users },
   { to: ROUTES.activists, label: "פעילים", icon: Megaphone },
   { to: ROUTES.import, label: "טעינת נתונים", icon: Upload },
+  { to: ROUTES.electionDay, label: "יום הבחירות", icon: Vote },
   { to: ROUTES.team, label: "צוות", icon: ShieldCheck, managerOnly: true },
 ];

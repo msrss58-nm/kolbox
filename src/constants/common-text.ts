@@ -7,6 +7,7 @@ export const COMMON_TEXT = {
   genericError: "אירעה שגיאה, נסו שוב",
   multiSelect: {
     selectedCount: (n: number) => `${n} נבחרו`,
+    clearAll: "נקה הכל",
   },
   pagination: {
     rowsPerPage: "שורות בעמוד",

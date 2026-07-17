@@ -13,7 +13,7 @@ KolBox turns a raw voter registry into a get-out-the-vote machine. The core loop
 3. **Track** - a dashboard turns raw tags into campaign-manager insight: coverage, trend, top cities, activist leaderboard.
 4. _(Post-MVP)_ **Election day** - freeze tagging, track turnout live, chase supporters who haven't voted.
 
-MVP = Core Campaign Management mode only (no election day). Auth is real (Supabase) - pulled forward from post-MVP; see task-plan.md §5.5. Voter/activist/classification *data* still lives in `MockApi` + localStorage, not yet migrated to Supabase.
+MVP = Core Campaign Management mode only (no election day). Auth is real (Supabase) - pulled forward from post-MVP; see task-plan.md §5.5. Voter/activist/classification _data_ still lives in `MockApi` + localStorage, not yet migrated to Supabase.
 
 ## Non-negotiable requirements
 

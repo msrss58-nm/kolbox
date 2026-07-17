@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { Lock, LogOut, Vote } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { Logo, LogoMark } from "../components/Logo";
 import { ToastContainer } from "../components/ui/Toast";
 import { ROLE_LABELS } from "../constants/labels";
@@ -55,17 +55,6 @@ export function AppLayout() {
           {navItems.map((item) => (
             <SidebarLink key={item.to} {...item} />
           ))}
-          <div
-            className="mt-2 flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-600"
-            title={APP_SHELL_TEXT.electionDayTooltip}
-          >
-            <Vote className="size-4.5" />
-            {APP_SHELL_TEXT.electionDayNav}
-            <span className="ms-auto flex items-center gap-1 rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-bold text-slate-400">
-              <Lock className="size-2.5" />
-              {APP_SHELL_TEXT.electionDaySoon}
-            </span>
-          </div>
         </nav>
         {user && (
           <div className="flex items-center gap-3 rounded-xl bg-sidebar-hover p-3">
