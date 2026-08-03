@@ -15,7 +15,12 @@ import {
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDaySession } from "./electionDaySession";
-import { parseElectionDaySheet } from "./electionDayImport";
+import { matchesElectionDaySearch } from "./electionDaySearch";
+import {
+  exportRejectedElectionDayRowsToExcel,
+  parseElectionDaySheet,
+  type ElectionDayImportResult,
+} from "./electionDayImport";
 import { addNoteTag, hasNoteTag, removeNoteTag } from "./notesTags";
 
 export interface ElectionDayStats {
@@ -143,15 +148,8 @@ export function useElectionDay() {
 
   const filteredContacts = useMemo(() => {
     let base = scopedContacts ?? [];
-    const s = debouncedSearch.trim();
-    if (s) {
-      const sLower = s.toLowerCase();
-      const sDigits = s.replace(/\D/g, "");
-      base = base.filter(
-        (c) =>
-          `${c.firstName} ${c.lastName}`.toLowerCase().includes(sLower) ||
-          (sDigits && c.phone.replace(/\D/g, "").includes(sDigits)),
-      );
+    if (debouncedSearch.trim()) {
+      base = base.filter((c) => matchesElectionDaySearch(c, debouncedSearch));
     }
     if (coordinatorFilter.length)
       base = base.filter((c) => coordinatorFilter.includes(c.coordinator));
@@ -302,21 +300,33 @@ export function useElectionDay() {
     [scopedContacts],
   );
 
+  const [lastImportSummary, setLastImportSummary] =
+    useState<ElectionDayImportResult | null>(null);
+
   const { run: runImport, busy: importing } = useAsyncAction(
     async (file: File) => {
       const sheet = file.name.toLowerCase().endsWith(".json")
         ? await parseJsonFile(file)
         : await parseSpreadsheet(file);
-      const rows = parseElectionDaySheet(sheet);
-      return api.importElectionDayVoters(rows);
+      const parsed = parseElectionDaySheet(sheet);
+      const { count } = await api.importElectionDayVoters(parsed.imported);
+      return { ...parsed, count };
     },
-    { successMessage: (result) => ELECTION_DAY_TEXT.import.toast.loaded(result.count) },
+    {
+      successMessage: (result) =>
+        ELECTION_DAY_TEXT.import.toast.loaded(
+          result.count,
+          result.totalRows,
+          result.rejected.length,
+        ),
+    },
   );
 
   const importFile = useCallback(
     async (file: File) => {
       const result = await runImport(file);
       if (result) {
+        setLastImportSummary(result);
         reloadContacts();
         reloadEvents();
       }
@@ -331,9 +341,18 @@ export function useElectionDay() {
 
   const clearElectionDayData = useCallback(async () => {
     await runClearAll();
+    setLastImportSummary(null);
     reloadContacts();
     reloadEvents();
   }, [runClearAll, reloadContacts, reloadEvents]);
+
+  const downloadRejectedRows = useCallback(() => {
+    if (lastImportSummary && lastImportSummary.rejected.length > 0) {
+      exportRejectedElectionDayRowsToExcel(lastImportSummary.rejected);
+    }
+  }, [lastImportSummary]);
+
+  const dismissImportSummary = useCallback(() => setLastImportSummary(null), []);
 
   const exportReport = useCallback(() => {
     if (!contacts || contacts.length === 0) {
@@ -660,6 +679,9 @@ export function useElectionDay() {
     pageSizeOptions: APP_CONFIG.electionDayPageSizeOptions,
     importFile,
     importing,
+    lastImportSummary,
+    downloadRejectedRows,
+    dismissImportSummary,
     clearElectionDayData,
     clearing,
     exportReport,

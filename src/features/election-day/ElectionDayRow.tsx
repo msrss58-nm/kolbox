@@ -54,7 +54,7 @@ export function ElectionDayRow({
           {contact.city || "-"}
         </span>
         <span className="min-w-0 truncate text-sm tabular-nums text-slate-600" dir="ltr">
-          {contact.phone}
+          {contact.phone || "-"}
         </span>
         <span className="min-w-0 truncate text-sm text-slate-600">
           {contact.coordinator}
@@ -89,7 +89,7 @@ export function ElectionDayRow({
               {contact.city || contact.street ? " · " : ""}
               {contact.coordinator} ·{" "}
               <span dir="ltr" className="tabular-nums">
-                {contact.phone}
+                {contact.phone || "-"}
               </span>
             </p>
             {contact.notes && (

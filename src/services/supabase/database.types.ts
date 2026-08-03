@@ -39,7 +39,7 @@ export interface Database {
           street: string;
           house_number: number;
           city: string;
-          phone: string;
+          phone: string | null;
           coordinator: string;
           notes: string;
           ride_requested: boolean;
@@ -62,7 +62,7 @@ export interface Database {
           street?: string;
           house_number?: number;
           city?: string;
-          phone: string;
+          phone?: string | null;
           coordinator: string;
           notes?: string;
           ride_requested?: boolean;
@@ -191,6 +191,21 @@ export interface Database {
       election_day_delete_permission_user: {
         Args: { p_id: string };
         Returns: undefined;
+      };
+      election_day_import_voters: {
+        Args: {
+          p_voters: {
+            masad: string;
+            first_name: string;
+            last_name: string;
+            street: string;
+            house_number: number;
+            city: string;
+            phone: string | null;
+            coordinator: string;
+          }[];
+        };
+        Returns: number;
       };
     };
     Enums: Record<string, never>;

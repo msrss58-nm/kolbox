@@ -25,6 +25,7 @@ export function ElectionDayPage() {
   const countdownParts = useCountdown(electionDay.deadline);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [coordinatorsModalOpen, setCoordinatorsModalOpen] = useState(false);
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
 
@@ -67,7 +68,7 @@ export function ElectionDayPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <ElectionDayImportButton
-                onFileSelected={(file) => void electionDay.importFile(file)}
+                onFileSelected={(file) => setPendingImportFile(file)}
                 busy={electionDay.importing}
               />
               <Button
@@ -118,6 +119,40 @@ export function ElectionDayPage() {
             </button>
           </div>
         )}
+
+        {electionDay.lastImportSummary &&
+          electionDay.lastImportSummary.rejected.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
+              <span className="font-semibold">
+                {ELECTION_DAY_TEXT.import.summary.title}:
+              </span>
+              <span>
+                {ELECTION_DAY_TEXT.import.summary.imported(
+                  electionDay.lastImportSummary.imported.length,
+                )}
+              </span>
+              <span>
+                {ELECTION_DAY_TEXT.import.summary.rejected(
+                  electionDay.lastImportSummary.rejected.length,
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={electionDay.downloadRejectedRows}
+                className="font-semibold text-amber-900 underline hover:no-underline"
+              >
+                {ELECTION_DAY_TEXT.import.summary.downloadButton}
+              </button>
+              <button
+                type="button"
+                onClick={electionDay.dismissImportSummary}
+                className="ms-auto text-amber-600 hover:text-amber-900"
+                aria-label={ELECTION_DAY_TEXT.import.summary.dismiss}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          )}
 
         {electionDay.coordinators.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -237,6 +272,21 @@ export function ElectionDayPage() {
           setConfirmClearOpen(false);
         }}
         onCancel={() => setConfirmClearOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={pendingImportFile !== null}
+        title={ELECTION_DAY_TEXT.import.confirmTitle}
+        message={ELECTION_DAY_TEXT.import.confirmMessage}
+        confirmLabel={ELECTION_DAY_TEXT.import.confirmButton}
+        danger
+        busy={electionDay.importing}
+        onConfirm={async () => {
+          if (!pendingImportFile) return;
+          await electionDay.importFile(pendingImportFile);
+          setPendingImportFile(null);
+        }}
+        onCancel={() => setPendingImportFile(null)}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { toast } from "../components/ui/Toast";
+import { COMMON_TEXT } from "../constants/common-text";
 
 interface UseAsyncActionOptions<Args extends unknown[], R> {
   /** Shown via toast on success - a string, or built from the result/args. */
@@ -13,7 +14,21 @@ export interface UseAsyncActionResult<Args extends unknown[], R> {
   busy: boolean;
 }
 
-const DEFAULT_ERROR_MESSAGE = "אירעה שגיאה, נסו שוב";
+const DEFAULT_ERROR_MESSAGE = COMMON_TEXT.genericError;
+
+/** A failed `fetch()` (offline, DNS failure, connection dropped mid-request)
+ * throws a raw, English, browser-internal message ("Failed to fetch" in
+ * Chromium, "NetworkError when attempting to fetch resource" in Firefox).
+ * Supabase-js doesn't preserve this as a real `TypeError` by the time it
+ * reaches here - it re-throws a plain `Error` whose `.message` is the
+ * *stringified* original error (literally `"TypeError: Failed to fetch"` as
+ * text), so this matches on message content rather than the error's actual
+ * class. Showing that raw text verbatim to a Hebrew-speaking user isn't a
+ * clear error message, so it's swapped for a friendly one. */
+function isNetworkFailure(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /failed to fetch|networkerror|load failed/i.test(message);
+}
 
 /**
  * Wraps an async mutation (classify, save, import…) with a `busy` flag and
@@ -46,7 +61,13 @@ export function useAsyncAction<Args extends unknown[], R>(
         }
         return result;
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : DEFAULT_ERROR_MESSAGE);
+        if (isNetworkFailure(err)) {
+          toast.error(COMMON_TEXT.networkError);
+        } else if (err instanceof Error && err.message) {
+          toast.error(err.message);
+        } else {
+          toast.error(options.errorMessage ?? DEFAULT_ERROR_MESSAGE);
+        }
         return undefined;
       } finally {
         setBusy(false);

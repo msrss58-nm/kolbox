@@ -49,7 +49,7 @@ type VoterRow = {
   street: string;
   house_number: number;
   city: string;
-  phone: string;
+  phone: string | null;
   coordinator: string;
   notes: string;
   ride_requested: boolean;
@@ -122,41 +122,47 @@ function toPermissionUser(row: PermissionUserRpcRow): PermissionUser {
  * `supabase/migrations/*_election_day_*.sql`.
  */
 export class SupabaseElectionDayApi {
+  /** Runs the whole replace-the-ride-list operation as one atomic call via
+   * the `election_day_import_voters` RPC (see the "election_day_atomic_import"
+   * migration) - a Postgres function body is one implicit transaction, so a
+   * failure partway through (e.g. a malformed row) rolls back the deletes
+   * too, instead of leaving the live table permanently empty. Previously
+   * this ran as 3 separate REST calls (delete events, delete voters, insert
+   * voters) with no such guarantee. */
   async importElectionDayVoters(rows: NewElectionDayVoter[]): Promise<{ count: number }> {
-    checkError(
-      await supabase
-        .from("election_day_ride_status_events")
-        .delete()
-        .neq("id", NEVER_MATCHES_ID),
-    );
-    checkError(
-      await supabase.from("election_day_voters").delete().neq("id", NEVER_MATCHES_ID),
-    );
-
-    if (rows.length > 0) {
-      checkError(
-        await supabase.from("election_day_voters").insert(
-          rows.map((r) => ({
-            masad: r.masad,
-            first_name: r.firstName,
-            last_name: r.lastName,
-            street: r.street,
-            house_number: r.houseNumber,
-            city: r.city,
-            phone: r.phone,
-            coordinator: r.coordinator,
-          })),
-        ),
-      );
-    }
-    return { count: rows.length };
+    const { data, error } = await supabase.rpc("election_day_import_voters", {
+      p_voters: rows.map((r) => ({
+        masad: r.masad,
+        first_name: r.firstName,
+        last_name: r.lastName,
+        street: r.street,
+        house_number: r.houseNumber,
+        city: r.city,
+        phone: r.phone,
+        coordinator: r.coordinator,
+      })),
+    });
+    if (error) throw new Error(error.message);
+    return { count: data as number };
   }
 
   async listElectionDayVoters(): Promise<ElectionDayVoter[]> {
-    const data = unwrapArray<VoterRow[]>(
-      await supabase.from("election_day_voters").select("*"),
-    );
-    return data.map(toVoter);
+    // PostgREST caps an unranged `.select()` at its default max-rows (1000) -
+    // a real ride-list can exceed that, so this pages through with `.range()`
+    // until a page comes back short, rather than trusting a single request.
+    const pageSize = 1000;
+    const rows: VoterRow[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const page = unwrapArray<VoterRow[]>(
+        await supabase
+          .from("election_day_voters")
+          .select("*")
+          .range(offset, offset + pageSize - 1),
+      );
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+    return rows.map(toVoter);
   }
 
   async clearElectionDayVoters(): Promise<void> {
@@ -228,13 +234,22 @@ export class SupabaseElectionDayApi {
   }
 
   async listRideStatusEvents(): Promise<RideStatusEvent[]> {
-    const data = unwrapArray<RideStatusEventRow[]>(
-      await supabase
-        .from("election_day_ride_status_events")
-        .select("*")
-        .order("created_at", { ascending: false }),
-    );
-    return data.map(toRideStatusEvent);
+    // Same PostgREST default max-rows (1000) concern as listElectionDayVoters
+    // - an election day can generate more ride-status events than that.
+    const pageSize = 1000;
+    const rows: RideStatusEventRow[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const page = unwrapArray<RideStatusEventRow[]>(
+        await supabase
+          .from("election_day_ride_status_events")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .range(offset, offset + pageSize - 1),
+      );
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+    return rows.map(toRideStatusEvent);
   }
 
   async getElectionDayDeadline(): Promise<string | null> {

@@ -123,9 +123,13 @@ export function ElectionDayContactModal({
               <span className="font-semibold">
                 {ELECTION_DAY_TEXT.list.columns.phone}:
               </span>{" "}
-              <span dir="ltr" className="tabular-nums">
-                {contact.phone}
-              </span>
+              {contact.phone ? (
+                <span dir="ltr" className="tabular-nums">
+                  {contact.phone}
+                </span>
+              ) : (
+                <span className="text-slate-400">{ELECTION_DAY_TEXT.modal.noPhone}</span>
+              )}
             </p>
             <p className="text-slate-700">
               👤{" "}
@@ -138,9 +142,10 @@ export function ElectionDayContactModal({
 
           <div className="grid grid-cols-2 gap-2.5">
             <Button
-              className="w-full bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00]"
+              className="w-full bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
+              disabled={!contact.phone}
               onClick={() => {
-                window.location.href = telHref(contact.phone);
+                if (contact.phone) window.location.href = telHref(contact.phone);
               }}
             >
               📞 {ELECTION_DAY_TEXT.modal.call}

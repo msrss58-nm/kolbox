@@ -28,12 +28,30 @@ export const ELECTION_DAY_TEXT = {
   import: {
     button: "טען קובץ בוחרים",
     columnsHint:
-      "עמודות נדרשות: שם פרטי, שם משפחה, טלפון, אחראי (רחוב/מס' בית/עיר אופציונליים)",
+      "עמודות נדרשות: שם פרטי, שם משפחה, אחראי (טלפון/רחוב/מס' בית/עיר אופציונליים)",
+    confirmTitle: "החלפת רשימת הבוחרים",
+    confirmMessage:
+      "הייבוא יחליף לחלוטין את רשימת אנשי הקשר הקיימת - כולל כל סימוני ההצבעה וסטטוס ההסעות שכבר נרשמו היום. פעולה זו אינה הפיכה.",
+    confirmButton: "טענו את הקובץ",
     toast: {
-      loaded: (count: number) => `נטענו ${count} אנשי קשר`,
-      missingColumns:
-        "לא זוהו כל העמודות הנדרשות (שם פרטי / שם משפחה / טלפון / אחראי) בקובץ",
+      loaded: (imported: number, total: number, rejected: number) =>
+        rejected === 0
+          ? `נטענו ${imported} אנשי קשר`
+          : `נטענו ${imported} מתוך ${total} אנשי קשר - ${rejected} נדחו, ראו פירוט למטה`,
+      missingColumns: "לא זוהו כל העמודות הנדרשות (שם פרטי / שם משפחה / אחראי) בקובץ",
       empty: "הקובץ ריק",
+    },
+    summary: {
+      title: "סיכום הייבוא האחרון",
+      imported: (n: number) => `נקלטו: ${n}`,
+      rejected: (n: number) => `נדחו: ${n}`,
+      reasons: {
+        missingName: "חסר שם פרטי/משפחה",
+        missingCoordinator: "חסר אחראי",
+        duplicate: "כפילות (זהה לרשומה קודמת בקובץ)",
+      },
+      downloadButton: "⬇️ הורדת רשומות שנדחו",
+      dismiss: "סגירה",
     },
   },
 
@@ -191,6 +209,7 @@ export const ELECTION_DAY_TEXT = {
 
   modal: {
     call: "חיוג מהיר",
+    noPhone: "לא צוין טלפון",
     rideRequestButton: "דרישה להסעה",
     rideRequestActiveLabel: "יש דרישה להסעה",
     cancelCoordinationButton: "בטל תיאום",
@@ -213,10 +232,10 @@ export const ELECTION_DAY_TEXT = {
 
   driver: {
     sendButton: "תיאום הסעה",
-    message: (voter: { name: string; address: string; phone: string }) =>
-      `שלום, עליך לתאם עם הבוחר הר"מ שעת איסוף שלו להצבעה ובסיום ההצבעה עליך להחזירו לביתו.\n\nשם ומשפחה: ${voter.name}\nכתובת מלאה: ${voter.address || "לא צוינה כתובת"}\nטלפון: ${voter.phone}\n\nבסיום יש לסמנו כבוצע הסעה.\nתודה, צוות החמ"ל`,
-    cancelMessage: (voter: { name: string; address: string; phone: string }) =>
-      `שלום, נא לבטל את ההסעה שתואמה עבור הבוחר הר"מ.\n\nשם ומשפחה: ${voter.name}\nכתובת מלאה: ${voter.address || "לא צוינה כתובת"}\nטלפון: ${voter.phone}\n\nתודה, צוות החמ"ל`,
+    message: (voter: { name: string; address: string; phone: string | null }) =>
+      `שלום, עליך לתאם עם הבוחר הר"מ שעת איסוף שלו להצבעה ובסיום ההצבעה עליך להחזירו לביתו.\n\nשם ומשפחה: ${voter.name}\nכתובת מלאה: ${voter.address || "לא צוינה כתובת"}\nטלפון: ${voter.phone || "לא צוין טלפון"}\n\nבסיום יש לסמנו כבוצע הסעה.\nתודה, צוות החמ"ל`,
+    cancelMessage: (voter: { name: string; address: string; phone: string | null }) =>
+      `שלום, נא לבטל את ההסעה שתואמה עבור הבוחר הר"מ.\n\nשם ומשפחה: ${voter.name}\nכתובת מלאה: ${voter.address || "לא צוינה כתובת"}\nטלפון: ${voter.phone || "לא צוין טלפון"}\n\nתודה, צוות החמ"ל`,
     toast: {
       sent: "וואטסאפ נפתח - בחרו את הנהג ושלחו",
     },

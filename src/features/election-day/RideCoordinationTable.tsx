@@ -41,7 +41,7 @@ export function RideCoordinationTable({
                     {[address, contact.city].filter(Boolean).join(", ")}
                   </p>
                   <p className="truncate text-xs tabular-nums text-slate-400" dir="ltr">
-                    {contact.phone}
+                    {contact.phone || "-"}
                   </p>
                 </div>
                 {contact.rideArranged ? (
