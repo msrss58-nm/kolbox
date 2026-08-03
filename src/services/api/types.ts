@@ -170,4 +170,20 @@ export interface ApiClient {
   listPermissionUsers(): Promise<PermissionUser[]>;
   addPermissionUser(input: NewPermissionUser): Promise<PermissionUser>;
   deletePermissionUser(id: string): Promise<void>;
+  /** Verifies name+password and returns the matching user (never a
+   * password/hash) on success, or null on no match. */
+  verifyPermissionUserLogin(
+    name: string,
+    password: string,
+  ): Promise<PermissionUser | null>;
+
+  /**
+   * Optional live cross-device sync for Election Day's ride-coordination
+   * data - calls `onChange` whenever a contact or ride-status event changes
+   * on another device/tab. Implementations that don't support Realtime
+   * (e.g. MockApi) simply don't implement this; callers must feature-detect
+   * (`api.subscribeToElectionDayChanges?.(...)`) rather than assume it
+   * exists. Returns an unsubscribe function.
+   */
+  subscribeToElectionDayChanges?(onChange: () => void): () => void;
 }

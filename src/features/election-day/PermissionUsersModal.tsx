@@ -129,25 +129,18 @@ export function PermissionUsersModal({
           <EmptyState icon={Users} title={text.empty} />
         ) : (
           <div className="overflow-hidden rounded-xl ring-1 ring-slate-100">
-            <div className="grid grid-cols-[1fr_1fr_7rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+            <div className="grid grid-cols-[1fr_7rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
               <span>{text.columns.name}</span>
-              <span className="text-center">{text.columns.password}</span>
               <span>{text.columns.role}</span>
             </div>
             <ul className="divide-y divide-slate-100">
               {sortedUsers.map((u) => (
                 <li
                   key={u.id}
-                  className="grid grid-cols-[1fr_1fr_7rem] items-center gap-2 px-3 py-1"
+                  className="grid grid-cols-[1fr_7rem] items-center gap-2 px-3 py-1"
                 >
                   <span className="truncate text-sm font-bold text-slate-800">
                     {u.name}
-                  </span>
-                  <span
-                    className="truncate text-center text-sm tabular-nums text-slate-600"
-                    dir="ltr"
-                  >
-                    {u.password}
                   </span>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm text-slate-600">

@@ -256,7 +256,6 @@ export const ELECTION_DAY_TEXT = {
     addButton: "הוספה",
     columns: {
       name: "שם",
-      password: "סיסמה",
       role: "הרשאה",
     },
     deleteAriaLabel: "מחיקת משתמש",

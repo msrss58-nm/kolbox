@@ -64,6 +64,18 @@ export function useElectionDay() {
   const fetchEvents = useCallback(() => api.listRideStatusEvents(), []);
   const { data: events, reload: reloadEvents } = useAsyncData(fetchEvents);
 
+  // Live cross-device sync (Supabase Realtime) - another device changing a
+  // contact or ride-status event refetches here too. Just a plain refetch,
+  // not a merge of the live payload into local state - simpler and safer
+  // for this internal tool's scale (see subscribeToElectionDayChanges).
+  useEffect(() => {
+    const unsubscribe = api.subscribeToElectionDayChanges?.(() => {
+      reloadContacts();
+      reloadEvents();
+    });
+    return unsubscribe;
+  }, [reloadContacts, reloadEvents]);
+
   const fetchRideCoordinators = useCallback(() => api.listRideCoordinators(), []);
   const { data: rideCoordinators, reload: reloadRideCoordinators } =
     useAsyncData(fetchRideCoordinators);

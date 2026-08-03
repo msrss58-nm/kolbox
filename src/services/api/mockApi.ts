@@ -29,6 +29,19 @@ import type {
   VoterQuery,
 } from "./types";
 
+/** MockApi's own on-disk shape for a PermissionUser - keeps the plaintext
+ * password internally for its local compare (this class's storage format is
+ * unrelated to the real Supabase-backed implementation, which never stores
+ * a plaintext password at all). Never returned as-is - always stripped down
+ * to the public `PermissionUser` (no password) before leaving this class. */
+interface StoredPermissionUser extends PermissionUser {
+  password: string;
+}
+
+function toPublicPermissionUser(u: StoredPermissionUser): PermissionUser {
+  return { id: u.id, name: u.name, role: u.role };
+}
+
 const STORE_KEY = "dataset-v1";
 const ELECTION_DAY_VOTERS_KEY = "election-day-voters-v1";
 const ELECTION_DAY_DEADLINE_KEY = "election-day-deadline-v1";
@@ -52,7 +65,7 @@ export class MockApi implements ApiClient {
   private electionDayDeadline: string | null;
   private rideStatusEvents: RideStatusEvent[];
   private rideCoordinators: RideCoordinator[];
-  private permissionUsers: PermissionUser[];
+  private permissionUsers: StoredPermissionUser[];
 
   constructor() {
     this.data = loadJson<Dataset>(STORE_KEY) ?? generateDataset();
@@ -60,7 +73,7 @@ export class MockApi implements ApiClient {
     this.electionDayDeadline = loadJson<string | null>(ELECTION_DAY_DEADLINE_KEY) ?? null;
     this.rideStatusEvents = loadJson<RideStatusEvent[]>(ELECTION_DAY_EVENTS_KEY) ?? [];
     this.rideCoordinators = loadJson<RideCoordinator[]>(RIDE_COORDINATORS_KEY) ?? [];
-    this.permissionUsers = loadJson<PermissionUser[]>(PERMISSION_USERS_KEY) ?? [];
+    this.permissionUsers = loadJson<StoredPermissionUser[]>(PERMISSION_USERS_KEY) ?? [];
   }
 
   /** Debounced persistence - mutations land in localStorage at most every `persistDebounceMs`. */
@@ -594,23 +607,34 @@ export class MockApi implements ApiClient {
 
   async listPermissionUsers(): Promise<PermissionUser[]> {
     await latency();
-    return [...this.permissionUsers];
+    return this.permissionUsers.map(toPublicPermissionUser);
   }
 
   async addPermissionUser(input: NewPermissionUser): Promise<PermissionUser> {
     await latency();
-    const user: PermissionUser = {
+    const user: StoredPermissionUser = {
       id: `pu-${crypto.randomUUID().slice(0, 8)}`,
       ...input,
     };
     this.permissionUsers.push(user);
     saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
-    return user;
+    return toPublicPermissionUser(user);
   }
 
   async deletePermissionUser(id: string): Promise<void> {
     await latency();
     this.permissionUsers = this.permissionUsers.filter((u) => u.id !== id);
     saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
+  }
+
+  async verifyPermissionUserLogin(
+    name: string,
+    password: string,
+  ): Promise<PermissionUser | null> {
+    await latency();
+    const match = this.permissionUsers.find(
+      (u) => u.name === name.trim() && u.password === password,
+    );
+    return match ? toPublicPermissionUser(match) : null;
   }
 }

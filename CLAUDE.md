@@ -13,7 +13,7 @@ KolBox turns a raw voter registry into a get-out-the-vote machine. The core loop
 3. **Track** - a dashboard turns raw tags into campaign-manager insight: coverage, trend, top cities, activist leaderboard.
 4. **Election day** - `/election-day`, a ride-coordination war room: import a separate ride-list, filter by coordinator/city/status, a global countdown clock, call/WhatsApp a voter or route the request to a pre-registered driver, mark rides arranged and voters voted. Built in full - see task-plan.md §4 P1. _(Still post-MVP: live turnout tracking across polling stations, the broader "freeze tagging" GOTV chase-list flow.)_
 
-MVP = Core Campaign Management mode only. Auth is real (Supabase) - pulled forward from post-MVP; see task-plan.md §5.5. Election Day's ride-coordination mode was also pulled forward and built in full this session; the remaining polling-station turnout war room is not. Voter/activist/classification _data_ still lives in `MockApi` + localStorage, not yet migrated to Supabase (Election Day's ride-list/coordinators data too).
+MVP = Core Campaign Management mode only. Auth is real (Supabase) - pulled forward from post-MVP; see task-plan.md §5.5. Election Day's ride-coordination mode was also pulled forward and built in full this session; the remaining polling-station turnout war room is not. Voter/activist/classification _data_ still lives in `MockApi` + localStorage. Election Day's own data (ride-list contacts, ride-status log, ride-coordinator roster, permission-user roster, countdown deadline) has since moved to a shared Supabase backend (`src/services/api/supabaseElectionDayApi.ts`, `supabase/migrations/*_election_day_*.sql`) so it works across real devices - see task-plan.md's Progress Log and "Known Security Limitations" below.
 
 ## Non-negotiable requirements
 
@@ -158,7 +158,7 @@ src/
 │   ├── import/                # 3-step wizard (upload/map/summary), useImportWizard
 │   └── election-day/          # ride-coordination screen (built, see task-plan.md §4 P1) - full turnout war room still post-MVP
 ├── services/
-│   ├── api/                  # ApiClient interface + MockApi implementation
+│   ├── api/                  # ApiClient interface + MockApi implementation; the `api` singleton composes MockApi with SupabaseElectionDayApi (Election Day's slice only)
 │   ├── storage/               # localStorage adapter
 │   └── excel/                  # xlsx parsing/export + column-mapping auto-detect
 ├── data/

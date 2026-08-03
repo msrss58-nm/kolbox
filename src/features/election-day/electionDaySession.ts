@@ -31,8 +31,7 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set) => ({
   user: loadJson<ElectionDaySessionUser>(SESSION_KEY),
 
   login: async (name, password) => {
-    const users = await api.listPermissionUsers();
-    const match = users.find((u) => u.name === name.trim() && u.password === password);
+    const match = await api.verifyPermissionUserLogin(name, password);
     if (!match) return ELECTION_DAY_TEXT.session.errors.invalidCredentials;
     const sessionUser: ElectionDaySessionUser = {
       id: match.id,

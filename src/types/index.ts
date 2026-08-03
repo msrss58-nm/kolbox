@@ -121,10 +121,12 @@ export interface RideCoordinator {
  * simple directory, not a real login/auth system. */
 export type PermissionRole = "user" | "manager";
 
+/** Never carries a password/hash - creation-only input types (see
+ * `NewPermissionUser` in services/api/types.ts) accept a plaintext password,
+ * but nothing that returns a stored user ever echoes it back. */
 export interface PermissionUser {
   id: string;
   name: string;
-  password: string;
   role: PermissionRole;
 }
 
