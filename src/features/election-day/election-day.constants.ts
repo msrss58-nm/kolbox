@@ -54,6 +54,30 @@ export const ELECTION_DAY_TEXT = {
     },
   },
 
+  snapshotReport: {
+    button: "שלח דוח תמונת מצב",
+    message: (opts: {
+      time: string;
+      total: number;
+      voted: number;
+      votedPct: number;
+      coordinators: { name: string; total: number; voted: number }[];
+    }) =>
+      [
+        `דוח תמונת מצב הצבעות לשעה ${opts.time}`,
+        "",
+        `סה"כ בוחרים: ${opts.total}`,
+        `כמה הצביעו: ${opts.voted}`,
+        `אחוז הצבעה: ${opts.votedPct}%`,
+        "",
+        ...opts.coordinators.map(
+          (c) => `${c.name}: ${c.total} בוחרים, ${c.voted} הצביעו`,
+        ),
+        "",
+        "יש להגביר את הקצב - כל קול קובע!",
+      ].join("\n"),
+  },
+
   coordinatorFilter: {
     label: "אחראי",
     all: "כל האחראים",
@@ -89,6 +113,17 @@ export const ELECTION_DAY_TEXT = {
       totalVoters: 'סה"כ בוחרים',
       totalVoted: 'סה"כ הצביעו',
       votingPct: "אחוז הצבעה",
+    },
+    rideCoordination: {
+      title: "תיאום הסעה",
+      empty: "אין הסעות הממתינות כרגע",
+      statusRequested: "דרישה להסעה",
+      statusPending: "תואם הסעה",
+      statusDone: "בוצע הסעה",
+      toast: {
+        done: "ההסעה סומנה כבוצעה",
+        undone: "הסימון בוטל",
+      },
     },
   },
 
@@ -127,6 +162,8 @@ export const ELECTION_DAY_TEXT = {
   voted: {
     voted: "הצביע",
     notVoted: "לא הצביע",
+    markButton: "סימון כהצביע",
+    unmarkButton: "בטל סימון הצבעה",
     toast: {
       voted: "סומן כהצביע",
       notVoted: "הסימון בוטל",
@@ -153,12 +190,11 @@ export const ELECTION_DAY_TEXT = {
   },
 
   modal: {
-    call: "חייגו",
-    whatsapp: "תיאום הסעה בוואטסאפ",
-    whatsappMessage: (name: string) =>
-      `שלום ${name}, מתקשרים בנוגע לתיאום הסעה לקלפי ביום הבחירות. מתי נוח לך?`,
-    markArranged: "סמנו כתואמה",
-    markNotArranged: "בטלו סימון",
+    call: "חיוג מהיר",
+    rideRequestButton: "דרישה להסעה",
+    rideRequestActiveLabel: "יש דרישה להסעה",
+    cancelCoordinationButton: "בטל תיאום",
+    coordinatedLabel: "תואם",
   },
 
   notes: {
@@ -168,21 +204,21 @@ export const ELECTION_DAY_TEXT = {
     saved: "נשמר בהצלחה",
   },
 
+  /** Short tags appended to the free-text notes field (see `notesTags.ts`) -
+   * additive, never overwrite whatever the activist already typed there. */
+  noteTags: {
+    rideRequested: "נדרש הסעה",
+    rideArranged: "תואם",
+  },
+
   driver: {
-    sendButton: "שלח לאחראי הסעות",
-    chooseCoordinator: "בחרו אחראי הסעות",
-    noCoordinators: "לא נוספו אחראי הסעות - הוסיפו אחד בניהול אחראי הסעות",
-    rideArrangedNote: "תואמה הסעה",
-    message: (voter: {
-      name: string;
-      address: string;
-      phone: string;
-      masad: string;
-      coordinator: string;
-    }) =>
-      `בקשת הסעה חדשה לבוחר\n\nשם הבוחר: ${voter.name}\nכתובת איסוף: ${voter.address || "לא צוינה כתובת"}\nטלפון ליצירת קשר: ${voter.phone}\nמספר מסד: ${voter.masad || "-"}\nאחראי: ${voter.coordinator}\n\nנא לתאם איתו ולעדכן בהקדם!`,
+    sendButton: "תיאום הסעה",
+    message: (voter: { name: string; address: string; phone: string }) =>
+      `שלום, עליך לתאם עם הבוחר הר"מ שעת איסוף שלו להצבעה ובסיום ההצבעה עליך להחזירו לביתו.\n\nשם ומשפחה: ${voter.name}\nכתובת מלאה: ${voter.address || "לא צוינה כתובת"}\nטלפון: ${voter.phone}\n\nבסיום יש לסמנו כבוצע הסעה.\nתודה, צוות החמ"ל`,
+    cancelMessage: (voter: { name: string; address: string; phone: string }) =>
+      `שלום, נא לבטל את ההסעה שתואמה עבור הבוחר הר"מ.\n\nשם ומשפחה: ${voter.name}\nכתובת מלאה: ${voter.address || "לא צוינה כתובת"}\nטלפון: ${voter.phone}\n\nתודה, צוות החמ"ל`,
     toast: {
-      sent: (driverName: string) => `בקשת ההסעה נשלחה ל${driverName}`,
+      sent: "וואטסאפ נפתח - בחרו את הנהג ושלחו",
     },
   },
 
@@ -200,6 +236,49 @@ export const ELECTION_DAY_TEXT = {
       added: "אחראי ההסעות נוסף",
       deleted: "אחראי ההסעות הוסר",
       invalid: "יש להזין שם וטלפון",
+    },
+  },
+
+  permissionsManager: {
+    button: "ניהול הרשאות משתמשים",
+    modalTitle: "הוסף משתמש",
+    nameLabel: "שם",
+    namePlaceholder: "שם המשתמש",
+    passwordLabel: "סיסמה",
+    passwordPlaceholder: "סיסמה",
+    showPasswordAriaLabel: "הצג סיסמה",
+    hidePasswordAriaLabel: "הסתר סיסמה",
+    roleLabel: "הרשאה",
+    roleOptions: {
+      user: "משתמש",
+      manager: "מנהל",
+    },
+    addButton: "הוספה",
+    columns: {
+      name: "שם",
+      password: "סיסמה",
+      role: "הרשאה",
+    },
+    deleteAriaLabel: "מחיקת משתמש",
+    empty: "לא נוספו משתמשים עדיין",
+    toast: {
+      added: "המשתמש נוסף",
+      deleted: "המשתמש הוסר",
+      invalid: "יש להזין שם וסיסמה",
+    },
+  },
+
+  /** Local, non-server login gate for this screen only - checks against the
+   * same roster managed in "ניהול הרשאות משתמשים" (see `electionDaySession.ts`). */
+  session: {
+    title: 'התחברות - חמ"ל בחירות',
+    subtitle: "מסך יום הבחירות דורש התחברות נפרדת משאר המערכת",
+    nameLabel: "שם משתמש",
+    passwordLabel: "סיסמה",
+    submit: "התחברות",
+    signOut: "התנתקות",
+    errors: {
+      invalidCredentials: "שם משתמש או סיסמה שגויים",
     },
   },
 } as const;

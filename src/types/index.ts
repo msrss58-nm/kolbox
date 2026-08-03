@@ -97,8 +97,12 @@ export interface ElectionDayVoter {
   phone: string;
   coordinator: string; // אחראי הסעה - free text, set at import time
   notes: string; // free-text notes, autosaved from the contact modal
+  rideRequested: boolean; // the voter needs a ride - noted before any driver is involved
+  rideRequestedAt: string | null; // ISO timestamp
   rideArranged: boolean;
   rideArrangedAt: string | null; // ISO timestamp
+  rideCompleted: boolean; // the actual ride happened (reported by the driver, marked in the ride-coordination table)
+  rideCompletedAt: string | null; // ISO timestamp
   reminderAt: string | null; // ISO timestamp - when a follow-up reminder should fire
   voted: boolean;
   votedAt: string | null; // ISO timestamp
@@ -111,6 +115,17 @@ export interface RideCoordinator {
   id: string;
   name: string;
   phone: string;
+}
+
+/** Election Day's local user/manager roster ("ניהול הרשאות משתמשים") - a
+ * simple directory, not a real login/auth system. */
+export type PermissionRole = "user" | "manager";
+
+export interface PermissionUser {
+  id: string;
+  name: string;
+  password: string;
+  role: PermissionRole;
 }
 
 /** A single ride-status change on an `ElectionDayVoter` - powers the recent

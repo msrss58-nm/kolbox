@@ -14,7 +14,9 @@ import {
 import { Card, CardTitle } from "../../components/ui/Card";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { CHART_TOOLTIP_STYLE_COMPACT } from "../../constants/chart";
+import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { RideCoordinationTable } from "./RideCoordinationTable";
 import type { CoordinatorBreakdown, ElectionDayStats } from "./useElectionDay";
 
 /** Big, prominent voting-turnout bar - the headline number of the page. */
@@ -169,11 +171,15 @@ function CoordinatorBarCard({ rows }: { rows: CoordinatorBreakdown[] }) {
 export function ElectionDayDashboard({
   stats,
   coordinatorBreakdown,
+  rideCoordinationQueue,
+  onToggleRideCompleted,
   loaded,
   children,
 }: {
   stats: ElectionDayStats;
   coordinatorBreakdown: CoordinatorBreakdown[];
+  rideCoordinationQueue: ElectionDayVoter[];
+  onToggleRideCompleted: (contact: ElectionDayVoter, completed: boolean) => void;
   loaded: boolean;
   children: ReactNode;
 }) {
@@ -192,6 +198,7 @@ export function ElectionDayDashboard({
         <div className="space-y-4">
           <Skeleton className="h-64 rounded-2xl" />
           <Skeleton className="h-64 rounded-2xl" />
+          <Skeleton className="h-40 rounded-2xl" />
         </div>
       </div>
     );
@@ -224,6 +231,10 @@ export function ElectionDayDashboard({
         {coordinatorBreakdown.length > 0 && (
           <CoordinatorBarCard rows={coordinatorBreakdown} />
         )}
+        <RideCoordinationTable
+          contacts={rideCoordinationQueue}
+          onToggleCompleted={onToggleRideCompleted}
+        />
       </div>
     </div>
   );

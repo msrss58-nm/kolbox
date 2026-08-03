@@ -6,6 +6,7 @@ import { Card } from "../../components/ui/Card";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { Input } from "../../components/ui/Field";
 import { Pagination } from "../../components/ui/Pagination";
+import { whatsAppShareHref } from "../../lib/phone";
 import { CountdownHeader } from "./CountdownHeader";
 import { ElectionDayContactModal } from "./ElectionDayContactModal";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
@@ -13,6 +14,8 @@ import { ElectionDayDashboard } from "./ElectionDayDashboard";
 import { ElectionDayFilters } from "./ElectionDayFilters";
 import { ElectionDayImportButton } from "./ElectionDayImportButton";
 import { ElectionDayList } from "./ElectionDayList";
+import { useElectionDaySession } from "./electionDaySession";
+import { PermissionUsersModal } from "./PermissionUsersModal";
 import { RideCoordinatorsModal } from "./RideCoordinatorsModal";
 import { useCountdown } from "./useCountdown";
 import { useElectionDay } from "./useElectionDay";
@@ -23,8 +26,31 @@ export function ElectionDayPage() {
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [coordinatorsModalOpen, setCoordinatorsModalOpen] = useState(false);
+  const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
+
+  const sessionUser = useElectionDaySession((s) => s.user);
+  const logout = useElectionDaySession((s) => s.logout);
 
   const openContact = electionDay.contacts?.find((c) => c.id === openContactId) ?? null;
+
+  const sendSnapshotReport = () => {
+    const time = new Date().toLocaleTimeString("he-IL", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const message = ELECTION_DAY_TEXT.snapshotReport.message({
+      time,
+      total: electionDay.stats.total,
+      voted: electionDay.stats.voted,
+      votedPct: electionDay.stats.votedPct,
+      coordinators: electionDay.coordinatorBreakdown.map((c) => ({
+        name: c.coordinator,
+        total: c.total,
+        voted: c.voted,
+      })),
+    });
+    window.open(whatsAppShareHref(message), "_blank", "noreferrer");
+  };
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -37,31 +63,61 @@ export function ElectionDayPage() {
       />
 
       <Card className="mb-6 flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <ElectionDayImportButton
-              onFileSelected={(file) => void electionDay.importFile(file)}
-              busy={electionDay.importing}
-            />
-            <Button
-              variant="danger"
-              disabled={!electionDay.total}
-              onClick={() => setConfirmClearOpen(true)}
-            >
-              🗑️ {ELECTION_DAY_TEXT.clearAll.button}
-            </Button>
-            <Button variant="secondary" onClick={() => setCoordinatorsModalOpen(true)}>
-              👨‍💼 {ELECTION_DAY_TEXT.coordinatorsManager.button}
-            </Button>
+        {sessionUser?.role !== "user" && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <ElectionDayImportButton
+                onFileSelected={(file) => void electionDay.importFile(file)}
+                busy={electionDay.importing}
+              />
+              <Button
+                variant="danger"
+                disabled={!electionDay.total}
+                onClick={() => setConfirmClearOpen(true)}
+              >
+                🗑️ {ELECTION_DAY_TEXT.clearAll.button}
+              </Button>
+              <Button variant="secondary" onClick={() => setCoordinatorsModalOpen(true)}>
+                👨‍💼 {ELECTION_DAY_TEXT.coordinatorsManager.button}
+              </Button>
+              <Button variant="secondary" onClick={() => setPermissionsModalOpen(true)}>
+                🔑 {ELECTION_DAY_TEXT.permissionsManager.button}
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
+                disabled={!electionDay.total}
+                onClick={sendSnapshotReport}
+              >
+                📲 {ELECTION_DAY_TEXT.snapshotReport.button}
+              </Button>
+              <Button
+                className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
+                disabled={!electionDay.total}
+                onClick={electionDay.exportReport}
+              >
+                ⬇️ {ELECTION_DAY_TEXT.exportReport.button}
+              </Button>
+            </div>
           </div>
-          <Button
-            className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
-            disabled={!electionDay.total}
-            onClick={electionDay.exportReport}
-          >
-            ⬇️ {ELECTION_DAY_TEXT.exportReport.button}
-          </Button>
-        </div>
+        )}
+
+        {sessionUser && (
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span>
+              {sessionUser.name} ·{" "}
+              {ELECTION_DAY_TEXT.permissionsManager.roleOptions[sessionUser.role]}
+            </span>
+            <button
+              type="button"
+              onClick={logout}
+              className="font-semibold text-primary-600 hover:underline"
+            >
+              {ELECTION_DAY_TEXT.session.signOut}
+            </button>
+          </div>
+        )}
 
         {electionDay.coordinators.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -109,6 +165,10 @@ export function ElectionDayPage() {
       <ElectionDayDashboard
         stats={electionDay.stats}
         coordinatorBreakdown={electionDay.coordinatorBreakdown}
+        rideCoordinationQueue={electionDay.rideCoordinationQueue}
+        onToggleRideCompleted={(contact, completed) =>
+          void electionDay.setRideCompleted(contact.id, completed)
+        }
         loaded={electionDay.loaded}
       >
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
@@ -136,8 +196,10 @@ export function ElectionDayPage() {
       <ElectionDayContactModal
         contact={openContact}
         onClose={() => setOpenContactId(null)}
-        onToggleRideArranged={(contact, arranged) =>
-          void electionDay.setRideArranged(contact.id, arranged)
+        onToggleRideRequested={(contact) => void electionDay.toggleRideRequested(contact)}
+        onSendToDriver={(contact) => void electionDay.sendRideRequestToDriver(contact)}
+        onCancelRideCoordination={(contact) =>
+          void electionDay.cancelRideCoordination(contact)
         }
         onSetReminder={(contact, minutes) =>
           void electionDay.setReminder(contact.id, minutes)
@@ -145,10 +207,6 @@ export function ElectionDayPage() {
         onCancelReminder={(contact) => void electionDay.setReminder(contact.id, null)}
         onToggleVoted={(contact, voted) => void electionDay.setVoted(contact.id, voted)}
         onSetNotes={(id, notes) => void electionDay.setNotes(id, notes)}
-        rideCoordinators={electionDay.rideCoordinators}
-        onSendToDriver={(contact, coordinatorId) =>
-          void electionDay.sendRideRequestToDriver(contact, coordinatorId)
-        }
       />
 
       <RideCoordinatorsModal
@@ -157,6 +215,14 @@ export function ElectionDayPage() {
         coordinators={electionDay.rideCoordinators}
         onAdd={electionDay.addRideCoordinator}
         onDelete={electionDay.deleteRideCoordinator}
+      />
+
+      <PermissionUsersModal
+        open={permissionsModalOpen}
+        onClose={() => setPermissionsModalOpen(false)}
+        users={electionDay.permissionUsers}
+        onAdd={electionDay.addPermissionUser}
+        onDelete={electionDay.deletePermissionUser}
       />
 
       <ConfirmDialog

@@ -5,6 +5,7 @@ import type {
   Classification,
   ClassificationEvent,
   ElectionDayVoter,
+  PermissionUser,
   PollingStation,
   RideCoordinator,
   RideStatusEvent,
@@ -82,6 +83,12 @@ export interface NewRideCoordinator {
   phone: string;
 }
 
+export interface NewPermissionUser {
+  name: string;
+  password: string;
+  role: "user" | "manager";
+}
+
 /**
  * The single data-access seam of the app.
  * MVP: implemented by MockApi (in-memory + localStorage).
@@ -139,7 +146,13 @@ export interface ApiClient {
   listElectionDayVoters(): Promise<ElectionDayVoter[]>;
   /** Clears the ride-list and its activity log (not the deadline). */
   clearElectionDayVoters(): Promise<void>;
+  /** The voter needs a ride - a lighter-weight signal than `setRideArranged`,
+   * set before any driver has actually been contacted. */
+  setRideRequested(id: string, requested: boolean): Promise<ElectionDayVoter>;
   setRideArranged(id: string, arranged: boolean): Promise<ElectionDayVoter>;
+  /** Marks whether the ride actually happened - the driver reports this by
+   * phone and a war-room activist marks it in the ride-coordination table. */
+  setRideCompleted(id: string, completed: boolean): Promise<ElectionDayVoter>;
   listRideStatusEvents(): Promise<RideStatusEvent[]>;
   getElectionDayDeadline(): Promise<string | null>;
   setElectionDayDeadline(deadline: string | null): Promise<string | null>;
@@ -152,4 +165,9 @@ export interface ApiClient {
   listRideCoordinators(): Promise<RideCoordinator[]>;
   addRideCoordinator(input: NewRideCoordinator): Promise<RideCoordinator>;
   deleteRideCoordinator(id: string): Promise<void>;
+
+  // election day - local user/manager permissions roster (no real auth)
+  listPermissionUsers(): Promise<PermissionUser[]>;
+  addPermissionUser(input: NewPermissionUser): Promise<PermissionUser>;
+  deletePermissionUser(id: string): Promise<void>;
 }

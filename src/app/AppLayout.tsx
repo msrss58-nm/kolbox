@@ -7,10 +7,28 @@ import { ROLE_LABELS } from "../constants/labels";
 import { NAV_ITEMS, ROUTES, type NavItem } from "../constants/routes";
 import { useAuth } from "../features/auth/authStore";
 import { useSyncActivistProfile } from "../features/auth/useSyncActivistProfile";
+import { useElectionDaySession } from "../features/election-day/electionDaySession";
 import { cn } from "../lib/utils";
 import { APP_SHELL_TEXT } from "./appShell.constants";
 
-function SidebarLink({ to, label, icon: Icon, end }: NavItem) {
+function SidebarLink({
+  to,
+  label,
+  icon: Icon,
+  end,
+  disabled,
+}: NavItem & { disabled: boolean }) {
+  if (disabled) {
+    return (
+      <span
+        aria-disabled="true"
+        className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-600 opacity-40"
+      >
+        <Icon className="size-4.5" />
+        {label}
+      </span>
+    );
+  }
   return (
     <NavLink
       to={to}
@@ -41,6 +59,12 @@ export function AppLayout() {
     [user?.role],
   );
 
+  // An Election Day "user"-role session can only use the Election Day nav
+  // item - every other main-app section (dashboard/voters/etc) is shown but
+  // unclickable, since this session has no bearing on the rest of the app.
+  const electionDaySessionUser = useElectionDaySession((s) => s.user);
+  const isElectionDayUserRole = electionDaySessionUser?.role === "user";
+
   const doLogout = async () => {
     await signOut();
     void navigate(ROUTES.login, { replace: true });
@@ -53,7 +77,11 @@ export function AppLayout() {
         <Logo light className="px-2 py-3" />
         <nav className="mt-6 flex flex-1 flex-col gap-1">
           {navItems.map((item) => (
-            <SidebarLink key={item.to} {...item} />
+            <SidebarLink
+              key={item.to}
+              {...item}
+              disabled={isElectionDayUserRole && item.to !== ROUTES.electionDay}
+            />
           ))}
         </nav>
         {user && (
@@ -103,22 +131,36 @@ export function AppLayout() {
 
       {/* Mobile bottom nav */}
       <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
-        {navItems.map(({ to, label, icon: Icon, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            className={({ isActive }) =>
-              cn(
-                "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-colors",
-                isActive ? "text-primary-600" : "text-slate-400",
-              )
-            }
-          >
-            <Icon className="size-5" />
-            {label}
-          </NavLink>
-        ))}
+        {navItems.map(({ to, label, icon: Icon, end }) => {
+          if (isElectionDayUserRole && to !== ROUTES.electionDay) {
+            return (
+              <span
+                key={to}
+                aria-disabled="true"
+                className="flex min-h-14 flex-1 cursor-not-allowed flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-slate-400 opacity-40"
+              >
+                <Icon className="size-5" />
+                {label}
+              </span>
+            );
+          }
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                cn(
+                  "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-colors",
+                  isActive ? "text-primary-600" : "text-slate-400",
+                )
+              }
+            >
+              <Icon className="size-5" />
+              {label}
+            </NavLink>
+          );
+        })}
       </nav>
 
       <ToastContainer />

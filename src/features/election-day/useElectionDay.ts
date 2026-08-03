@@ -4,9 +4,9 @@ import { APP_CONFIG } from "../../constants/config";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
-import { whatsAppHref } from "../../lib/phone";
+import { whatsAppShareHref } from "../../lib/phone";
 import { api } from "../../services/api";
-import type { NewRideCoordinator } from "../../services/api";
+import type { NewPermissionUser, NewRideCoordinator } from "../../services/api";
 import {
   exportElectionDayVotersToExcel,
   parseSpreadsheet,
@@ -14,7 +14,9 @@ import {
 } from "../../services/excel/excel";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { useElectionDaySession } from "./electionDaySession";
 import { parseElectionDaySheet } from "./electionDayImport";
+import { addNoteTag, hasNoteTag, removeNoteTag } from "./notesTags";
 
 export interface ElectionDayStats {
   total: number;
@@ -37,6 +39,14 @@ export type ElectionDaySortKey = "city" | "status";
 export type SortDir = "asc" | "desc";
 export type RideStatusFilterValue = "arranged" | "notArranged";
 
+/** Where a contact sits in the ride-coordination table's pipeline - lower
+ * numbers surface first (least progressed, most in need of attention). */
+function ridePipelineStage(c: ElectionDayVoter): number {
+  if (c.rideCompleted) return 2;
+  if (c.rideArranged) return 1;
+  return 0; // only rideRequested
+}
+
 /** Owns the election-day ride-coordination list: import, coordinator filter,
  * ride-status mutation, and the countdown deadline - so `ElectionDayPage`
  * stays a thin view. */
@@ -57,6 +67,21 @@ export function useElectionDay() {
   const fetchRideCoordinators = useCallback(() => api.listRideCoordinators(), []);
   const { data: rideCoordinators, reload: reloadRideCoordinators } =
     useAsyncData(fetchRideCoordinators);
+
+  const fetchPermissionUsers = useCallback(() => api.listPermissionUsers(), []);
+  const { data: permissionUsers, reload: reloadPermissionUsers } =
+    useAsyncData(fetchPermissionUsers);
+
+  // A "user"-role session only ever sees the contacts whose "אחראי" matches
+  // their own name - a "manager" (or nobody signed in, e.g. while the
+  // roster is still empty) sees everything, unfiltered. Single choke point
+  // every derived value below reads through instead of `contacts` directly.
+  const sessionUser = useElectionDaySession((s) => s.user);
+  const scopedContacts = useMemo(() => {
+    if (!contacts) return contacts;
+    if (sessionUser?.role !== "user") return contacts;
+    return contacts.filter((c) => c.coordinator === sessionUser.name);
+  }, [contacts, sessionUser]);
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
@@ -90,22 +115,22 @@ export function useElectionDay() {
 
   const coordinators = useMemo(
     () =>
-      [...new Set((contacts ?? []).map((c) => c.coordinator))].sort((a, b) =>
+      [...new Set((scopedContacts ?? []).map((c) => c.coordinator))].sort((a, b) =>
         a.localeCompare(b, "he"),
       ),
-    [contacts],
+    [scopedContacts],
   );
 
   const cities = useMemo(
     () =>
-      [...new Set((contacts ?? []).map((c) => c.city).filter(Boolean))].sort((a, b) =>
-        a.localeCompare(b, "he"),
+      [...new Set((scopedContacts ?? []).map((c) => c.city).filter(Boolean))].sort(
+        (a, b) => a.localeCompare(b, "he"),
       ),
-    [contacts],
+    [scopedContacts],
   );
 
   const filteredContacts = useMemo(() => {
-    let base = contacts ?? [];
+    let base = scopedContacts ?? [];
     const s = debouncedSearch.trim();
     if (s) {
       const sLower = s.toLowerCase();
@@ -125,16 +150,20 @@ export function useElectionDay() {
       );
     if (showUnvotedOnly) base = base.filter((c) => !c.voted);
 
-    if (!contacts) return null;
-    if (!sortBy) return base;
+    if (!scopedContacts) return null;
 
+    // Voted contacts always sink to the bottom, regardless of the active
+    // sort - keeps whoever's left to call at the top of the list.
     const dir = sortDir === "asc" ? 1 : -1;
     return [...base].sort((a, b) => {
+      const votedDiff = Number(a.voted) - Number(b.voted);
+      if (votedDiff !== 0) return votedDiff;
+      if (!sortBy) return 0;
       if (sortBy === "city") return a.city.localeCompare(b.city, "he") * dir;
       return (Number(a.rideArranged) - Number(b.rideArranged)) * dir;
     });
   }, [
-    contacts,
+    scopedContacts,
     debouncedSearch,
     coordinatorFilter,
     cityFilter,
@@ -213,12 +242,14 @@ export function useElectionDay() {
     if (page !== 1) setPage(1);
   }
 
-  // Dashboard figures always reflect the full dataset, independent of the
-  // coordinator filter applied to the list below.
+  // Dashboard figures reflect the signed-in session's scope ("user" sees
+  // only their own coordinator's contacts) - independent of the coordinator
+  // FILTER control applied to the list below, which is a separate, narrower
+  // view on top of this scope.
   const stats = useMemo((): ElectionDayStats => {
-    const total = contacts?.length ?? 0;
-    const arranged = (contacts ?? []).filter((c) => c.rideArranged).length;
-    const voted = (contacts ?? []).filter((c) => c.voted).length;
+    const total = scopedContacts?.length ?? 0;
+    const arranged = (scopedContacts ?? []).filter((c) => c.rideArranged).length;
+    const voted = (scopedContacts ?? []).filter((c) => c.voted).length;
     return {
       total,
       arranged,
@@ -228,11 +259,11 @@ export function useElectionDay() {
       notVoted: total - voted,
       votedPct: total ? Math.round((voted / total) * 100) : 0,
     };
-  }, [contacts]);
+  }, [scopedContacts]);
 
   const coordinatorBreakdown = useMemo((): CoordinatorBreakdown[] => {
     const byCoordinator = new Map<string, CoordinatorBreakdown>();
-    for (const c of contacts ?? []) {
+    for (const c of scopedContacts ?? []) {
       const entry = byCoordinator.get(c.coordinator) ?? {
         coordinator: c.coordinator,
         total: 0,
@@ -245,7 +276,19 @@ export function useElectionDay() {
       byCoordinator.set(c.coordinator, entry);
     }
     return [...byCoordinator.values()].sort((a, b) => b.total - a.total);
-  }, [contacts]);
+  }, [scopedContacts]);
+
+  // Everyone who either needs a ride or has one coordinated, and hasn't
+  // voted yet - shown in the dashboard's ride-coordination table. Sorted by
+  // stage (just requested → coordinated → completed) so the least-progressed
+  // rows surface first; voting removes the contact from this list entirely.
+  const rideCoordinationQueue = useMemo(
+    () =>
+      (scopedContacts ?? [])
+        .filter((c) => (c.rideRequested || c.rideArranged) && !c.voted)
+        .sort((a, b) => ridePipelineStage(a) - ridePipelineStage(b)),
+    [scopedContacts],
+  );
 
   const { run: runImport, busy: importing } = useAsyncAction(
     async (file: File) => {
@@ -376,6 +419,29 @@ export function useElectionDay() {
     [runSetVoted, applyContactUpdate],
   );
 
+  const { run: runSetRideCompleted } = useAsyncAction(
+    (id: string, completed: boolean) => api.setRideCompleted(id, completed),
+    {
+      successMessage: (contact) =>
+        contact.rideCompleted
+          ? ELECTION_DAY_TEXT.dashboard.rideCoordination.toast.done
+          : ELECTION_DAY_TEXT.dashboard.rideCoordination.toast.undone,
+    },
+  );
+
+  const setRideCompleted = useCallback(
+    async (id: string, completed: boolean) => {
+      const updated = await runSetRideCompleted(id, completed);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runSetRideCompleted, applyContactUpdate],
+  );
+
+  const { run: runSetRideRequested } = useAsyncAction((id: string, requested: boolean) =>
+    api.setRideRequested(id, requested),
+  );
+
   const { run: runSetNotes } = useAsyncAction((id: string, notes: string) =>
     api.setElectionDayNotes(id, notes),
   );
@@ -387,6 +453,24 @@ export function useElectionDay() {
       return updated;
     },
     [runSetNotes, applyContactUpdate],
+  );
+
+  /** Marking "יש דרישה להסעה" is a lighter-weight signal than actually
+   * coordinating with a driver - just a note that this voter needs a ride.
+   * Reversible (click again to clear), tagging/untagging the notes field
+   * to match without disturbing anything else typed there. */
+  const toggleRideRequested = useCallback(
+    async (contact: ElectionDayVoter) => {
+      const nextRequested = !contact.rideRequested;
+      const updated = await runSetRideRequested(contact.id, nextRequested);
+      if (!updated) return;
+      applyContactUpdate(updated);
+      const nextNotes = nextRequested
+        ? addNoteTag(updated.notes, ELECTION_DAY_TEXT.noteTags.rideRequested)
+        : removeNoteTag(updated.notes, ELECTION_DAY_TEXT.noteTags.rideRequested);
+      await setNotes(contact.id, nextNotes);
+    },
+    [runSetRideRequested, applyContactUpdate, setNotes],
   );
 
   const { run: runAddRideCoordinator } = useAsyncAction(
@@ -416,15 +500,39 @@ export function useElectionDay() {
     [runDeleteRideCoordinator, reloadRideCoordinators],
   );
 
-  /** Opens WhatsApp (pre-filled, one tap from sending) to a chosen fixed
-   * ride-coordinator with the voter's full pickup details, then marks the
-   * ride as arranged and stamps the notes field - matching the reference
-   * app's driver-request flow, but routed to a pre-registered contact
-   * instead of a one-off typed name. */
+  const { run: runAddPermissionUser } = useAsyncAction(
+    (input: NewPermissionUser) => api.addPermissionUser(input),
+    { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.added },
+  );
+
+  const addPermissionUser = useCallback(
+    async (input: NewPermissionUser) => {
+      const result = await runAddPermissionUser(input);
+      if (result) reloadPermissionUsers();
+      return result;
+    },
+    [runAddPermissionUser, reloadPermissionUsers],
+  );
+
+  const { run: runDeletePermissionUser } = useAsyncAction(
+    (id: string) => api.deletePermissionUser(id),
+    { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.deleted },
+  );
+
+  const deletePermissionUser = useCallback(
+    async (id: string) => {
+      await runDeletePermissionUser(id);
+      reloadPermissionUsers();
+    },
+    [runDeletePermissionUser, reloadPermissionUsers],
+  );
+
+  /** Opens WhatsApp with the voter's pickup details pre-filled but no target
+   * contact - the activist picks the driver by name inside WhatsApp itself
+   * and sends it manually. Then marks the ride as arranged and tags the
+   * notes field (additive, not overwriting whatever was already typed). */
   const sendRideRequestToDriver = useCallback(
-    async (contact: ElectionDayVoter, coordinatorId: string) => {
-      const driver = (rideCoordinators ?? []).find((c) => c.id === coordinatorId);
-      if (!driver) return;
+    async (contact: ElectionDayVoter) => {
       const address = [contact.street, contact.houseNumber || "", contact.city]
         .filter(Boolean)
         .join(" ");
@@ -432,27 +540,61 @@ export function useElectionDay() {
         name: `${contact.firstName} ${contact.lastName}`,
         address,
         phone: contact.phone,
-        masad: contact.masad,
-        coordinator: contact.coordinator,
       });
-      window.open(whatsAppHref(driver.phone, message), "_blank", "noreferrer");
-      await Promise.all([
-        setRideArranged(contact.id, true),
-        setNotes(contact.id, ELECTION_DAY_TEXT.driver.rideArrangedNote),
-      ]);
-      toast.success(ELECTION_DAY_TEXT.driver.toast.sent(driver.name));
+      window.open(whatsAppShareHref(message), "_blank", "noreferrer");
+      const updated = await setRideArranged(contact.id, true);
+      if (updated) {
+        await setNotes(
+          contact.id,
+          addNoteTag(updated.notes, ELECTION_DAY_TEXT.noteTags.rideArranged),
+        );
+      }
+      toast.success(ELECTION_DAY_TEXT.driver.toast.sent);
     },
-    [rideCoordinators, setRideArranged, setNotes],
+    [setRideArranged, setNotes],
+  );
+
+  /** Reverses a ride coordination (the "בטל תיאום" button) - always clears
+   * both the arranged and requested flags (dropping the contact out of the
+   * ride-coordination table entirely) and wipes the notes field completely
+   * (not just the ride-related tags). Only opens WhatsApp with a
+   * cancellation message when the notes actually carried the "תואם" tag -
+   * i.e. a driver had really been contacted, not just a bare ride request. */
+  const cancelRideCoordination = useCallback(
+    async (contact: ElectionDayVoter) => {
+      const wasArranged = hasNoteTag(
+        contact.notes,
+        ELECTION_DAY_TEXT.noteTags.rideArranged,
+      );
+
+      if (wasArranged) {
+        const address = [contact.street, contact.houseNumber || "", contact.city]
+          .filter(Boolean)
+          .join(" ");
+        const message = ELECTION_DAY_TEXT.driver.cancelMessage({
+          name: `${contact.firstName} ${contact.lastName}`,
+          address,
+          phone: contact.phone,
+        });
+        window.open(whatsAppShareHref(message), "_blank", "noreferrer");
+      }
+
+      await setRideArranged(contact.id, false);
+      const updated = await runSetRideRequested(contact.id, false);
+      if (updated) applyContactUpdate(updated);
+      await setNotes(contact.id, "");
+    },
+    [setRideArranged, runSetRideRequested, applyContactUpdate, setNotes],
   );
 
   // Polls for due reminders and fires a toast for each (clearing it so it
   // doesn't repeat) - only while this tab is open, no browser-notification
   // permission involved. Reads the latest contacts via a ref so the interval
   // itself never needs to be torn down/recreated when the list changes.
-  const contactsRef = useRef(contacts);
+  const contactsRef = useRef(scopedContacts);
   useEffect(() => {
-    contactsRef.current = contacts;
-  }, [contacts]);
+    contactsRef.current = scopedContacts;
+  }, [scopedContacts]);
 
   useEffect(() => {
     const checkReminders = () => {
@@ -482,6 +624,7 @@ export function useElectionDay() {
     setSearch,
     stats,
     coordinatorBreakdown,
+    rideCoordinationQueue,
     events: events ?? [],
     coordinators,
     coordinatorFilter,
@@ -513,11 +656,17 @@ export function useElectionDay() {
     setRideArranged,
     setReminder,
     setVoted,
+    setRideCompleted,
     setNotes,
+    toggleRideRequested,
+    cancelRideCoordination,
     rideCoordinators: rideCoordinators ?? [],
     addRideCoordinator,
     deleteRideCoordinator,
     sendRideRequestToDriver,
+    permissionUsers: permissionUsers ?? [],
+    addPermissionUser,
+    deletePermissionUser,
   };
 }
 

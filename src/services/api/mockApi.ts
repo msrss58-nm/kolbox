@@ -5,6 +5,7 @@ import type {
   Classification,
   ClassificationEvent,
   ElectionDayVoter,
+  PermissionUser,
   PollingStation,
   RideCoordinator,
   RideStatusEvent,
@@ -21,6 +22,7 @@ import type {
   ImportSummary,
   NewActivist,
   NewElectionDayVoter,
+  NewPermissionUser,
   NewRideCoordinator,
   NewVoter,
   Paged,
@@ -32,6 +34,7 @@ const ELECTION_DAY_VOTERS_KEY = "election-day-voters-v1";
 const ELECTION_DAY_DEADLINE_KEY = "election-day-deadline-v1";
 const ELECTION_DAY_EVENTS_KEY = "election-day-events-v1";
 const RIDE_COORDINATORS_KEY = "election-day-ride-coordinators-v1";
+const PERMISSION_USERS_KEY = "election-day-permission-users-v1";
 const DAY_MS = 86_400_000;
 
 /** Simulated network latency so loaders/skeletons are visible & realistic. */
@@ -49,6 +52,7 @@ export class MockApi implements ApiClient {
   private electionDayDeadline: string | null;
   private rideStatusEvents: RideStatusEvent[];
   private rideCoordinators: RideCoordinator[];
+  private permissionUsers: PermissionUser[];
 
   constructor() {
     this.data = loadJson<Dataset>(STORE_KEY) ?? generateDataset();
@@ -56,6 +60,7 @@ export class MockApi implements ApiClient {
     this.electionDayDeadline = loadJson<string | null>(ELECTION_DAY_DEADLINE_KEY) ?? null;
     this.rideStatusEvents = loadJson<RideStatusEvent[]>(ELECTION_DAY_EVENTS_KEY) ?? [];
     this.rideCoordinators = loadJson<RideCoordinator[]>(RIDE_COORDINATORS_KEY) ?? [];
+    this.permissionUsers = loadJson<PermissionUser[]>(PERMISSION_USERS_KEY) ?? [];
   }
 
   /** Debounced persistence - mutations land in localStorage at most every `persistDebounceMs`. */
@@ -441,8 +446,12 @@ export class MockApi implements ApiClient {
       ...r,
       id: `edv-${crypto.randomUUID().slice(0, 8)}`,
       notes: "",
+      rideRequested: false,
+      rideRequestedAt: null,
       rideArranged: false,
       rideArrangedAt: null,
+      rideCompleted: false,
+      rideCompletedAt: null,
       reminderAt: null,
       voted: false,
       votedAt: null,
@@ -467,6 +476,16 @@ export class MockApi implements ApiClient {
     saveJson(ELECTION_DAY_EVENTS_KEY, this.rideStatusEvents);
   }
 
+  async setRideRequested(id: string, requested: boolean): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.rideRequested = requested;
+    contact.rideRequestedAt = requested ? new Date().toISOString() : null;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
   async setRideArranged(id: string, arranged: boolean): Promise<ElectionDayVoter> {
     await latency();
     const contact = this.electionDayVoters.find((v) => v.id === id);
@@ -487,6 +506,16 @@ export class MockApi implements ApiClient {
     });
     saveJson(ELECTION_DAY_EVENTS_KEY, this.rideStatusEvents);
 
+    return contact;
+  }
+
+  async setRideCompleted(id: string, completed: boolean): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.rideCompleted = completed;
+    contact.rideCompletedAt = completed ? new Date().toISOString() : null;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     return contact;
   }
 
@@ -561,5 +590,27 @@ export class MockApi implements ApiClient {
     await latency();
     this.rideCoordinators = this.rideCoordinators.filter((c) => c.id !== id);
     saveJson(RIDE_COORDINATORS_KEY, this.rideCoordinators);
+  }
+
+  async listPermissionUsers(): Promise<PermissionUser[]> {
+    await latency();
+    return [...this.permissionUsers];
+  }
+
+  async addPermissionUser(input: NewPermissionUser): Promise<PermissionUser> {
+    await latency();
+    const user: PermissionUser = {
+      id: `pu-${crypto.randomUUID().slice(0, 8)}`,
+      ...input,
+    };
+    this.permissionUsers.push(user);
+    saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
+    return user;
+  }
+
+  async deletePermissionUser(id: string): Promise<void> {
+    await latency();
+    this.permissionUsers = this.permissionUsers.filter((u) => u.id !== id);
+    saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
   }
 }

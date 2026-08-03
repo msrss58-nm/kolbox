@@ -34,6 +34,23 @@ Single-campaign model: one Supabase project = one campaign, no multi-tenancy. Fi
 - Inviting an activist calls the `invite-activist` Edge Function (manager-only, service-role key never reaches the browser) - don't call `auth.admin.*` from client code.
 - Voters/activists/classification data are **not yet** in Supabase - they're still `MockApi`/localStorage (per-browser). `ensureActivistProfile()` + `useSyncActivistProfile` bridge a real activist's Supabase identity to a local mock `Activist` record so tag-counts work. This shim is temporary - remove it once the P2 `MockApi` → `SupabaseApi` migration lands.
 
+## Election Day's own local login (separate from the Supabase auth above)
+
+`/election-day` has its own, self-contained "session" - **not** Supabase, not connected to `profiles`/`UserRole` in any way, deliberately scoped to this one screen.
+
+- `src/features/election-day/electionDaySession.ts` - a zustand store (`useElectionDaySession`) that checks an entered name/password against `ApiClient.listPermissionUsers()` (the local roster managed from the "ניהול הרשאות משתמשים" button/modal - `PermissionUser { id, name, password, role: "user"|"manager" }`, plaintext, `MockApi`/localStorage only - there is no hashing and no real security boundary here, by design, for an internal tool). A successful login persists just `{id, name, role}` to its own localStorage key so a refresh doesn't sign out.
+- `ElectionDayGuard.tsx` wraps only the `/election-day` route: **while the permissions roster is empty the screen stays fully open** (no login required) so whoever sets it up can reach "ניהול הרשאות משתמשים" to add the first account - once any account exists, `ElectionDayLoginScreen.tsx` gates it.
+- Row-level scoping: `useElectionDay.ts`'s `scopedContacts` filters to `coordinator === sessionUser.name` for `role: "user"`; `role: "manager"` (or no session yet, pre-roster) sees everything. Same choke point pattern every derived value (`stats`/`coordinatorBreakdown`/`rideCoordinationQueue`/etc.) reads through instead of the raw fetched list.
+- UI-level restriction for `role: "user"`: the whole load/delete/ride-coordinators/permissions/export button row on `ElectionDayPage.tsx` isn't rendered at all, and - the one place this session reaches outside the Election Day feature - `AppLayout.tsx`'s shared sidebar/bottom-nav renders every other nav item as an inert, non-interactive `<span>` instead of a `NavLink` (visible but genuinely unclickable, not just styled to look disabled).
+
+## Deployment (Vercel)
+
+- **Production URL: `https://kolbox-gamma.vercel.app`** - live since 2026-07-19.
+- Vercel project `kolbox`, scope/team `nahom10`. `vercel link` auto-connected the GitHub repo (`msrss58-nm/kolbox`) as part of linking.
+- Production env vars are set directly in the Vercel project settings (not in this repo): `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` - same two vars as local `.env`, marked Sensitive/Encrypted in Vercel. If either is missing, the build fails at `src/services/supabase/client.ts`'s throw.
+- `vercel.json` at repo root has the SPA rewrite (`/(.*) → /index.html`) needed for `react-router` client-side routing on refresh/deep-links - required, don't remove it.
+- **Deploy so far was CLI-only** (`vercel --prod` from a local working copy), not Git-triggered - it uploads whatever is on disk at run time, independent of git commits. Since the GitHub repo is now connected, a future push to the production branch may also trigger an automatic Vercel deployment (check the Vercel project's Git settings before assuming either way) - but nothing has been committed/pushed as of the last deploy, so **production may be ahead of `origin`'s git history** until the working tree is committed and pushed. Always check `git status` before assuming what's live matches what's in git.
+
 ## Code conventions
 
 These were established during a deliberate refactor pass - follow them for all new code, don't regress to the patterns they replaced.

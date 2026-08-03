@@ -17,6 +17,7 @@ export const ROUTES = {
   import: "/import",
   team: "/team",
   electionDay: "/election-day",
+  electionDayLogin: "/election-day/login",
 } as const;
 
 export interface NavItem {

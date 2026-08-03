@@ -3,6 +3,8 @@ import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { ElectionDayGuard } from "../features/election-day/ElectionDayGuard";
+import { ElectionDayLoginScreen } from "../features/election-day/ElectionDayLoginScreen";
 import { ElectionDayPage } from "../features/election-day/ElectionDayPage";
 import { ImportPage } from "../features/import/ImportPage";
 import { TeamPage } from "../features/team/TeamPage";
@@ -12,6 +14,7 @@ import { AppLayout } from "./AppLayout";
 
 export const router = createBrowserRouter([
   { path: ROUTES.login, element: <LoginPage /> },
+  { path: ROUTES.electionDayLogin, element: <ElectionDayLoginScreen /> },
   {
     // TODO: re-enable AuthGuard here to require login before reaching AppLayout
     // element: <AuthGuard />,
@@ -22,7 +25,10 @@ export const router = createBrowserRouter([
       { path: ROUTES.voters, element: <VotersPage /> },
       { path: ROUTES.activists, element: <ActivistsPage /> },
       { path: ROUTES.import, element: <ImportPage /> },
-      { path: ROUTES.electionDay, element: <ElectionDayPage /> },
+      {
+        element: <ElectionDayGuard />,
+        children: [{ path: ROUTES.electionDay, element: <ElectionDayPage /> }],
+      },
       { path: ROUTES.team, element: <TeamPage /> },
     ],
     // ],
