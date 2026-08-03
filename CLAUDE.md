@@ -28,7 +28,7 @@ MVP = Core Campaign Management mode only. Auth is real (Supabase) - pulled forwa
 
 Single-campaign model: one Supabase project = one campaign, no multi-tenancy. First sign-up becomes manager; activists are invited by email (magic link) from the Activists page, never self-signup.
 
-- Requires `.env.local` with `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` (copy `.env.example`). Project: `kolbox` (`jcfzgyzqbhznncvldyvw`, eu-central-1).
+- Requires `.env.local` with `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` (copy `.env.example`). Project: `kolbox Project` (`nbymfgphnsounqncfjgl`, ap-southeast-1).
 - `src/services/supabase/client.ts` - the typed client. `src/features/auth/authStore.ts` - real session state via `onAuthStateChange`, no fake localStorage session anymore.
 - `profiles.role` can be `null` - a "pending approval" state (organic sign-up after a manager already exists). `AuthGuard` renders `PendingApprovalScreen` for it; never treat a signed-in user as authorized without checking `role`.
 - Inviting an activist calls the `invite-activist` Edge Function (manager-only, service-role key never reaches the browser) - don't call `auth.admin.*` from client code.
@@ -43,6 +43,14 @@ Single-campaign model: one Supabase project = one campaign, no multi-tenancy. Fi
 - Row-level scoping: `useElectionDay.ts`'s `scopedContacts` filters to `coordinator === sessionUser.name` for `role: "user"`; `role: "manager"` (or no session yet, pre-roster) sees everything. Same choke point pattern every derived value (`stats`/`coordinatorBreakdown`/`rideCoordinationQueue`/etc.) reads through instead of the raw fetched list.
 - UI-level restriction for `role: "user"`: the whole load/delete/ride-coordinators/permissions/export button row on `ElectionDayPage.tsx` isn't rendered at all, and - the one place this session reaches outside the Election Day feature - `AppLayout.tsx`'s shared sidebar/bottom-nav renders every other nav item as an inert, non-interactive `<span>` instead of a `NavLink` (visible but genuinely unclickable, not just styled to look disabled).
 - **Router structure** (`router.tsx`): `AppLayout` is the shared parent for both the main app and Election Day (one sidebar/nav for both), but `AuthGuard` (Supabase) only wraps the main app's routes (`/`, `/voters`, `/activists`, `/import`, `/team`) as a nested child inside `AppLayout` - `/election-day` sits as a sibling route directly under `AppLayout`, gated only by `ElectionDayGuard`, never by `AuthGuard`. Don't nest `/election-day` under `AuthGuard` - it would force every Election Day operator to also hold a real Supabase account (contradicting this section's opening line) and would break the empty-roster bootstrap above, since `AuthGuard` would redirect to `/login` before `ElectionDayGuard` ever runs.
+
+## Known Security Limitations (Election Day → Supabase migration)
+
+Accepted, explicit trade-offs from the approved Election Day → Supabase migration plan (see task-plan.md) - not oversights, deliberately not solved yet:
+
+- **No rate limiting on `election_day_login`** - the Postgres RPC (pgcrypto bcrypt compare) is reachable by anyone holding the public anon key, not just from a browser actually running the app - there is no brute-force/throttling protection on password guessing today.
+- **`election_day_list_permission_users()` requires no login at all** - by design, since PermissionUser has no real Supabase Auth identity behind it (see "Election Day's own local login" above), this RPC has no caller-identity check whatsoever. Anyone with the anon key can list every PermissionUser's `{id, name, role}` (never `password_hash`, which no RPC ever returns) without going through `ElectionDayLoginScreen.tsx` at all.
+- **Election Day's core tables use permissive RLS** (`USING (true)` for `anon`+`authenticated` on `election_day_voters`/`election_day_ride_status_events`/`election_day_ride_coordinators`/`election_day_settings`) - the same trust level as today's per-browser MockApi, just shared across devices now. The "user sees only their own coordinator's contacts" rule stays enforced client-side only (`useElectionDay.ts`'s `scopedContacts`), never at the database level.
 
 ## Deployment (Vercel)
 
