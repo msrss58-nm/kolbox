@@ -10,27 +10,33 @@ import { ImportPage } from "../features/import/ImportPage";
 import { TeamPage } from "../features/team/TeamPage";
 import { VotersPage } from "../features/voters/VotersPage";
 import { AppLayout } from "./AppLayout";
-// import { AuthGuard } from "./AuthGuard"; // TODO: re-enable auth gate - see router.tsx below
+import { AuthGuard } from "./AuthGuard";
 
 export const router = createBrowserRouter([
   { path: ROUTES.login, element: <LoginPage /> },
   { path: ROUTES.electionDayLogin, element: <ElectionDayLoginScreen /> },
   {
-    // TODO: re-enable AuthGuard here to require login before reaching AppLayout
-    // element: <AuthGuard />,
-    // children: [
+    // Shared shell (sidebar/bottom-nav) for both the main app and Election
+    // Day - but only the main app's routes sit behind the Supabase AuthGuard.
+    // Election Day has its own independent gate (ElectionDayGuard) and is
+    // deliberately not nested under AuthGuard - see CLAUDE.md's "Election
+    // Day's own local login" section.
     element: <AppLayout />,
     children: [
-      { path: ROUTES.dashboard, element: <DashboardPage /> },
-      { path: ROUTES.voters, element: <VotersPage /> },
-      { path: ROUTES.activists, element: <ActivistsPage /> },
-      { path: ROUTES.import, element: <ImportPage /> },
+      {
+        element: <AuthGuard />,
+        children: [
+          { path: ROUTES.dashboard, element: <DashboardPage /> },
+          { path: ROUTES.voters, element: <VotersPage /> },
+          { path: ROUTES.activists, element: <ActivistsPage /> },
+          { path: ROUTES.import, element: <ImportPage /> },
+          { path: ROUTES.team, element: <TeamPage /> },
+        ],
+      },
       {
         element: <ElectionDayGuard />,
         children: [{ path: ROUTES.electionDay, element: <ElectionDayPage /> }],
       },
-      { path: ROUTES.team, element: <TeamPage /> },
     ],
-    // ],
   },
 ]);
