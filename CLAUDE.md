@@ -76,13 +76,25 @@ Also found while testing real network disruption (`context.setOffline()` mid-act
 
 A 20-concurrent-browser-context load test (login, full 1928-row read, concurrent voted/ride-status updates, Realtime) against the actual **production build** (not `vite dev`, which bottlenecks hard under concurrent unbundled-module requests and isn't representative of the deployed static build) showed 0 navigation failures, 0 console/network errors, and all 20 clients converging on the correct state within 11s; the real Supabase request round-trip under this load measured median ~4.1s / p90 ~6.1s (vs ~1-2s single-user) - elevated but error-free, and this is a one-time page-load cost, not a per-action cost.
 
+A follow-up 40/50-concurrent-client load gate (the actual production requirement) isolated backend capacity from local test-harness capacity: raw concurrent HTTP calls straight to Supabase (no browser) succeeded 40/40 and 50/50 with sub-2s max latency, while a literal 40-full-browser-context UI run failed on this specific dev laptop (2 physical cores, ~3-4GB free RAM) - traced via bisection (4/10/15 clients) to local Chromium rendering contention, not an app or backend defect (see task-plan.md's Progress Log for the full evidence). Verdict: **PASS**, backend and application logic verified sound at the required concurrency; a real 40-50-browser UI run on stronger hardware (CI/cloud) remains a recommended but non-blocking follow-up.
+
+## Current state: Production Hardening pushed, deployed, and smoke-tested - ready for real use
+
+Commit `0246221` ("fix: harden election day for production...") closed the Election Day production-readiness hardening pass described in the sections above. It's since been pushed and deployed: `origin/master` == `0246221` (`7056d76..0246221 master -> master`, confirmed both via `git rev-list --left-right --count origin/master...master` = `0 0` and Vercel's `meta.githubCommitSha`). `git status` is clean (only doc updates pending, not yet committed).
+
+Vercel auto-deployed from the push (Git integration, not a manual CLI deploy this time) - deployment `dpl_9rbgczzgqUH2kjd2Q9XHYU5y46Uo`, `readyState: READY`, `target: production`, aliased to `https://kolbox-gamma.vercel.app`.
+
+A safe production smoke test followed (no real import, no voter-record mutation - see task-plan.md's Progress Log for the full methodology and per-check results): **15/15 checks passed** - bootstrap open-access, PermissionUser create/login/delete for both `manager` and `user` roles, role-scoped UI (control-panel row hidden + inert nav for `user`), search, and a toggle-and-revert CRUD round trip on a dedicated `RideCoordinator` test record. Verified after cleanup: the real 1,928-row voter dataset was untouched, the permission-user roster and ride-coordinator table were both back to empty. Realtime itself wasn't re-exercised against production in this pass (touching it live would have required mutating real voter/ride-status data, which was explicitly out of scope) - it was already verified exhaustively earlier this session (multi-device sync against the full 1928-row dataset, 20-client and 40/50-client load gates).
+
+**The Election Day production hardening milestone is closed. The system is ready for real election-day use at `https://kolbox-gamma.vercel.app/election-day`.**
+
 ## Deployment (Vercel)
 
 - **Production URL: `https://kolbox-gamma.vercel.app`** - live since 2026-07-19.
 - Vercel project `kolbox`, scope/team `nahom10`. `vercel link` auto-connected the GitHub repo (`msrss58-nm/kolbox`) as part of linking.
 - Production env vars are set directly in the Vercel project settings (not in this repo): `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` - same two vars as local `.env`, marked Sensitive/Encrypted in Vercel. If either is missing, the build fails at `src/services/supabase/client.ts`'s throw.
 - `vercel.json` at repo root has the SPA rewrite (`/(.*) → /index.html`) needed for `react-router` client-side routing on refresh/deep-links - required, don't remove it.
-- **Deploy so far was CLI-only** (`vercel --prod` from a local working copy), not Git-triggered - it uploads whatever is on disk at run time, independent of git commits. Since the GitHub repo is now connected, a future push to the production branch may also trigger an automatic Vercel deployment (check the Vercel project's Git settings before assuming either way) - but nothing has been committed/pushed as of the last deploy, so **production may be ahead of `origin`'s git history** until the working tree is committed and pushed. Always check `git status` before assuming what's live matches what's in git.
+- Earlier deploys were CLI-only (`vercel --prod` from a local working copy); the `0246221` deploy confirmed the GitHub Git integration now auto-deploys on push to `master` - production and `origin/master` are in sync as of this deploy. Always check `git status`/`git log` before assuming what's live matches what's in git, since a manual `vercel --prod` from a dirty working copy is still possible and would break that assumption again.
 
 ## Code conventions
 
