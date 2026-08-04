@@ -61,6 +61,7 @@ export const api: ApiClient = {
   setReminder: (...args) => electionDayApi.setReminder(...args),
   setVoted: (...args) => electionDayApi.setVoted(...args),
   setElectionDayNotes: (...args) => electionDayApi.setElectionDayNotes(...args),
+  setPhone: (...args) => electionDayApi.setPhone(...args),
 
   // election day - ride-coordinators roster (Supabase-backed)
   listRideCoordinators: (...args) => electionDayApi.listRideCoordinators(...args),

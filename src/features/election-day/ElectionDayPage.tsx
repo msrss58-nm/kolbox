@@ -242,6 +242,8 @@ export function ElectionDayPage() {
         onCancelReminder={(contact) => void electionDay.setReminder(contact.id, null)}
         onToggleVoted={(contact, voted) => void electionDay.setVoted(contact.id, voted)}
         onSetNotes={(id, notes) => void electionDay.setNotes(id, notes)}
+        onSetPhone={electionDay.setPhone}
+        settingPhone={electionDay.settingPhone}
       />
 
       <RideCoordinatorsModal

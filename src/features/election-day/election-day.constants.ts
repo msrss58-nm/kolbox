@@ -210,10 +210,24 @@ export const ELECTION_DAY_TEXT = {
   modal: {
     call: "חיוג מהיר",
     noPhone: "לא צוין טלפון",
+    addPhoneButton: "הוסף מספר",
+    editPhoneAriaLabel: "עריכת מספר טלפון",
     rideRequestButton: "דרישה להסעה",
     rideRequestActiveLabel: "יש דרישה להסעה",
     cancelCoordinationButton: "בטל תיאום",
     coordinatedLabel: "תואם",
+  },
+
+  phoneEditor: {
+    addTitle: "הוספת מספר טלפון",
+    editTitle: "עדכון מספר טלפון",
+    phoneLabel: "מספר טלפון",
+    phonePlaceholder: "050-1234567",
+    invalidPhone: "מספר טלפון לא תקין",
+    saveButton: "שמירה",
+    toast: {
+      saved: "מספר הטלפון נשמר",
+    },
   },
 
   notes: {

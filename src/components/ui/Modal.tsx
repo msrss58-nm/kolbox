@@ -2,6 +2,16 @@ import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
 
+/** Explicit stack of currently-open Modal instances (shared module-wide, since
+ * two Modals can legitimately be open at once - e.g. the phone-edit dialog
+ * opened from within the voter detail modal). Only the topmost entry should
+ * react to Escape, and the scroll lock should only release once the stack is
+ * empty - a flat per-instance listener/toggle would let an inner modal's
+ * Escape or close also close/unlock the outer one underneath it. A fresh
+ * object identity is created per effect run (not a ref/useId) so a
+ * push/cleanup pair always matches even under StrictMode's double-invoke. */
+let openModalStack: object[] = [];
+
 /**
  * Modal - centered dialog on desktop, full-width bottom sheet on mobile.
  */
@@ -20,12 +30,19 @@ export function Modal({
 }) {
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", onKey);
+    const id = {};
+    openModalStack.push(id);
     document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (openModalStack[openModalStack.length - 1] !== id) return;
+      onClose();
+    };
+    document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      openModalStack = openModalStack.filter((x) => x !== id);
+      if (openModalStack.length === 0) document.body.style.overflow = "";
     };
   }, [open, onClose]);
 

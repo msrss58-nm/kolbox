@@ -486,6 +486,20 @@ export function useElectionDay() {
     [runSetNotes, applyContactUpdate],
   );
 
+  const { run: runSetPhone, busy: settingPhone } = useAsyncAction(
+    (id: string, phone: string) => api.setPhone(id, phone),
+    { successMessage: ELECTION_DAY_TEXT.phoneEditor.toast.saved },
+  );
+
+  const setPhone = useCallback(
+    async (id: string, phone: string) => {
+      const updated = await runSetPhone(id, phone);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runSetPhone, applyContactUpdate],
+  );
+
   /** Marking "יש דרישה להסעה" is a lighter-weight signal than actually
    * coordinating with a driver - just a note that this voter needs a ride.
    * Reversible (click again to clear), tagging/untagging the notes field
@@ -692,6 +706,8 @@ export function useElectionDay() {
     setVoted,
     setRideCompleted,
     setNotes,
+    setPhone,
+    settingPhone,
     toggleRideRequested,
     cancelRideCoordination,
     rideCoordinators: rideCoordinators ?? [],

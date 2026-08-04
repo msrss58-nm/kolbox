@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Pencil } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { fieldClasses } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
@@ -8,6 +9,7 @@ import { telHref } from "../../lib/phone";
 import { cn } from "../../lib/utils";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { PhoneEditDialog } from "./PhoneEditDialog";
 import { isReminderActive } from "./reminderStatus";
 import { ReminderMenu } from "./ReminderMenu";
 
@@ -78,6 +80,8 @@ export function ElectionDayContactModal({
   onCancelReminder,
   onToggleVoted,
   onSetNotes,
+  onSetPhone,
+  settingPhone,
 }: {
   contact: ElectionDayVoter | null;
   onClose: () => void;
@@ -88,7 +92,10 @@ export function ElectionDayContactModal({
   onCancelReminder: (contact: ElectionDayVoter) => void;
   onToggleVoted: (contact: ElectionDayVoter, voted: boolean) => void;
   onSetNotes: (id: string, notes: string) => void;
+  onSetPhone: (id: string, phone: string) => Promise<unknown>;
+  settingPhone: boolean;
 }) {
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const fullName = contact ? `${contact.firstName} ${contact.lastName}` : "";
   const address = contact
     ? [contact.street, contact.houseNumber || ""].filter(Boolean).join(" ")
@@ -118,17 +125,33 @@ export function ElectionDayContactModal({
                 {contact.masad}
               </p>
             )}
-            <p className="text-slate-700">
+            <p className="flex flex-wrap items-center text-slate-700">
               📞{" "}
               <span className="font-semibold">
                 {ELECTION_DAY_TEXT.list.columns.phone}:
               </span>{" "}
               {contact.phone ? (
-                <span dir="ltr" className="tabular-nums">
-                  {contact.phone}
-                </span>
+                <>
+                  <span dir="ltr" className="tabular-nums">
+                    {contact.phone}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPhoneDialogOpen(true)}
+                    aria-label={ELECTION_DAY_TEXT.modal.editPhoneAriaLabel}
+                    className="touch-target grid size-7 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                </>
               ) : (
-                <span className="text-slate-400">{ELECTION_DAY_TEXT.modal.noPhone}</span>
+                <button
+                  type="button"
+                  onClick={() => setPhoneDialogOpen(true)}
+                  className="font-semibold text-primary-600 hover:underline"
+                >
+                  {ELECTION_DAY_TEXT.modal.addPhoneButton}
+                </button>
               )}
             </p>
             <p className="text-slate-700">
@@ -216,6 +239,14 @@ export function ElectionDayContactModal({
           )}
 
           <NotesField contact={contact} onSave={onSetNotes} />
+
+          <PhoneEditDialog
+            open={phoneDialogOpen}
+            onClose={() => setPhoneDialogOpen(false)}
+            contact={contact}
+            busy={settingPhone}
+            onSave={onSetPhone}
+          />
         </div>
       )}
     </Modal>

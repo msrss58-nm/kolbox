@@ -160,6 +160,9 @@ export interface ApiClient {
   setReminder(id: string, minutesFromNow: number | null): Promise<ElectionDayVoter>;
   setVoted(id: string, voted: boolean): Promise<ElectionDayVoter>;
   setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter>;
+  /** Updates only the `phone` field, by internal id - never sends or
+   * overwrites the rest of the voter record. */
+  setPhone(id: string, phone: string): Promise<ElectionDayVoter>;
 
   // election day - fixed, pre-registered ride-coordinator roster
   listRideCoordinators(): Promise<RideCoordinator[]>;

@@ -297,6 +297,10 @@ export class SupabaseElectionDayApi {
     return this.updateVoter(id, { notes });
   }
 
+  async setPhone(id: string, phone: string): Promise<ElectionDayVoter> {
+    return this.updateVoter(id, { phone });
+  }
+
   async listRideCoordinators(): Promise<RideCoordinator[]> {
     return unwrapArray<RideCoordinator[]>(
       await supabase

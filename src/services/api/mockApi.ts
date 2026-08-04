@@ -583,6 +583,15 @@ export class MockApi implements ApiClient {
     return contact;
   }
 
+  async setPhone(id: string, phone: string): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.phone = phone;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
   async listRideCoordinators(): Promise<RideCoordinator[]> {
     await latency();
     return [...this.rideCoordinators];
