@@ -36,4 +36,15 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
+  build: {
+    // Vite's build entry defaults to the root index.html when unset - that's
+    // the real app, not this harness. Without this, `vite build --config
+    // vite.harness.config.ts` silently built the main app instead of
+    // scripts/harness/index.html (dev-server mode was unaffected, since Vite
+    // resolves /scripts/harness/index.html directly from its request URL
+    // there - only `build` needs an explicit entry).
+    rollupOptions: {
+      input: path.resolve(__dirname, "scripts/harness/index.html"),
+    },
+  },
 });
