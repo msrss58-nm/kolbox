@@ -2,6 +2,23 @@
 
 Notable changes to KolBox, in reverse chronological order.
 
+## 2026-08-05 - Election Day: fixed first-user bootstrap regression from the permission engine
+
+Fixed a regression introduced by the Stage 2 permission-engine rollout (commit `5451be2`): when the "ניהול הרשאות משתמשים" roster is empty, `/election-day` is still meant to stay open with no login required so whoever sets it up can reach the button that creates the first account (unchanged, original design) - but that button had started reading `usePermissions().can("electionDay.manageUsers")` alone, and a missing session resolves to zero permissions per Stage 1's no-manager-fallback rule, so the button was silently hidden with no other UI path to reach it. Dormant on the live campaign (already has its 4 real accounts) but a full lockout for any future fresh roster.
+
+- `ElectionDayGuard.tsx` is now the single source of truth for the bootstrap window: `isBootstrap = permissionUsers.length === 0 && user === null`, computed only once the roster fetch has actually resolved (never confused with "still loading").
+- `isBootstrap` is passed down through `<Outlet context={{ isBootstrap }} />` and read in `ElectionDayPage.tsx` via `useOutletContext`.
+- The exception is narrow and additive - `showManageUsers = can("electionDay.manageUsers") || isBootstrap` - and touches only that one button. Import, clear-data, ride-coordinator management, export, and the countdown-settings gear all stay plain `can(...)` checks, unaffected.
+- **No fallback to `manager`.** `resolveEffectiveRole`, `computePermissions`, `hasPermission`, and `PERMISSIONS_BY_ROLE` were not touched - a missing session still resolves to `role: null` and denies all 21 permissions. This is a local `ElectionDayPage` UI exception, not a role or engine change.
+- `useElectionDay.ts` was not touched. No DB, migration, RLS, or RPC change.
+- This is **not yet** the Stage 3 business-logic guard - `addPermissionUser` itself has no bootstrap-aware exception yet; that remains a Stage 3 concern, deliberately not implemented here.
+
+Verified: `smoke-bootstrap.ts` 37/37 (pure logic - both formulas pinned against the real engine, plus proof no other permission is affected and the engine's own no-session behavior is unchanged), `drive-bootstrap.mjs` 12/12 (Playwright, roster mocked at the network layer via `page.route` - the real `PermissionUser` roster is never read or written), `smoke-permissions.ts` 127/127 and `smoke-permission-ui.ts` 10/10 (regression, unchanged), `tsc -b`/`eslint`/`build` clean.
+
+Shipped as commit `51377a5` ("fix: restore first-user bootstrap access"), pushed, deployed to `https://kolbox-gamma.vercel.app` (`dpl_B1C96wYAwZbs5Dfuh4FWKdVjbry7`, confirmed built from commit `51377a5` exactly). **Focused Production Smoke Test: PASS, 0 console/page errors** - the ordinary path (non-empty roster + no session → redirected to login; manager sees the button via its real permission; operations doesn't) verified via live login against production with two temporary test accounts, deleted immediately after; the roster-empty scenario verified against commit `51377a5`'s actual deployed bundle via `drive-bootstrap.mjs`'s network-mocked roster, so the real roster was never touched. A before/after SHA-256 snapshot of all 1,928 real voters was byte-for-byte identical, and the real 4-account roster was confirmed unchanged.
+
+**Stage 3 (business-logic enforcement on the `useElectionDay` mutation handlers) has still not started.**
+
 ## 2026-08-05 - Election Day: permission engine connected to the UI (Stage 2)
 
 Connected the centralized Election Day permission engine (`src/permissions/` - built in Stage 1, commit `390284f`, previously unconnected dead code) to every Election Day UI surface:
