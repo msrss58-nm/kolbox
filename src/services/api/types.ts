@@ -86,7 +86,7 @@ export interface NewRideCoordinator {
 export interface NewPermissionUser {
   name: string;
   password: string;
-  role: "user" | "manager";
+  role: "user" | "manager" | "voting";
 }
 
 /**

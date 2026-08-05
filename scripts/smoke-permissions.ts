@@ -18,6 +18,10 @@ assert(
   resolveEffectiveRole("user") === "operations",
   "legacy: user → operations mapping",
 );
+assert(
+  resolveEffectiveRole("voting") === "voting",
+  "Stage 4: voting DatabaseRole maps onto voting EffectiveRole",
+);
 
 // ---- no missing/extra permissions per role -----------------------------
 const ROLES: EffectiveRole[] = ["manager", "operations", "voting"];
@@ -137,6 +141,18 @@ assert(
   !computePermissions("user").can("electionDay.manageUsers"),
   "computePermissions(\"user\").can(\"electionDay.manageUsers\") is false (operations)",
 );
+assert(
+  computePermissions("voting").role === "voting",
+  "computePermissions(\"voting\").role is voting (Stage 4: real DatabaseRole)",
+);
+assert(
+  computePermissions("voting").can("voter.markVoted"),
+  "computePermissions(\"voting\").can(\"voter.markVoted\") is true",
+);
+assert(
+  !computePermissions("voting").can("voter.editPhone"),
+  "computePermissions(\"voting\").can(\"voter.editPhone\") is false",
+);
 
 // ---- no session: no effective role, no permissions --------------------
 // (1) no session -> no effective role
@@ -175,12 +191,15 @@ assert(
 );
 
 // (6) voting still gets voter.viewVotedStatus (unaffected by the no-session
-// fix) - via PERMISSIONS_BY_ROLE directly, since "voting" isn't a
-// DatabaseRole yet (see resolveEffectiveRole.ts) and so isn't reachable
-// through computePermissions() until the Stage 4 migration.
+// fix) - reachable both directly via PERMISSIONS_BY_ROLE and, since Stage 4,
+// through a real computePermissions("voting") session.
 assert(
   PERMISSIONS_BY_ROLE.voting.has("voter.viewVotedStatus"),
   "voting still has voter.viewVotedStatus after the no-session fix",
+);
+assert(
+  computePermissions("voting").can("voter.viewVotedStatus"),
+  "computePermissions(\"voting\") still has voter.viewVotedStatus after the no-session fix",
 );
 
 if (process.exitCode) {

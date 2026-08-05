@@ -119,7 +119,7 @@ export interface RideCoordinator {
 
 /** Election Day's local user/manager roster ("ניהול הרשאות משתמשים") - a
  * simple directory, not a real login/auth system. */
-export type PermissionRole = "user" | "manager";
+export type PermissionRole = "user" | "manager" | "voting";
 
 /** Never carries a password/hash - creation-only input types (see
  * `NewPermissionUser` in services/api/types.ts) accept a plaintext password,

@@ -33,10 +33,13 @@ export function PermissionUsersModal({
   const [role, setRole] = useState<PermissionRole>("user");
   const [busy, setBusy] = useState(false);
 
-  // Managers always sort above regular users, insertion order preserved within each group.
-  const sortedUsers = [...users].sort((a, b) =>
-    a.role === b.role ? 0 : a.role === "manager" ? -1 : 1,
-  );
+  // Managers always sort above everyone else, insertion order preserved within each group.
+  const sortedUsers = [...users].sort((a, b) => {
+    if (a.role === b.role) return 0;
+    if (a.role === "manager") return -1;
+    if (b.role === "manager") return 1;
+    return 0;
+  });
 
   const handleAdd = async () => {
     if (!name.trim() || !password.trim()) {
@@ -121,6 +124,15 @@ export function PermissionUsersModal({
                 className="size-4 accent-primary-600"
               />
               {text.roleOptions.manager}
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={role === "voting"}
+                onChange={() => setRole("voting")}
+                className="size-4 accent-primary-600"
+              />
+              {text.roleOptions.voting}
             </label>
           </div>
         </div>

@@ -6,10 +6,7 @@ import type { PermissionRole } from "../types";
  * into `EffectiveRole`. */
 export type DatabaseRole = PermissionRole;
 
-/** The three final Election Day roles the rest of the app reasons about.
- * `"voting"` cannot be produced from today's data yet - no `DatabaseRole`
- * maps onto it until the Stage 4 migration adds a real `role = 'voting'`
- * value; `resolveEffectiveRole` is the only place that will need to change. */
+/** The three final Election Day roles the rest of the app reasons about. */
 export type EffectiveRole = "manager" | "operations" | "voting";
 
 /** Every permission this engine knows about, namespaced by the area of the

@@ -287,6 +287,7 @@ export const ELECTION_DAY_TEXT = {
     roleOptions: {
       user: "משתמש",
       manager: "מנהל",
+      voting: "הצבעה",
     },
     addButton: "הוספה",
     columns: {

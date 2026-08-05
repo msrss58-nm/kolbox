@@ -120,14 +120,17 @@ export function useElectionDay(isBootstrap: boolean) {
   const { data: permissionUsers, reload: reloadPermissionUsers } =
     useAsyncData(fetchPermissionUsers);
 
-  // A "user"-role session only ever sees the contacts whose "אחראי" matches
-  // their own name - a "manager" (or nobody signed in, e.g. while the
-  // roster is still empty) sees everything, unfiltered. Single choke point
-  // every derived value below reads through instead of `contacts` directly.
+  // A "user"-role (operations) or "voting"-role session only ever sees the
+  // contacts whose "אחראי" matches their own name - a "manager" (or nobody
+  // signed in, e.g. while the roster is still empty) sees everything,
+  // unfiltered. voting and operations share the same record scope; the only
+  // difference between them is the permission set (see src/permissions/),
+  // not which rows they can see. Single choke point every derived value
+  // below reads through instead of `contacts` directly.
   const sessionUser = useElectionDaySession((s) => s.user);
   const scopedContacts = useMemo(() => {
     if (!contacts) return contacts;
-    if (sessionUser?.role !== "user") return contacts;
+    if (sessionUser?.role !== "user" && sessionUser?.role !== "voting") return contacts;
     return contacts.filter((c) => c.coordinator === sessionUser.name);
   }, [contacts, sessionUser]);
 
