@@ -7,14 +7,15 @@
  * `import.meta.env` in plain Node - same reason `computePermissions.ts` was
  * split out in Stage 1). Instead this pins the *decision* every guarded
  * mutation makes - `can(permission)`, exactly what `guardedAction` checks -
- * against the real `PERMISSIONS_BY_ROLE` engine, keyed by the exact
+ * against the real engine (via `computePermissions` + the `BUILT_IN_ROLE_SEED`
+ * fixture, Dynamic Roles & Permissions Phase 1), keyed by the exact
  * mutation -> permission mapping as coded in `useElectionDay.ts`. A
  * mismatch here means either the source's permission choice or this pin is
  * wrong - either way worth catching.
  */
-import { PERMISSIONS_BY_ROLE } from "../src/permissions/permissionsMap";
-import { computePermissions } from "../src/permissions/computePermissions";
-import type { EffectiveRole, Permission } from "../src/permissions/types";
+import { computePermissions, type PermissionsResult } from "../src/permissions/computePermissions";
+import type { DatabaseRole, Permission } from "../src/permissions/types";
+import { BUILT_IN_ROLE_SEED } from "./fixtures/electionDayRoles";
 
 const assert = (cond: boolean, msg: string) => {
   if (!cond) {
@@ -23,14 +24,14 @@ const assert = (cond: boolean, msg: string) => {
   } else console.log("ok:", msg);
 };
 
-function can(role: EffectiveRole | null, permission: Permission): boolean {
-  return role !== null && PERMISSIONS_BY_ROLE[role].has(permission);
+function can(sessionRole: DatabaseRole | null, permission: Permission): boolean {
+  return computePermissions(sessionRole, "loaded", BUILT_IN_ROLE_SEED).can(permission);
 }
 
-const MANAGER = computePermissions("manager").role;
-const OPERATIONS = computePermissions("user").role; // legacy "user" -> operations
-const VOTING: EffectiveRole = "voting"; // not reachable via real login until Stage 4
-const NO_SESSION: EffectiveRole | null = null;
+const MANAGER: DatabaseRole = "manager";
+const OPERATIONS: DatabaseRole = "user"; // legacy "user" -> operations
+const VOTING: DatabaseRole = "voting";
+const NO_SESSION: DatabaseRole | null = null;
 
 // ---- the exact mutation -> permission map as wired in useElectionDay.ts ----
 const MUTATION_PERMISSIONS: Record<string, Permission> = {
@@ -95,10 +96,25 @@ for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
   );
 }
 
+// ---- Dynamic Roles & Permissions Phase 1: catalog not loaded -------------
+// denies every mutation for every role, no exceptions - the fail-closed
+// contract applies uniformly regardless of which mutation is being guarded.
+for (const status of ["idle", "loading", "error"] as const) {
+  for (const sessionRole of [MANAGER, OPERATIONS, VOTING]) {
+    const result: PermissionsResult = computePermissions(sessionRole, status, BUILT_IN_ROLE_SEED);
+    for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
+      assert(
+        result.can(permission) === false,
+        `catalogStatus="${status}": "${mutation}" (${permission}) denied for "${sessionRole}" (fail-closed, no fallback)`,
+      );
+    }
+  }
+}
+
 // ---- addPermissionUser: bespoke bootstrap-aware guard ---------------------
 // allowed = can("electionDay.manageUsers") || (isBootstrap && rosterStillEmpty)
 function addPermissionUserAllowed(
-  role: EffectiveRole | null,
+  role: DatabaseRole | null,
   isBootstrap: boolean,
   rosterStillEmpty: boolean,
 ): boolean {
@@ -141,10 +157,6 @@ assert(
 );
 
 // ---- deletePermissionUser: NEVER gets a bootstrap exception ---------------
-// (uses the plain MUTATION_PERMISSIONS map, already asserted above for all
-// four role states - re-asserted here explicitly against the "what if
-// someone tried to bootstrap-exempt a delete" question, since forbidding
-// this specifically was an explicit product decision.)
 assert(
   can(NO_SESSION, MUTATION_PERMISSIONS.deletePermissionUser) === false,
   "deletePermissionUser: no session denied - bootstrap exception applies ONLY to addPermissionUser, never delete",
@@ -164,12 +176,6 @@ assert(
   can(NO_SESSION, "voter.viewReminderStatus") === false,
   "reminder-due effect: no session cannot run",
 );
-
-// ---- read-only actions are never blocked in this stage --------------------
-// (nothing to assert against the engine - this is a design statement: no
-// guardedAction wraps a fetch/list/search/filter function anywhere in
-// useElectionDay.ts. Documented here, not mechanically checkable from a
-// permission map alone.)
 
 if (process.exitCode) {
   console.error("\nsmoke-permission-logic: FAILED");

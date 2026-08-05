@@ -1,5 +1,13 @@
 /** Hand-written types for the `profiles` table and Election Day's Supabase
  * schema - mirrors the migrations in `supabase/migrations/`. */
+type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
 export interface Database {
   public: {
     Tables: {
@@ -173,6 +181,35 @@ export interface Database {
         >;
         Relationships: [];
       };
+
+      /** Dynamic Roles & Permissions (Phase 0). RLS-enabled, zero policies -
+       * never queried directly by the client. All access goes through the
+       * `election_day_list_roles` RPC below (Phase 1) - this Row type is
+       * included only for completeness/future role-management RPCs. */
+      election_day_roles: {
+        Row: {
+          id: string;
+          name: string;
+          description: string;
+          permissions: string[];
+          scope_type: string;
+          scope_value: Json | null;
+          legacy_role_key: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          description?: string;
+          permissions?: string[];
+          scope_type?: string;
+          scope_value?: Json | null;
+          legacy_role_key?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["election_day_roles"]["Insert"]>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -191,6 +228,25 @@ export interface Database {
       election_day_delete_permission_user: {
         Args: { p_id: string };
         Returns: undefined;
+      };
+      /** Dynamic Roles & Permissions, Phase 1. Returns raw, untrusted rows -
+       * `SupabaseElectionDayApi.listElectionDayRoles()` runs every row
+       * through `normalizeRoleRecord` before the app ever sees it (see
+       * `permissions/roleRecordMapper.ts`), so `permissions`/`scope_type`/
+       * `legacy_role_key` are intentionally left as loose `string[]`/
+       * `string | null` here rather than the app's validated `Permission`/
+       * `RoleScopeType`/`DatabaseRole` types. */
+      election_day_list_roles: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          permissions: string[];
+          scope_type: string;
+          scope_value: Json | null;
+          legacy_role_key: string | null;
+        }[];
       };
       election_day_import_voters: {
         Args: {

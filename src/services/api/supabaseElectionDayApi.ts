@@ -1,3 +1,5 @@
+import { normalizeRoleRecord, type RawRoleRow } from "../../permissions/roleRecordMapper";
+import type { RoleRecord } from "../../permissions/types";
 import { supabase } from "../supabase/client";
 import type {
   ElectionDayVoter,
@@ -359,6 +361,17 @@ export class SupabaseElectionDayApi {
     if (error) throw new Error(error.message);
     const rows = data as PermissionUserRpcRow[];
     return rows.length > 0 ? toPermissionUser(rows[0]) : null;
+  }
+
+  /** Dynamic Roles & Permissions, Phase 1. Unlike every other RPC result in
+   * this file, this one is NOT blindly cast - `permissions`/`scope_type`/
+   * `legacy_role_key` directly drive security decisions downstream, so each
+   * row goes through `normalizeRoleRecord`, which validates every untrusted
+   * field independently and fails closed on anything unrecognized (see that
+   * function's own doc comment). */
+  async listElectionDayRoles(): Promise<RoleRecord[]> {
+    const data = unwrapArray<RawRoleRow[]>(await supabase.rpc("election_day_list_roles"));
+    return data.map(normalizeRoleRecord);
   }
 
   /** Live cross-device sync for the two Realtime-enabled tables (see the

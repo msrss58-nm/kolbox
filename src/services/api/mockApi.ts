@@ -15,6 +15,8 @@ import type {
 import { APP_CONFIG } from "../../constants/config";
 import { generateDataset, type Dataset } from "../../data/generator";
 import { isValidIsraeliId } from "../../lib/israeliId";
+import { BUILT_IN_ROLE_SEED } from "../../permissions/builtInRoleSeed";
+import type { RoleRecord } from "../../permissions/types";
 import { loadJson, removeKey, saveJson } from "../storage/localStore";
 import type {
   ApiClient,
@@ -645,5 +647,15 @@ export class MockApi implements ApiClient {
       (u) => u.name === name.trim() && u.password === password,
     );
     return match ? toPublicPermissionUser(match) : null;
+  }
+
+  /** Interface compliance only - never actually reached in the running app
+   * (`services/api/index.ts` always delegates every Election Day method to
+   * `SupabaseElectionDayApi`). Returns the same 3 built-in roles the Phase 0
+   * migration seeded, so `MockApi` behaves sanely if ever exercised
+   * directly. */
+  async listElectionDayRoles(): Promise<RoleRecord[]> {
+    await latency();
+    return [...BUILT_IN_ROLE_SEED];
   }
 }

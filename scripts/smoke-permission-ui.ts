@@ -2,20 +2,21 @@
  *
  * Covers what a plain-Node script *can* honestly verify without a React
  * renderer (see smoke-permissions.ts's precedent and rationale):
- * - the ELECTION_DAY_ROW_COLUMNS projection every role resolves to, most
- *   importantly the "voting" role - which cannot log in for real yet (no
- *   DatabaseRole maps to it), so this is voting's only exercisable check
- *   until the Stage 4 migration.
+ * - the ELECTION_DAY_ROW_COLUMNS projection every role resolves to.
  * - AppLayout's `restrictedToElectionDay` expression, pinned here so a
  *   future edit that accidentally drops the "session must be present"
  *   guard is caught immediately (dropping it would lock every ordinary
  *   main-app user, who never touched /election-day, out of navigation -
  *   the exact regression this expression exists to prevent).
+ *
+ * Dynamic Roles & Permissions Phase 1: roles come from `BUILT_IN_ROLE_SEED`
+ * (mirrored from the live DB seed) via `computePermissions`, not a
+ * hardcoded `PERMISSIONS_BY_ROLE`/`EffectiveRole` map.
  */
-import { PERMISSIONS_BY_ROLE } from "../src/permissions/permissionsMap";
 import { computePermissions } from "../src/permissions/computePermissions";
 import { ELECTION_DAY_ROW_COLUMNS } from "../src/features/election-day/electionDayRowColumns";
-import type { EffectiveRole } from "../src/permissions/types";
+import type { DatabaseRole } from "../src/permissions/types";
+import { BUILT_IN_ROLE_SEED } from "./fixtures/electionDayRoles";
 
 const assert = (cond: boolean, msg: string) => {
   if (!cond) {
@@ -24,10 +25,10 @@ const assert = (cond: boolean, msg: string) => {
   } else console.log("ok:", msg);
 };
 
-const visibleColumnKeys = (role: EffectiveRole) =>
-  ELECTION_DAY_ROW_COLUMNS.filter((c) => PERMISSIONS_BY_ROLE[role].has(c.permission)).map(
-    (c) => c.key,
-  );
+const visibleColumnKeys = (sessionRole: DatabaseRole) => {
+  const { can } = computePermissions(sessionRole, "loaded", BUILT_IN_ROLE_SEED);
+  return ELECTION_DAY_ROW_COLUMNS.filter((c) => can(c.permission)).map((c) => c.key);
+};
 
 // ---- column projection: manager sees every column ----------------------
 assert(
@@ -35,10 +36,10 @@ assert(
   `manager sees all ${ELECTION_DAY_ROW_COLUMNS.length} row columns`,
 );
 
-// ---- column projection: operations sees every column too (approved: -----
-// "operations ... רואה את כל השדות התפעוליים")
+// ---- column projection: operations (legacy "user") sees every column too --
+// (approved: "operations ... רואה את כל השדות התפעוליים")
 assert(
-  visibleColumnKeys("operations").length === ELECTION_DAY_ROW_COLUMNS.length,
+  visibleColumnKeys("user").length === ELECTION_DAY_ROW_COLUMNS.length,
   `operations sees all ${ELECTION_DAY_ROW_COLUMNS.length} row columns`,
 );
 
@@ -68,11 +69,9 @@ for (const hidden of ["masad", "coordinator", "notes"] as const) {
 
 // ---- AppLayout's restrictedToElectionDay expression, pinned -------------
 // restrictedToElectionDay = electionDaySessionUser !== null && !can("app.accessFullNavigation")
-function restrictedToElectionDay(
-  sessionPresent: boolean,
-  role: EffectiveRole | null,
-): boolean {
-  return sessionPresent && !(role !== null && PERMISSIONS_BY_ROLE[role].has("app.accessFullNavigation"));
+function restrictedToElectionDay(sessionPresent: boolean, sessionRole: DatabaseRole | null): boolean {
+  const { can } = computePermissions(sessionRole, "loaded", BUILT_IN_ROLE_SEED);
+  return sessionPresent && !can("app.accessFullNavigation");
 }
 
 // no Election Day session at all (the ordinary main-app case) -> never restricted
@@ -83,22 +82,42 @@ assert(
 
 // a real manager session -> full nav
 assert(
-  restrictedToElectionDay(true, computePermissions("manager").role) === false,
+  restrictedToElectionDay(true, "manager") === false,
   "manager session -> main-app nav not restricted",
 );
 
 // a real "user" (-> operations) session -> restricted to Election Day
 assert(
-  restrictedToElectionDay(true, computePermissions("user").role) === true,
+  restrictedToElectionDay(true, "user") === true,
   "operations (legacy user) session -> main-app nav restricted to Election Day",
 );
 
-// a hypothetical voting session (not reachable via real login until Stage 4)
-// -> also restricted, pinning the intended future behavior
+// a real voting session -> also restricted
 assert(
   restrictedToElectionDay(true, "voting") === true,
-  "voting session (mock role, not yet real) -> main-app nav restricted to Election Day",
+  "voting session -> main-app nav restricted to Election Day",
 );
+
+// ---- Dynamic Roles & Permissions Phase 1: catalog not loaded -> fully ---
+// restricted (fail-closed) even for a real manager session
+assert(
+  restrictedToElectionDay(true, "manager") === false,
+  "sanity: manager with a loaded catalog is not restricted (contrast with the next assertion)",
+);
+function restrictedToElectionDayWithStatus(
+  sessionPresent: boolean,
+  sessionRole: DatabaseRole | null,
+  status: "idle" | "loading" | "loaded" | "error",
+): boolean {
+  const { can } = computePermissions(sessionRole, status, BUILT_IN_ROLE_SEED);
+  return sessionPresent && !can("app.accessFullNavigation");
+}
+for (const status of ["idle", "loading", "error"] as const) {
+  assert(
+    restrictedToElectionDayWithStatus(true, "manager", status) === true,
+    `catalogStatus="${status}" -> even a real manager session is restricted (fail-closed, no fallback)`,
+  );
+}
 
 if (process.exitCode) {
   console.error("\nsmoke-permission-ui: FAILED");

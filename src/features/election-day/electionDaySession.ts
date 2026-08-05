@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useRoleCatalogStore } from "../../permissions/roleCatalogStore";
 import { api } from "../../services/api";
 import { loadJson, removeKey, saveJson } from "../../services/storage/localStore";
 import type { PermissionRole } from "../../types";
@@ -40,6 +41,13 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set) => ({
     };
     saveJson(SESSION_KEY, sessionUser);
     set({ user: sessionUser });
+    // Kick off the role-catalog fetch immediately on a real, interactive
+    // login (Dynamic Roles & Permissions Phase 1) instead of waiting for
+    // the first `usePermissions()` mount - a no-op if already
+    // loading/loaded. Fire-and-forget: `usePermissions()` reads the
+    // store's status reactively, and a failure here still leaves the
+    // engine fail-closed (see `computePermissions`), never blocks login.
+    void useRoleCatalogStore.getState().ensureLoaded();
     return null;
   },
 

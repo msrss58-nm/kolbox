@@ -1,3 +1,4 @@
+import type { RoleRecord } from "../../permissions/types";
 import type {
   Activist,
   CampaignStats,
@@ -179,6 +180,12 @@ export interface ApiClient {
     name: string,
     password: string,
   ): Promise<PermissionUser | null>;
+
+  /** Dynamic Roles & Permissions, Phase 1: lists the full `election_day_roles`
+   * catalog the permission engine resolves a session's legacy role text
+   * against. Every row is validated/normalized (never a blind cast) before
+   * being returned - see `permissions/roleRecordMapper.ts`. */
+  listElectionDayRoles(): Promise<RoleRecord[]>;
 
   /**
    * Optional live cross-device sync for Election Day's ride-coordination

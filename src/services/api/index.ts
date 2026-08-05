@@ -75,6 +75,9 @@ export const api: ApiClient = {
   verifyPermissionUserLogin: (...args) =>
     electionDayApi.verifyPermissionUserLogin(...args),
 
+  // election day - dynamic role catalog (Phase 1, Supabase-backed, RPC-only)
+  listElectionDayRoles: (...args) => electionDayApi.listElectionDayRoles(...args),
+
   // election day - live cross-device sync (Supabase Realtime)
   subscribeToElectionDayChanges: (...args) =>
     electionDayApi.subscribeToElectionDayChanges(...args),

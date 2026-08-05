@@ -1,9 +1,11 @@
-import type { EffectiveRole, Permission } from "./types";
+import type { Permission, RoleRecord } from "./types";
 
 export interface PermissionDenialEvent {
-  /** `null` when there is no Election Day session at all - a denial can
-   * happen with no role to attribute it to (e.g. a stale tab after logout). */
-  role: EffectiveRole | null;
+  /** `null` when there is no Election Day session at all, the role catalog
+   * hasn't loaded (yet, or ever, on failure), or the session's role text
+   * didn't match any catalog row - a denial can happen with no role to
+   * attribute it to (e.g. a stale tab after logout). */
+  role: RoleRecord | null;
   permission: Permission;
   timestamp: string;
   /** Optional free-text hint about where the denial happened, e.g. a

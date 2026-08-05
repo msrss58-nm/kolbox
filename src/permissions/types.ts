@@ -2,19 +2,21 @@ import type { PermissionRole } from "../types";
 
 /** The role as stored today in `election_day_permission_users.role` /
  * `PermissionUser.role` - unchanged by this engine. See
- * `resolveEffectiveRole` for the legacy `"user"` → `"operations"` mapping
- * into `EffectiveRole`. */
+ * `resolveSessionRole` for how this text is resolved against the live
+ * `RoleRecord` catalog (Dynamic Roles & Permissions, Phase 1). */
 export type DatabaseRole = PermissionRole;
-
-/** The three final Election Day roles the rest of the app reasons about. */
-export type EffectiveRole = "manager" | "operations" | "voting";
 
 /** Every permission this engine knows about, namespaced by the area of the
  * app it governs. Field-level `voter.view*` permissions are intentionally
  * atomic (one per field actually rendered in `ElectionDayRow`/
  * `ElectionDayList`/`ElectionDayContactModal`) rather than one broad
  * "operational fields" flag, so a future role can see some operational
- * fields but not others without a new permission having to be invented. */
+ * fields but not others without a new permission having to be invented.
+ *
+ * This catalog is code (fixed, deployed with the frontend) - roles
+ * (`RoleRecord`, below) are data (dynamic, live in `election_day_roles`).
+ * A permission string coming back from the DB that isn't in this list is
+ * never trusted - see `roleRecordMapper.ts`. */
 export type Permission =
   // voter mutations
   | "voter.markVoted"
@@ -29,13 +31,10 @@ export type Permission =
   | "electionDay.manageSettings"
   | "electionDay.manageUsers"
   | "electionDay.manageRideCoordinators"
-  // Dynamic Roles & Permissions (planning-only as of this addition - see
-  // task-plan.md's Progress Log, Phase 0). Not yet checked by any
-  // PermissionGuard/usePermissions().can() call site anywhere in the app -
-  // inert until a future Phase 2 "תפקידים" tab exists to gate. Only present
-  // in the catalog (and therefore automatically included in manager's
-  // full-access set, since manager = new Set(ALL_PERMISSIONS)) so the DB-side
-  // seed data (election_day_roles) and the TS-side catalog agree from day one.
+  // Dynamic Roles & Permissions - added in Phase 0, still inert (no
+  // PermissionGuard/usePermissions().can() call site checks it yet; that's
+  // a future Phase 2 "תפקידים" tab's job). Present in the catalog so the
+  // DB-side seed data and the TS-side catalog agree from day one.
   | "electionDay.manageRolesAndPermissions"
   // navigation scope (outside Election Day entirely)
   | "app.accessFullNavigation"
@@ -49,3 +48,49 @@ export type Permission =
   | "voter.viewReminderStatus"
   | "voter.viewRideStatus"
   | "voter.viewVotedStatus";
+
+/** JSON-compatible value - mirrors what a Postgres `jsonb` column can hold
+ * over the wire. Used only for `RoleRecord.scopeValue`, which Phase 1 never
+ * reads (reserved for a future scope dimension - see the Phase 0 migration's
+ * column comment on `election_day_roles.scope_value`). */
+export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
+
+/** "Work domain" (תחום עבודה) - which contacts a role's holder can see/act
+ * on. Modeled as a closed union today, deliberately validated strictly (see
+ * `roleRecordMapper.ts`) rather than accepted as any string the DB happens
+ * to contain - an unrecognized value must fail closed, never be guessed at.
+ * A future dimension (e.g. geographic) is an additive new value, not a
+ * breaking schema change. */
+export type RoleScopeType = "all" | "assigned_to_me";
+
+/** A normalized, trusted row from the live `election_day_roles` catalog
+ * (Dynamic Roles & Permissions, Phase 1) - the type every permission/scope
+ * decision in the app is based on. There is no more hardcoded three-way
+ * `EffectiveRole` union; `manager`/`operations`/`voting` are just three
+ * ordinary rows in this table today, indistinguishable in code from any
+ * future dynamic role except by their `permissions`/`scopeType`.
+ *
+ * NEVER constructed by casting a raw RPC row directly - always produced by
+ * `roleRecordMapper.ts`'s `normalizeRoleRecord`, which validates every
+ * untrusted field and fails closed (`scopeType`/`legacyRoleKey`: `null` if
+ * unrecognized; `permissions`: filtered against the live `Permission`
+ * catalog) rather than ever passing an unvalidated value through.
+ *
+ * `legacyRoleKey` is migration bookkeeping only ("user"/"manager"/"voting",
+ * or `null` for every role created after Phase 0) - never shown in any UI,
+ * never touched by role create/rename/edit, plays no part in any
+ * permission or scope decision itself (only in resolving *which* row a
+ * legacy session's `DatabaseRole` text maps to). Removed entirely in the
+ * future Phase 3 cleanup. */
+export interface RoleRecord {
+  id: string;
+  name: string;
+  description: string;
+  permissions: readonly Permission[];
+  /** `null` means "unrecognized or missing scope_type" - always fails
+   * closed (see `resolveVisibleContacts` in `electionDayScope.ts`), never
+   * treated as "all" or any other implicit default. */
+  scopeType: RoleScopeType | null;
+  scopeValue: Json | null;
+  legacyRoleKey: DatabaseRole | null;
+}

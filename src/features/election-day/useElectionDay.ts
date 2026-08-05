@@ -18,6 +18,7 @@ import {
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDaySession } from "./electionDaySession";
+import { resolveVisibleContacts } from "./electionDayScope";
 import { matchesElectionDaySearch } from "./electionDaySearch";
 import {
   exportRejectedElectionDayRowsToExcel,
@@ -64,7 +65,7 @@ function ridePipelineStage(c: ElectionDayVoter): number {
  * exclusively to allow `addPermissionUser` (create the first account) - see
  * that function below. Not a role, not passed to anything else. */
 export function useElectionDay(isBootstrap: boolean) {
-  const { can, role } = usePermissions();
+  const { can, role, catalogStatus } = usePermissions();
 
   /** Every mutation exposed by this hook goes through this - checks
    * `permission` before calling `action` at all: on denial, 0 API calls,
@@ -120,19 +121,17 @@ export function useElectionDay(isBootstrap: boolean) {
   const { data: permissionUsers, reload: reloadPermissionUsers } =
     useAsyncData(fetchPermissionUsers);
 
-  // A "user"-role (operations) or "voting"-role session only ever sees the
-  // contacts whose "אחראי" matches their own name - a "manager" (or nobody
-  // signed in, e.g. while the roster is still empty) sees everything,
-  // unfiltered. voting and operations share the same record scope; the only
-  // difference between them is the permission set (see src/permissions/),
-  // not which rows they can see. Single choke point every derived value
-  // below reads through instead of `contacts` directly.
+  // Which contacts a signed-in session sees is governed by its resolved
+  // role's `scopeType` (Dynamic Roles & Permissions Phase 1) - fail-closed
+  // via `resolveVisibleContacts`: only an explicit `scopeType === "all"`
+  // sees everything; loading/error/an unmatched role/an unrecognized scope
+  // all return `[]`, never the unfiltered list. Single choke point every
+  // derived value below reads through instead of `contacts` directly.
   const sessionUser = useElectionDaySession((s) => s.user);
-  const scopedContacts = useMemo(() => {
-    if (!contacts) return contacts;
-    if (sessionUser?.role !== "user" && sessionUser?.role !== "voting") return contacts;
-    return contacts.filter((c) => c.coordinator === sessionUser.name);
-  }, [contacts, sessionUser]);
+  const scopedContacts = useMemo(
+    () => resolveVisibleContacts(contacts, sessionUser, catalogStatus, role),
+    [contacts, sessionUser, catalogStatus, role],
+  );
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);

@@ -5,12 +5,14 @@
  * `showManageUsers = can("electionDay.manageUsers") || isBootstrap`).
  * Reimplements both formulas exactly as they appear in the source (pinned,
  * not re-derived) and exercises them against the real, unmodified
- * `computePermissions`/`PERMISSIONS_BY_ROLE` engine - proving the fix is a
- * local UI exception, not a change to the engine itself.
+ * `computePermissions` engine (Dynamic Roles & Permissions Phase 1: roles
+ * come from `BUILT_IN_ROLE_SEED`, not a hardcoded map) - proving the fix is
+ * a local UI exception, not a change to the engine itself.
  */
-import { ALL_PERMISSIONS, PERMISSIONS_BY_ROLE } from "../src/permissions/permissionsMap";
+import { ALL_PERMISSIONS } from "../src/permissions/permissionsMap";
 import { computePermissions } from "../src/permissions/computePermissions";
-import type { EffectiveRole, Permission } from "../src/permissions/types";
+import type { DatabaseRole, Permission } from "../src/permissions/types";
+import { BUILT_IN_ROLE_SEED } from "./fixtures/electionDayRoles";
 
 const assert = (cond: boolean, msg: string) => {
   if (!cond) {
@@ -26,11 +28,11 @@ function computeIsBootstrap(rosterLength: number, hasUser: boolean): boolean {
 }
 
 // ElectionDayPage.tsx: const showManageUsers = can("electionDay.manageUsers") || isBootstrap;
-function can(role: EffectiveRole | null, permission: Permission): boolean {
-  return role !== null && PERMISSIONS_BY_ROLE[role].has(permission);
+function can(sessionRole: DatabaseRole | null, permission: Permission): boolean {
+  return computePermissions(sessionRole, "loaded", BUILT_IN_ROLE_SEED).can(permission);
 }
-function computeShowManageUsers(role: EffectiveRole | null, isBootstrap: boolean): boolean {
-  return can(role, "electionDay.manageUsers") || isBootstrap;
+function computeShowManageUsers(sessionRole: DatabaseRole | null, isBootstrap: boolean): boolean {
+  return can(sessionRole, "electionDay.manageUsers") || isBootstrap;
 }
 
 // ---- scenario 1/2: isBootstrap formula matrix ---------------------------
@@ -52,9 +54,9 @@ assert(
 );
 
 // ---- scenario 3/4: showManageUsers per role x isBootstrap ---------------
-const MANAGER = computePermissions("manager").role;
-const OPERATIONS = computePermissions("user").role; // legacy "user" -> operations
-const VOTING: EffectiveRole = "voting"; // not reachable via real login until Stage 4
+const MANAGER: DatabaseRole = "manager";
+const OPERATIONS: DatabaseRole = "user"; // legacy "user" -> operations
+const VOTING: DatabaseRole = "voting";
 
 assert(
   computeShowManageUsers(null, true) === true,
@@ -103,14 +105,14 @@ for (const permission of OTHER_ADMIN_PERMISSIONS) {
 
 // ---- scenario 5: no-session still yields 0 permissions, for every one of ---
 // the engine's permissions, independent of isBootstrap (proves the fix never
-// touched computePermissions/hasPermission/PERMISSIONS_BY_ROLE/resolveEffectiveRole).
+// touched computePermissions/hasPermission/resolveSessionRole).
 assert(
-  computePermissions(null).role === null,
-  "no session -> computePermissions(null).role is still null",
+  computePermissions(null, "loaded", BUILT_IN_ROLE_SEED).role === null,
+  "no session -> computePermissions(...).role is still null",
 );
 for (const permission of ALL_PERMISSIONS) {
   assert(
-    computePermissions(null).can(permission) === false,
+    computePermissions(null, "loaded", BUILT_IN_ROLE_SEED).can(permission) === false,
     `no session -> engine itself denies "${permission}" (isBootstrap is a ElectionDayPage-local concern only)`,
   );
 }
