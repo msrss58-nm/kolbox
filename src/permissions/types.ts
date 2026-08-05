@@ -29,6 +29,14 @@ export type Permission =
   | "electionDay.manageSettings"
   | "electionDay.manageUsers"
   | "electionDay.manageRideCoordinators"
+  // Dynamic Roles & Permissions (planning-only as of this addition - see
+  // task-plan.md's Progress Log, Phase 0). Not yet checked by any
+  // PermissionGuard/usePermissions().can() call site anywhere in the app -
+  // inert until a future Phase 2 "תפקידים" tab exists to gate. Only present
+  // in the catalog (and therefore automatically included in manager's
+  // full-access set, since manager = new Set(ALL_PERMISSIONS)) so the DB-side
+  // seed data (election_day_roles) and the TS-side catalog agree from day one.
+  | "electionDay.manageRolesAndPermissions"
   // navigation scope (outside Election Day entirely)
   | "app.accessFullNavigation"
   // field-level view permissions

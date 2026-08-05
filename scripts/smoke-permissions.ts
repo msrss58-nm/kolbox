@@ -178,7 +178,7 @@ for (const p of ALL_PERMISSIONS) {
 // smoke script deliberately avoids).
 assert(true, "PermissionGuard renders no children with no session (see comment above)");
 
-// (4) manager still gets all 21 permissions (unaffected by the no-session fix)
+// (4) manager still gets every permission in the catalog (unaffected by the no-session fix)
 assert(
   PERMISSIONS_BY_ROLE.manager.size === ALL_PERMISSIONS.length,
   `manager still has all ${ALL_PERMISSIONS.length} permissions after the no-session fix`,
@@ -200,6 +200,29 @@ assert(
 assert(
   computePermissions("voting").can("voter.viewVotedStatus"),
   "computePermissions(\"voting\") still has voter.viewVotedStatus after the no-session fix",
+);
+
+// ---- Dynamic Roles & Permissions, Phase 0: new catalog entry only --------
+// electionDay.manageRolesAndPermissions was added to the fixed catalog for
+// the future role-management RPCs/UI (Phase 2) - not yet checked by any
+// PermissionGuard/can() call site anywhere in the app. It's inert today
+// except for automatically being included in manager's full-access set,
+// since manager = new Set(ALL_PERMISSIONS).
+assert(
+  ALL_PERMISSIONS.includes("electionDay.manageRolesAndPermissions"),
+  "electionDay.manageRolesAndPermissions is a real Permission in the catalog",
+);
+assert(
+  hasPermission("manager", "electionDay.manageRolesAndPermissions"),
+  "manager has electionDay.manageRolesAndPermissions (manager = every permission)",
+);
+assert(
+  !hasPermission("operations", "electionDay.manageRolesAndPermissions"),
+  "operations does not have electionDay.manageRolesAndPermissions (unchanged, not yet wired to any role)",
+);
+assert(
+  !hasPermission("voting", "electionDay.manageRolesAndPermissions"),
+  "voting does not have electionDay.manageRolesAndPermissions (unchanged, not yet wired to any role)",
 );
 
 if (process.exitCode) {
