@@ -2,6 +2,17 @@
 
 Notable changes to KolBox, in reverse chronological order.
 
+## 2026-08-05 - Election Day: fixed the voting-role harness's production build entry
+
+Closed a small, previously-documented gap left open since Stage 2 (see that entry's "Known limitations"): `vite build --config vite.harness.config.ts` silently built the *main app* instead of the voting-role test harness, because `build.rollupOptions.input` was never set - Vite's build entry defaults to the root `index.html` when unset. Dev mode (`vite --config vite.harness.config.ts`, what every prior verification round in this saga actually used) was unaffected, since Vite resolves `/scripts/harness/index.html` directly from the request URL there; only `vite build` needed an explicit entry.
+
+- `vite.harness.config.ts`: added `build.rollupOptions.input` pointing at `scripts/harness/index.html`.
+- Reproduced the bug first (a build before the fix emits the root `index.html`, 3373 modules - the real app), then confirmed the fix (emits `scripts/harness/index.html`, 3310 modules, a smaller bundle since routes unreachable from `ElectionDayPage` alone are no longer pulled in).
+- Verified the built bundle actually works, not just that the build succeeds: `drive-voting-harness.mjs` 30/30 against a `vite preview` server serving the built output - the first time this harness was ever exercised in production-build mode rather than dev mode.
+- Confirmed zero effect on the real app: the main `npm run build` (via `vite.config.ts`, never touched) produces byte-identical output filenames before/after, and a production sanity check (real login-redirect behavior, 0 console/page errors) passed against `https://kolbox-gamma.vercel.app` after deploy.
+
+Shipped as commit `975ee99` ("fix: configure harness production build entry"), pushed, deployed to `https://kolbox-gamma.vercel.app` (confirmed built from commit `975ee99` exactly). Scoped entirely to a dev-only test config file - never touches `vite.config.ts`, `useElectionDay.ts`, the permission engine, or any DB/RLS/RPC.
+
 ## 2026-08-05 - Election Day: permission engine now enforced in business logic (Stage 3)
 
 Closed the gap Stage 2 (commit `5451be2`) deliberately left open: a hidden button never stopped a direct call to a mutation handler. Every Election Day mutation in `useElectionDay.ts` now goes through a local `guardedAction` helper - checks `can(permission)` **before** any API call, state change, or optimistic update.
