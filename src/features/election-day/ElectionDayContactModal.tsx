@@ -7,6 +7,8 @@ import { APP_CONFIG } from "../../constants/config";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { telHref } from "../../lib/phone";
 import { cn } from "../../lib/utils";
+import { PermissionGuard } from "../../permissions/PermissionGuard";
+import { usePermissions } from "../../permissions/usePermissions";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { PhoneEditDialog } from "./PhoneEditDialog";
@@ -96,149 +98,193 @@ export function ElectionDayContactModal({
   settingPhone: boolean;
 }) {
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
+  const { can } = usePermissions();
   const fullName = contact ? `${contact.firstName} ${contact.lastName}` : "";
   const address = contact
     ? [contact.street, contact.houseNumber || ""].filter(Boolean).join(" ")
     : "";
   const reminderActive = isReminderActive(contact?.reminderAt ?? null);
 
+  // The call + mark-voted row's two buttons are gated by two different
+  // permissions (unlike every other action row in this modal, where every
+  // button in the row shares one permission) - operations can call but not
+  // mark voted, so the grid must collapse to one column instead of leaving
+  // an empty cell.
+  const showCall = can("voter.viewPhone");
+  const showVotedToggle = can("voter.markVoted");
+
   return (
     <Modal open={contact !== null} onClose={onClose} title={fullName}>
       {contact && (
         <div className="space-y-5">
           <div className="space-y-2 rounded-xl bg-slate-50 p-3.5 text-sm">
-            {(contact.city || address) && (
-              <p className="text-slate-700">
-                📍{" "}
+            <PermissionGuard permission="voter.viewAddress">
+              {(contact.city || address) && (
+                <p className="text-slate-700">
+                  📍{" "}
+                  <span className="font-semibold">
+                    {ELECTION_DAY_TEXT.list.columns.address}:
+                  </span>{" "}
+                  {[contact.city, address].filter(Boolean).join(" · ")}
+                </p>
+              )}
+            </PermissionGuard>
+            <PermissionGuard permission="voter.viewMasad">
+              {contact.masad && (
+                <p className="text-slate-700">
+                  🆔{" "}
+                  <span className="font-semibold">
+                    {ELECTION_DAY_TEXT.list.columns.masad}:
+                  </span>{" "}
+                  {contact.masad}
+                </p>
+              )}
+            </PermissionGuard>
+            <PermissionGuard permission="voter.viewPhone">
+              <p className="flex flex-wrap items-center text-slate-700">
+                📞{" "}
                 <span className="font-semibold">
-                  {ELECTION_DAY_TEXT.list.columns.address}:
+                  {ELECTION_DAY_TEXT.list.columns.phone}:
                 </span>{" "}
-                {[contact.city, address].filter(Boolean).join(" · ")}
+                {contact.phone ? (
+                  <>
+                    <span dir="ltr" className="tabular-nums">
+                      {contact.phone}
+                    </span>
+                    <PermissionGuard permission="voter.editPhone">
+                      <button
+                        type="button"
+                        onClick={() => setPhoneDialogOpen(true)}
+                        aria-label={ELECTION_DAY_TEXT.modal.editPhoneAriaLabel}
+                        className="touch-target grid size-7 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                    </PermissionGuard>
+                  </>
+                ) : (
+                  <PermissionGuard permission="voter.editPhone">
+                    <button
+                      type="button"
+                      onClick={() => setPhoneDialogOpen(true)}
+                      className="font-semibold text-primary-600 hover:underline"
+                    >
+                      {ELECTION_DAY_TEXT.modal.addPhoneButton}
+                    </button>
+                  </PermissionGuard>
+                )}
               </p>
-            )}
-            {contact.masad && (
+            </PermissionGuard>
+            <PermissionGuard permission="voter.viewCoordinator">
               <p className="text-slate-700">
-                🆔{" "}
+                👤{" "}
                 <span className="font-semibold">
-                  {ELECTION_DAY_TEXT.list.columns.masad}:
+                  {ELECTION_DAY_TEXT.coordinatorFilter.label}:
                 </span>{" "}
-                {contact.masad}
+                {contact.coordinator}
               </p>
-            )}
-            <p className="flex flex-wrap items-center text-slate-700">
-              📞{" "}
-              <span className="font-semibold">
-                {ELECTION_DAY_TEXT.list.columns.phone}:
-              </span>{" "}
-              {contact.phone ? (
-                <>
-                  <span dir="ltr" className="tabular-nums">
-                    {contact.phone}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPhoneDialogOpen(true)}
-                    aria-label={ELECTION_DAY_TEXT.modal.editPhoneAriaLabel}
-                    className="touch-target grid size-7 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setPhoneDialogOpen(true)}
-                  className="font-semibold text-primary-600 hover:underline"
+            </PermissionGuard>
+          </div>
+
+          {(showCall || showVotedToggle) && (
+            <div
+              className={cn(
+                "grid gap-2.5",
+                showCall && showVotedToggle ? "grid-cols-2" : "grid-cols-1",
+              )}
+            >
+              {showCall && (
+                <Button
+                  className="w-full bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
+                  disabled={!contact.phone}
+                  onClick={() => {
+                    if (contact.phone) window.location.href = telHref(contact.phone);
+                  }}
                 >
-                  {ELECTION_DAY_TEXT.modal.addPhoneButton}
-                </button>
+                  📞 {ELECTION_DAY_TEXT.modal.call}
+                </Button>
               )}
-            </p>
-            <p className="text-slate-700">
-              👤{" "}
-              <span className="font-semibold">
-                {ELECTION_DAY_TEXT.coordinatorFilter.label}:
-              </span>{" "}
-              {contact.coordinator}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <Button
-              className="w-full bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
-              disabled={!contact.phone}
-              onClick={() => {
-                if (contact.phone) window.location.href = telHref(contact.phone);
-              }}
-            >
-              📞 {ELECTION_DAY_TEXT.modal.call}
-            </Button>
-            <Button
-              variant={contact.voted ? "secondary" : "primary"}
-              className={cn("w-full", contact.voted && "text-slate-600")}
-              onClick={() => onToggleVoted(contact, !contact.voted)}
-            >
-              {contact.voted
-                ? `↩️ ${ELECTION_DAY_TEXT.voted.unmarkButton}`
-                : `👍 ${ELECTION_DAY_TEXT.voted.markButton}`}
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <ReminderMenu onSelect={(minutes) => onSetReminder(contact, minutes)} />
-            <Button
-              variant="danger"
-              disabled={!reminderActive}
-              onClick={() => onCancelReminder(contact)}
-            >
-              ❌ {ELECTION_DAY_TEXT.reminder.cancelButton}
-            </Button>
-          </div>
-          {reminderActive && contact.reminderAt && (
-            <p className="-mt-3 text-sm font-bold text-amber-500">
-              ⏰{" "}
-              {ELECTION_DAY_TEXT.reminder.activeLabel(
-                new Date(contact.reminderAt).toLocaleTimeString("he-IL", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }),
+              {showVotedToggle && (
+                <Button
+                  variant={contact.voted ? "secondary" : "primary"}
+                  className={cn("w-full", contact.voted && "text-slate-600")}
+                  onClick={() => onToggleVoted(contact, !contact.voted)}
+                >
+                  {contact.voted
+                    ? `↩️ ${ELECTION_DAY_TEXT.voted.unmarkButton}`
+                    : `👍 ${ELECTION_DAY_TEXT.voted.markButton}`}
+                </Button>
               )}
-            </p>
+            </div>
           )}
 
-          <div className="grid grid-cols-3 gap-2.5">
-            <Button
-              className="w-full bg-[#ff9800] text-white hover:bg-[#f08c00] active:bg-[#db7d00]"
-              onClick={() => onToggleRideRequested(contact)}
-            >
-              {ELECTION_DAY_TEXT.modal.rideRequestButton}
-            </Button>
-            <Button
-              className="w-full bg-[#ff9800] text-white hover:bg-[#f08c00] active:bg-[#db7d00]"
-              onClick={() => onSendToDriver(contact)}
-            >
-              🚗 {ELECTION_DAY_TEXT.driver.sendButton}
-            </Button>
-            <Button
-              variant="danger"
-              disabled={!contact.rideArranged && !contact.rideRequested}
-              onClick={() => onCancelRideCoordination(contact)}
-            >
-              {ELECTION_DAY_TEXT.modal.cancelCoordinationButton}
-            </Button>
-          </div>
-          {contact.rideRequested && (
-            <p className="-mt-3 text-sm font-bold text-amber-500">
-              ⚠️ {ELECTION_DAY_TEXT.modal.rideRequestActiveLabel}
-            </p>
-          )}
-          {contact.rideArranged && (
-            <p className="-mt-3 text-sm font-bold text-emerald-600">
-              ✅ {ELECTION_DAY_TEXT.modal.coordinatedLabel}
-            </p>
-          )}
+          <PermissionGuard permission="voter.manageReminder">
+            <div className="grid grid-cols-2 gap-2.5">
+              <ReminderMenu onSelect={(minutes) => onSetReminder(contact, minutes)} />
+              <Button
+                variant="danger"
+                disabled={!reminderActive}
+                onClick={() => onCancelReminder(contact)}
+              >
+                ❌ {ELECTION_DAY_TEXT.reminder.cancelButton}
+              </Button>
+            </div>
+          </PermissionGuard>
+          <PermissionGuard permission="voter.viewReminderStatus">
+            {reminderActive && contact.reminderAt && (
+              <p className="-mt-3 text-sm font-bold text-amber-500">
+                ⏰{" "}
+                {ELECTION_DAY_TEXT.reminder.activeLabel(
+                  new Date(contact.reminderAt).toLocaleTimeString("he-IL", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }),
+                )}
+              </p>
+            )}
+          </PermissionGuard>
 
-          <NotesField contact={contact} onSave={onSetNotes} />
+          <PermissionGuard permission="voter.manageRide">
+            <div className="grid grid-cols-3 gap-2.5">
+              <Button
+                className="w-full bg-[#ff9800] text-white hover:bg-[#f08c00] active:bg-[#db7d00]"
+                onClick={() => onToggleRideRequested(contact)}
+              >
+                {ELECTION_DAY_TEXT.modal.rideRequestButton}
+              </Button>
+              <Button
+                className="w-full bg-[#ff9800] text-white hover:bg-[#f08c00] active:bg-[#db7d00]"
+                onClick={() => onSendToDriver(contact)}
+              >
+                🚗 {ELECTION_DAY_TEXT.driver.sendButton}
+              </Button>
+              <Button
+                variant="danger"
+                disabled={!contact.rideArranged && !contact.rideRequested}
+                onClick={() => onCancelRideCoordination(contact)}
+              >
+                {ELECTION_DAY_TEXT.modal.cancelCoordinationButton}
+              </Button>
+            </div>
+          </PermissionGuard>
+          <PermissionGuard permission="voter.viewRideStatus">
+            <>
+              {contact.rideRequested && (
+                <p className="-mt-3 text-sm font-bold text-amber-500">
+                  ⚠️ {ELECTION_DAY_TEXT.modal.rideRequestActiveLabel}
+                </p>
+              )}
+              {contact.rideArranged && (
+                <p className="-mt-3 text-sm font-bold text-emerald-600">
+                  ✅ {ELECTION_DAY_TEXT.modal.coordinatedLabel}
+                </p>
+              )}
+            </>
+          </PermissionGuard>
+
+          <PermissionGuard permission="voter.editNotes">
+            <NotesField contact={contact} onSave={onSetNotes} />
+          </PermissionGuard>
 
           <PhoneEditDialog
             open={phoneDialogOpen}

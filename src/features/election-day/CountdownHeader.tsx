@@ -3,6 +3,7 @@ import { Button } from "../../components/ui/Button";
 import { DateTimePicker } from "../../components/ui/DateTimePicker";
 import { Field } from "../../components/ui/Field";
 import { cn } from "../../lib/utils";
+import { PermissionGuard } from "../../permissions/PermissionGuard";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { CountdownParts } from "./useCountdown";
 
@@ -37,17 +38,18 @@ export function CountdownHeader({
     setTrackedDeadline(deadline);
     setDraft(deadline ? new Date(deadline) : null);
   }
-
   return (
     <div className="relative mb-6 rounded-2xl bg-gradient-to-l from-[#1877f2] to-[#1565c0] p-5 text-center text-white shadow-lg md:p-6">
-      <button
-        type="button"
-        onClick={() => setSettingsOpen((o) => !o)}
-        aria-label={ELECTION_DAY_TEXT.countdown.setDeadline}
-        className="absolute start-4 top-4 grid size-9 place-items-center rounded-full bg-white/15 text-lg transition hover:bg-white/25"
-      >
-        ⚙️
-      </button>
+      <PermissionGuard permission="electionDay.manageSettings">
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((o) => !o)}
+          aria-label={ELECTION_DAY_TEXT.countdown.setDeadline}
+          className="absolute start-4 top-4 grid size-9 place-items-center rounded-full bg-white/15 text-lg transition hover:bg-white/25"
+        >
+          ⚙️
+        </button>
+      </PermissionGuard>
 
       <p className="text-sm font-semibold text-white/70">
         ⏱️{" "}
@@ -74,25 +76,27 @@ export function CountdownHeader({
         <TimeBox value={parts.seconds} label={ELECTION_DAY_TEXT.countdown.seconds} />
       </div>
 
-      {settingsOpen && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSetDeadline(draft ? draft.toISOString() : null);
-            setSettingsOpen(false);
-          }}
-          className="mt-5 flex flex-wrap items-end justify-center gap-2 rounded-xl bg-white/15 p-3"
-        >
-          <div className="[&_label>span]:text-white/80 [&_input]:bg-white/10 [&_input]:text-white [&_input]:ring-white/20 [&_input]:placeholder:text-white/40">
-            <Field label={ELECTION_DAY_TEXT.countdown.deadlineFieldLabel}>
-              <DateTimePicker value={draft} onChange={setDraft} />
-            </Field>
-          </div>
-          <Button type="submit" variant="secondary" size="md">
-            {ELECTION_DAY_TEXT.countdown.setDeadline}
-          </Button>
-        </form>
-      )}
+      <PermissionGuard permission="electionDay.manageSettings">
+        {settingsOpen && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSetDeadline(draft ? draft.toISOString() : null);
+              setSettingsOpen(false);
+            }}
+            className="mt-5 flex flex-wrap items-end justify-center gap-2 rounded-xl bg-white/15 p-3"
+          >
+            <div className="[&_label>span]:text-white/80 [&_input]:bg-white/10 [&_input]:text-white [&_input]:ring-white/20 [&_input]:placeholder:text-white/40">
+              <Field label={ELECTION_DAY_TEXT.countdown.deadlineFieldLabel}>
+                <DateTimePicker value={draft} onChange={setDraft} />
+              </Field>
+            </div>
+            <Button type="submit" variant="secondary" size="md">
+              {ELECTION_DAY_TEXT.countdown.setDeadline}
+            </Button>
+          </form>
+        )}
+      </PermissionGuard>
     </div>
   );
 }

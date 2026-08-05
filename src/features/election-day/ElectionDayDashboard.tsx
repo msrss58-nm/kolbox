@@ -14,6 +14,7 @@ import {
 import { Card, CardTitle } from "../../components/ui/Card";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { CHART_TOOLTIP_STYLE_COMPACT } from "../../constants/chart";
+import { PermissionGuard } from "../../permissions/PermissionGuard";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { RideCoordinationTable } from "./RideCoordinationTable";
@@ -228,13 +229,17 @@ export function ElectionDayDashboard({
 
       <div className="space-y-4">
         <VotingPieChart stats={stats} />
-        {coordinatorBreakdown.length > 0 && (
-          <CoordinatorBarCard rows={coordinatorBreakdown} />
-        )}
-        <RideCoordinationTable
-          contacts={rideCoordinationQueue}
-          onToggleCompleted={onToggleRideCompleted}
-        />
+        <PermissionGuard permission="voter.viewCoordinator">
+          {coordinatorBreakdown.length > 0 && (
+            <CoordinatorBarCard rows={coordinatorBreakdown} />
+          )}
+        </PermissionGuard>
+        <PermissionGuard permission="voter.viewRideStatus">
+          <RideCoordinationTable
+            contacts={rideCoordinationQueue}
+            onToggleCompleted={onToggleRideCompleted}
+          />
+        </PermissionGuard>
       </div>
     </div>
   );

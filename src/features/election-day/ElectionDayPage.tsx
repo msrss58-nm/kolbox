@@ -17,6 +17,7 @@ import { ElectionDayList } from "./ElectionDayList";
 import { useElectionDaySession } from "./electionDaySession";
 import { PermissionUsersModal } from "./PermissionUsersModal";
 import { RideCoordinatorsModal } from "./RideCoordinatorsModal";
+import { usePermissions } from "../../permissions/usePermissions";
 import { useCountdown } from "./useCountdown";
 import { useElectionDay } from "./useElectionDay";
 
@@ -31,6 +32,15 @@ export function ElectionDayPage() {
 
   const sessionUser = useElectionDaySession((s) => s.user);
   const logout = useElectionDaySession((s) => s.logout);
+  const { can } = usePermissions();
+  const showImport = can("electionDay.import");
+  const showClearData = can("electionDay.clearData");
+  const showManageRideCoordinators = can("electionDay.manageRideCoordinators");
+  const showManageUsers = can("electionDay.manageUsers");
+  const showExport = can("electionDay.export");
+  const showControlPanelLeft =
+    showImport || showClearData || showManageRideCoordinators || showManageUsers;
+  const showControlPanel = showControlPanelLeft || showExport;
 
   const openContact = electionDay.contacts?.find((c) => c.id === openContactId) ?? null;
 
@@ -64,43 +74,61 @@ export function ElectionDayPage() {
       />
 
       <Card className="mb-6 flex flex-col gap-4">
-        {sessionUser?.role !== "user" && (
+        {showControlPanel && (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <ElectionDayImportButton
-                onFileSelected={(file) => setPendingImportFile(file)}
-                busy={electionDay.importing}
-              />
-              <Button
-                variant="danger"
-                disabled={!electionDay.total}
-                onClick={() => setConfirmClearOpen(true)}
-              >
-                🗑️ {ELECTION_DAY_TEXT.clearAll.button}
-              </Button>
-              <Button variant="secondary" onClick={() => setCoordinatorsModalOpen(true)}>
-                👨‍💼 {ELECTION_DAY_TEXT.coordinatorsManager.button}
-              </Button>
-              <Button variant="secondary" onClick={() => setPermissionsModalOpen(true)}>
-                🔑 {ELECTION_DAY_TEXT.permissionsManager.button}
-              </Button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
-                disabled={!electionDay.total}
-                onClick={sendSnapshotReport}
-              >
-                📲 {ELECTION_DAY_TEXT.snapshotReport.button}
-              </Button>
-              <Button
-                className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
-                disabled={!electionDay.total}
-                onClick={electionDay.exportReport}
-              >
-                ⬇️ {ELECTION_DAY_TEXT.exportReport.button}
-              </Button>
-            </div>
+            {showControlPanelLeft && (
+              <div className="flex flex-wrap items-center gap-2">
+                {showImport && (
+                  <ElectionDayImportButton
+                    onFileSelected={(file) => setPendingImportFile(file)}
+                    busy={electionDay.importing}
+                  />
+                )}
+                {showClearData && (
+                  <Button
+                    variant="danger"
+                    disabled={!electionDay.total}
+                    onClick={() => setConfirmClearOpen(true)}
+                  >
+                    🗑️ {ELECTION_DAY_TEXT.clearAll.button}
+                  </Button>
+                )}
+                {showManageRideCoordinators && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setCoordinatorsModalOpen(true)}
+                  >
+                    👨‍💼 {ELECTION_DAY_TEXT.coordinatorsManager.button}
+                  </Button>
+                )}
+                {showManageUsers && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPermissionsModalOpen(true)}
+                  >
+                    🔑 {ELECTION_DAY_TEXT.permissionsManager.button}
+                  </Button>
+                )}
+              </div>
+            )}
+            {showExport && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
+                  disabled={!electionDay.total}
+                  onClick={sendSnapshotReport}
+                >
+                  📲 {ELECTION_DAY_TEXT.snapshotReport.button}
+                </Button>
+                <Button
+                  className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
+                  disabled={!electionDay.total}
+                  onClick={electionDay.exportReport}
+                >
+                  ⬇️ {ELECTION_DAY_TEXT.exportReport.button}
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -120,7 +148,8 @@ export function ElectionDayPage() {
           </div>
         )}
 
-        {electionDay.lastImportSummary &&
+        {showImport &&
+          electionDay.lastImportSummary &&
           electionDay.lastImportSummary.rejected.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
               <span className="font-semibold">

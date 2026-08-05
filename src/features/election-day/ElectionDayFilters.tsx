@@ -1,4 +1,5 @@
 import { MultiSelectDropdown } from "../../components/ui/MultiSelectDropdown";
+import { PermissionGuard } from "../../permissions/PermissionGuard";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { RideStatusFilterValue } from "./useElectionDay";
 
@@ -28,13 +29,15 @@ export function ElectionDayFilters({
 }) {
   return (
     <>
-      <MultiSelectDropdown
-        emptyLabel={ELECTION_DAY_TEXT.coordinatorFilter.all}
-        options={coordinators.map((c) => ({ value: c, label: c }))}
-        selected={coordinatorFilter}
-        onChange={onCoordinatorFilterChange}
-        className="md:w-52"
-      />
+      <PermissionGuard permission="voter.viewCoordinator">
+        <MultiSelectDropdown
+          emptyLabel={ELECTION_DAY_TEXT.coordinatorFilter.all}
+          options={coordinators.map((c) => ({ value: c, label: c }))}
+          selected={coordinatorFilter}
+          onChange={onCoordinatorFilterChange}
+          className="md:w-52"
+        />
+      </PermissionGuard>
       <MultiSelectDropdown
         emptyLabel={ELECTION_DAY_TEXT.cityFilter.all}
         options={cities.map((c) => ({ value: c, label: c }))}
@@ -42,13 +45,15 @@ export function ElectionDayFilters({
         onChange={onCityFilterChange}
         className="md:w-52"
       />
-      <MultiSelectDropdown
-        emptyLabel={ELECTION_DAY_TEXT.statusFilter.all}
-        options={STATUS_OPTIONS}
-        selected={statusFilter}
-        onChange={(values) => onStatusFilterChange(values as RideStatusFilterValue[])}
-        className="md:w-52"
-      />
+      <PermissionGuard permission="voter.viewRideStatus">
+        <MultiSelectDropdown
+          emptyLabel={ELECTION_DAY_TEXT.statusFilter.all}
+          options={STATUS_OPTIONS}
+          selected={statusFilter}
+          onChange={(values) => onStatusFilterChange(values as RideStatusFilterValue[])}
+          className="md:w-52"
+        />
+      </PermissionGuard>
     </>
   );
 }

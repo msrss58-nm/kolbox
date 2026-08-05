@@ -1,11 +1,29 @@
+import { useMemo } from "react";
 import { ArrowDown, ArrowUp, ChevronsUpDown, SearchX, Users } from "lucide-react";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { cn } from "../../lib/utils";
+import { usePermissions } from "../../permissions/usePermissions";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayRow } from "./ElectionDayRow";
+import {
+  ELECTION_DAY_ROW_COLUMNS,
+  type ElectionDayColumnDef,
+} from "./electionDayRowColumns";
 import type { ElectionDaySortKey, SortDir } from "./useElectionDay";
+
+const COLUMN_LABELS = {
+  masad: ELECTION_DAY_TEXT.list.columns.masad,
+  name: ELECTION_DAY_TEXT.list.columns.name,
+  street: ELECTION_DAY_TEXT.list.columns.street,
+  houseNumber: ELECTION_DAY_TEXT.list.columns.houseNumber,
+  city: ELECTION_DAY_TEXT.list.columns.city,
+  phone: ELECTION_DAY_TEXT.list.columns.phone,
+  coordinator: ELECTION_DAY_TEXT.list.columns.coordinator,
+  notes: ELECTION_DAY_TEXT.list.columns.notes,
+  status: ELECTION_DAY_TEXT.list.columns.status,
+} as const;
 
 function SortableHeader({
   label,
@@ -38,51 +56,55 @@ function SortableHeader({
 }
 
 function ListHeader({
+  columns,
   sortBy,
   sortDir,
   onSort,
 }: {
+  columns: readonly ElectionDayColumnDef[];
   sortBy: ElectionDaySortKey | null;
   sortDir: SortDir;
   onSort: (key: ElectionDaySortKey) => void;
 }) {
   return (
-    <div className="hidden border-b border-slate-100 px-4 py-2.5 text-center md:grid md:grid-cols-[0.5fr_1.1fr_0.8fr_0.5fr_0.7fr_0.9fr_0.8fr_1fr_7rem] md:items-center md:gap-3">
-      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
-        {ELECTION_DAY_TEXT.list.columns.masad}
-      </span>
-      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
-        {ELECTION_DAY_TEXT.list.columns.name}
-      </span>
-      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
-        {ELECTION_DAY_TEXT.list.columns.street}
-      </span>
-      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
-        {ELECTION_DAY_TEXT.list.columns.houseNumber}
-      </span>
-      <SortableHeader
-        label={ELECTION_DAY_TEXT.list.columns.city}
-        active={sortBy === "city"}
-        dir={sortDir}
-        onClick={() => onSort("city")}
-        centered
-      />
-      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
-        {ELECTION_DAY_TEXT.list.columns.phone}
-      </span>
-      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
-        {ELECTION_DAY_TEXT.list.columns.coordinator}
-      </span>
-      <span className="min-w-0 truncate text-xs font-bold text-slate-400">
-        {ELECTION_DAY_TEXT.list.columns.notes}
-      </span>
-      <SortableHeader
-        label={ELECTION_DAY_TEXT.list.columns.status}
-        active={sortBy === "status"}
-        dir={sortDir}
-        onClick={() => onSort("status")}
-        centered
-      />
+    <div
+      className="hidden border-b border-slate-100 px-4 py-2.5 text-center md:grid md:items-center md:gap-3"
+      style={{ gridTemplateColumns: columns.map((c) => c.width).join(" ") }}
+    >
+      {columns.map((col) => {
+        if (col.key === "city") {
+          return (
+            <SortableHeader
+              key={col.key}
+              label={COLUMN_LABELS.city}
+              active={sortBy === "city"}
+              dir={sortDir}
+              onClick={() => onSort("city")}
+              centered
+            />
+          );
+        }
+        if (col.key === "status") {
+          return (
+            <SortableHeader
+              key={col.key}
+              label={COLUMN_LABELS.status}
+              active={sortBy === "status"}
+              dir={sortDir}
+              onClick={() => onSort("status")}
+              centered
+            />
+          );
+        }
+        return (
+          <span
+            key={col.key}
+            className="min-w-0 truncate text-xs font-bold text-slate-400"
+          >
+            {COLUMN_LABELS[col.key]}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -108,6 +130,12 @@ export function ElectionDayList({
   onSort: (key: ElectionDaySortKey) => void;
   onOpen: (id: string) => void;
 }) {
+  const { can } = usePermissions();
+  const visibleColumns = useMemo(
+    () => ELECTION_DAY_ROW_COLUMNS.filter((col) => can(col.permission)),
+    [can],
+  );
+
   if (contacts === null) {
     return (
       <div className={cn("space-y-2 bg-white p-4", MIN_HEIGHT)}>
@@ -140,11 +168,17 @@ export function ElectionDayList({
 
   return (
     <div className={cn("bg-white", MIN_HEIGHT)}>
-      <ListHeader sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+      <ListHeader
+        columns={visibleColumns}
+        sortBy={sortBy}
+        sortDir={sortDir}
+        onSort={onSort}
+      />
       {contacts.map((contact) => (
         <ElectionDayRow
           key={contact.id}
           contact={contact}
+          columns={visibleColumns}
           onOpen={() => onOpen(contact.id)}
         />
       ))}

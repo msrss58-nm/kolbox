@@ -9,6 +9,7 @@ import { useAuth } from "../features/auth/authStore";
 import { useSyncActivistProfile } from "../features/auth/useSyncActivistProfile";
 import { useElectionDaySession } from "../features/election-day/electionDaySession";
 import { cn } from "../lib/utils";
+import { usePermissions } from "../permissions/usePermissions";
 import { APP_SHELL_TEXT } from "./appShell.constants";
 
 function SidebarLink({
@@ -59,11 +60,21 @@ export function AppLayout() {
     [user?.role],
   );
 
-  // An Election Day "user"-role session can only use the Election Day nav
-  // item - every other main-app section (dashboard/voters/etc) is shown but
+  // An Election Day session whose effective role lacks full navigation
+  // access (operations/voting) can only use the Election Day nav item -
+  // every other main-app section (dashboard/voters/etc) is shown but
   // unclickable, since this session has no bearing on the rest of the app.
+  //
+  // The `electionDaySessionUser !== null` check is deliberate and required:
+  // `usePermissions()` denies every permission (including
+  // app.accessFullNavigation) when there is no Election Day session at
+  // all, which is the ordinary state for anyone using the main app who has
+  // never touched /election-day. Without this presence check, every such
+  // user would see their main-app navigation wrongly locked down.
   const electionDaySessionUser = useElectionDaySession((s) => s.user);
-  const isElectionDayUserRole = electionDaySessionUser?.role === "user";
+  const { can } = usePermissions();
+  const restrictedToElectionDay =
+    electionDaySessionUser !== null && !can("app.accessFullNavigation");
 
   const doLogout = async () => {
     await signOut();
@@ -80,7 +91,7 @@ export function AppLayout() {
             <SidebarLink
               key={item.to}
               {...item}
-              disabled={isElectionDayUserRole && item.to !== ROUTES.electionDay}
+              disabled={restrictedToElectionDay && item.to !== ROUTES.electionDay}
             />
           ))}
         </nav>
@@ -132,7 +143,7 @@ export function AppLayout() {
       {/* Mobile bottom nav */}
       <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {navItems.map(({ to, label, icon: Icon, end }) => {
-          if (isElectionDayUserRole && to !== ROUTES.electionDay) {
+          if (restrictedToElectionDay && to !== ROUTES.electionDay) {
             return (
               <span
                 key={to}
