@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { X } from "lucide-react";
+import { useOutletContext } from "react-router";
 import { PageHeader } from "../../components/PageHeader";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -12,6 +13,7 @@ import { ElectionDayContactModal } from "./ElectionDayContactModal";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayDashboard } from "./ElectionDayDashboard";
 import { ElectionDayFilters } from "./ElectionDayFilters";
+import type { ElectionDayOutletContext } from "./ElectionDayGuard";
 import { ElectionDayImportButton } from "./ElectionDayImportButton";
 import { ElectionDayList } from "./ElectionDayList";
 import { useElectionDaySession } from "./electionDaySession";
@@ -33,10 +35,14 @@ export function ElectionDayPage() {
   const sessionUser = useElectionDaySession((s) => s.user);
   const logout = useElectionDaySession((s) => s.logout);
   const { can } = usePermissions();
+  const { isBootstrap } = useOutletContext<ElectionDayOutletContext>();
   const showImport = can("electionDay.import");
   const showClearData = can("electionDay.clearData");
   const showManageRideCoordinators = can("electionDay.manageRideCoordinators");
-  const showManageUsers = can("electionDay.manageUsers");
+  // `isBootstrap` (see ElectionDayGuard) only ever widens this one button -
+  // the roster-empty "add the first account" escape hatch - never any other
+  // permission below.
+  const showManageUsers = can("electionDay.manageUsers") || isBootstrap;
   const showExport = can("electionDay.export");
   const showControlPanelLeft =
     showImport || showClearData || showManageRideCoordinators || showManageUsers;
