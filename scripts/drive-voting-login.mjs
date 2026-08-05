@@ -51,12 +51,12 @@ assert(true, "voting: real login succeeded (previously impossible - no DatabaseR
 // (polls) rather than a one-shot isVisible() - the session-info block paints
 // slightly after the initial post-login render settles.
 const roleLabelVisible = await page
-  .waitForSelector(`text=${VOTING_NAME} · הצבעה`, { timeout: 10000 })
+  .waitForSelector(`text=${VOTING_NAME} · נציג קלפי`, { timeout: 10000 })
   .then(() => true)
   .catch(() => false);
 assert(
   roleLabelVisible,
-  'voting: session label shows "<name> · הצבעה" (real DatabaseRole -> EffectiveRole -> UI label, full pipeline)',
+  'voting: session label shows "<name> · נציג קלפי" (real DatabaseRole -> EffectiveRole -> UI label, full pipeline)',
 );
 
 // Same admin-surface restrictions as operations (voting has zero admin
