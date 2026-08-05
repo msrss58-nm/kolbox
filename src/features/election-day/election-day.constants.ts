@@ -10,6 +10,8 @@ export const ELECTION_DAY_TEXT = {
   searchAriaLabel: "חיפוש אנשי קשר",
   clearSearchAriaLabel: "ניקוי חיפוש",
 
+  permissionDenied: "אין לך הרשאה לבצע פעולה זו",
+
   countdown: {
     label: "יעד",
     noDeadline: "לא נקבע יעד",

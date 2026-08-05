@@ -45,11 +45,15 @@ export function PermissionUsersModal({
     }
     setBusy(true);
     try {
-      await onAdd({ name: name.trim(), password: password.trim(), role });
-      setName("");
-      setPassword("");
-      setShowPassword(false);
-      setRole("user");
+      // A blocked (no permission) or failed add resolves to `undefined` -
+      // only clear the form once the account was actually created.
+      const result = await onAdd({ name: name.trim(), password: password.trim(), role });
+      if (result !== undefined) {
+        setName("");
+        setPassword("");
+        setShowPassword(false);
+        setRole("user");
+      }
     } finally {
       setBusy(false);
     }

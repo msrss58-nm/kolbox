@@ -7,7 +7,6 @@ import { Card } from "../../components/ui/Card";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { Input } from "../../components/ui/Field";
 import { Pagination } from "../../components/ui/Pagination";
-import { whatsAppShareHref } from "../../lib/phone";
 import { CountdownHeader } from "./CountdownHeader";
 import { ElectionDayContactModal } from "./ElectionDayContactModal";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
@@ -24,7 +23,8 @@ import { useCountdown } from "./useCountdown";
 import { useElectionDay } from "./useElectionDay";
 
 export function ElectionDayPage() {
-  const electionDay = useElectionDay();
+  const { isBootstrap } = useOutletContext<ElectionDayOutletContext>();
+  const electionDay = useElectionDay(isBootstrap);
   const countdownParts = useCountdown(electionDay.deadline);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
@@ -35,13 +35,14 @@ export function ElectionDayPage() {
   const sessionUser = useElectionDaySession((s) => s.user);
   const logout = useElectionDaySession((s) => s.logout);
   const { can } = usePermissions();
-  const { isBootstrap } = useOutletContext<ElectionDayOutletContext>();
   const showImport = can("electionDay.import");
   const showClearData = can("electionDay.clearData");
   const showManageRideCoordinators = can("electionDay.manageRideCoordinators");
   // `isBootstrap` (see ElectionDayGuard) only ever widens this one button -
   // the roster-empty "add the first account" escape hatch - never any other
-  // permission below.
+  // permission below. `useElectionDay`'s `addPermissionUser` carries the
+  // matching business-logic exception, so this button being visible and the
+  // action it triggers actually being allowed stay in sync.
   const showManageUsers = can("electionDay.manageUsers") || isBootstrap;
   const showExport = can("electionDay.export");
   const showControlPanelLeft =
@@ -49,25 +50,6 @@ export function ElectionDayPage() {
   const showControlPanel = showControlPanelLeft || showExport;
 
   const openContact = electionDay.contacts?.find((c) => c.id === openContactId) ?? null;
-
-  const sendSnapshotReport = () => {
-    const time = new Date().toLocaleTimeString("he-IL", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    const message = ELECTION_DAY_TEXT.snapshotReport.message({
-      time,
-      total: electionDay.stats.total,
-      voted: electionDay.stats.voted,
-      votedPct: electionDay.stats.votedPct,
-      coordinators: electionDay.coordinatorBreakdown.map((c) => ({
-        name: c.coordinator,
-        total: c.total,
-        voted: c.voted,
-      })),
-    });
-    window.open(whatsAppShareHref(message), "_blank", "noreferrer");
-  };
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -122,7 +104,7 @@ export function ElectionDayPage() {
                 <Button
                   className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
                   disabled={!electionDay.total}
-                  onClick={sendSnapshotReport}
+                  onClick={electionDay.sendSnapshotReport}
                 >
                   📲 {ELECTION_DAY_TEXT.snapshotReport.button}
                 </Button>
@@ -305,8 +287,11 @@ export function ElectionDayPage() {
         danger
         busy={electionDay.clearing}
         onConfirm={async () => {
-          await electionDay.clearElectionDayData();
-          setConfirmClearOpen(false);
+          // A blocked (no permission) or failed clear resolves to
+          // `undefined` - the dialog must stay open, not close as if the
+          // data had actually been wiped.
+          const result = await electionDay.clearElectionDayData();
+          if (result !== undefined) setConfirmClearOpen(false);
         }}
         onCancel={() => setConfirmClearOpen(false)}
       />
@@ -320,8 +305,11 @@ export function ElectionDayPage() {
         busy={electionDay.importing}
         onConfirm={async () => {
           if (!pendingImportFile) return;
-          await electionDay.importFile(pendingImportFile);
-          setPendingImportFile(null);
+          // Same as clear-data above: a blocked or failed import resolves
+          // to `undefined` - keep the dialog open rather than close it as
+          // if the file had actually been loaded.
+          const result = await electionDay.importFile(pendingImportFile);
+          if (result !== undefined) setPendingImportFile(null);
         }}
         onCancel={() => setPendingImportFile(null)}
       />

@@ -5,6 +5,9 @@ import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { whatsAppShareHref } from "../../lib/phone";
+import { reportPermissionDenied } from "../../permissions/permissionAudit";
+import type { Permission } from "../../permissions/types";
+import { usePermissions } from "../../permissions/usePermissions";
 import { api } from "../../services/api";
 import type { NewPermissionUser, NewRideCoordinator } from "../../services/api";
 import {
@@ -54,8 +57,36 @@ function ridePipelineStage(c: ElectionDayVoter): number {
 
 /** Owns the election-day ride-coordination list: import, coordinator filter,
  * ride-status mutation, and the countdown deadline - so `ElectionDayPage`
- * stays a thin view. */
-export function useElectionDay() {
+ * stays a thin view.
+ *
+ * @param isBootstrap - from `ElectionDayGuard`'s Outlet context: true only
+ * while the `PermissionUser` roster is empty and no one is signed in. Used
+ * exclusively to allow `addPermissionUser` (create the first account) - see
+ * that function below. Not a role, not passed to anything else. */
+export function useElectionDay(isBootstrap: boolean) {
+  const { can, role } = usePermissions();
+
+  /** Every mutation exposed by this hook goes through this - checks
+   * `permission` before calling `action` at all: on denial, 0 API calls,
+   * 0 state changes, an audit entry, and a Hebrew toast; the returned
+   * function's `Promise<R | undefined>` shape is unchanged from before
+   * (matches `useAsyncAction`'s own "undefined on failure" contract), so no
+   * consumer needs to change how it reads the result. */
+  function guardedAction<Args extends unknown[], R>(
+    permission: Permission,
+    action: (...args: Args) => Promise<R>,
+    context: string,
+  ): (...args: Args) => Promise<R | undefined> {
+    return async (...args: Args) => {
+      if (!can(permission)) {
+        reportPermissionDenied({ role, permission, context });
+        toast.error(ELECTION_DAY_TEXT.permissionDenied);
+        return undefined;
+      }
+      return action(...args);
+    };
+  }
+
   const fetchContacts = useCallback(() => api.listElectionDayVoters(), []);
   const {
     data: contacts,
@@ -322,7 +353,7 @@ export function useElectionDay() {
     },
   );
 
-  const importFile = useCallback(
+  const importFileRaw = useCallback(
     async (file: File) => {
       const result = await runImport(file);
       if (result) {
@@ -330,21 +361,38 @@ export function useElectionDay() {
         reloadContacts();
         reloadEvents();
       }
+      return result;
     },
     [runImport, reloadContacts, reloadEvents],
   );
+  const importFile = guardedAction("electionDay.import", importFileRaw, "importFile");
 
+  // Wrapped to resolve to an explicit `true` sentinel on success (instead of
+  // the underlying `void`) - `clearElectionDayDataRaw` below needs a way to
+  // tell "succeeded" apart from "blocked/failed" (both otherwise `undefined`)
+  // so its `ConfirmDialog` caller never closes as if a blocked/failed clear
+  // had gone through.
   const { run: runClearAll, busy: clearing } = useAsyncAction(
-    () => api.clearElectionDayVoters(),
+    async () => {
+      await api.clearElectionDayVoters();
+      return true;
+    },
     { successMessage: ELECTION_DAY_TEXT.clearAll.toast.cleared },
   );
 
-  const clearElectionDayData = useCallback(async () => {
-    await runClearAll();
+  const clearElectionDayDataRaw = useCallback(async () => {
+    const result = await runClearAll();
+    if (result === undefined) return undefined;
     setLastImportSummary(null);
     reloadContacts();
     reloadEvents();
+    return true;
   }, [runClearAll, reloadContacts, reloadEvents]);
+  const clearElectionDayData = guardedAction(
+    "electionDay.clearData",
+    clearElectionDayDataRaw,
+    "clearElectionDayData",
+  );
 
   const downloadRejectedRows = useCallback(() => {
     if (lastImportSummary && lastImportSummary.rejected.length > 0) {
@@ -355,24 +403,71 @@ export function useElectionDay() {
   const dismissImportSummary = useCallback(() => setLastImportSummary(null), []);
 
   const exportReport = useCallback(() => {
+    if (!can("electionDay.export")) {
+      reportPermissionDenied({
+        role,
+        permission: "electionDay.export",
+        context: "exportReport",
+      });
+      toast.error(ELECTION_DAY_TEXT.permissionDenied);
+      return;
+    }
     if (!contacts || contacts.length === 0) {
       toast.info(ELECTION_DAY_TEXT.exportReport.toast.empty);
       return;
     }
     exportElectionDayVotersToExcel(contacts);
-  }, [contacts]);
+  }, [can, role, contacts]);
+
+  /** Opens WhatsApp with an aggregate-turnout summary (no per-voter data) -
+   * moved in from `ElectionDayPage.tsx` so it goes through the same
+   * `electionDay.export` guard as `exportReport` instead of a separate,
+   * locally-duplicated check. */
+  const sendSnapshotReport = useCallback(() => {
+    if (!can("electionDay.export")) {
+      reportPermissionDenied({
+        role,
+        permission: "electionDay.export",
+        context: "sendSnapshotReport",
+      });
+      toast.error(ELECTION_DAY_TEXT.permissionDenied);
+      return;
+    }
+    const time = new Date().toLocaleTimeString("he-IL", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const message = ELECTION_DAY_TEXT.snapshotReport.message({
+      time,
+      total: stats.total,
+      voted: stats.voted,
+      votedPct: stats.votedPct,
+      coordinators: coordinatorBreakdown.map((c) => ({
+        name: c.coordinator,
+        total: c.total,
+        voted: c.voted,
+      })),
+    });
+    window.open(whatsAppShareHref(message), "_blank", "noreferrer");
+  }, [can, role, stats, coordinatorBreakdown]);
 
   const { run: runSetDeadline } = useAsyncAction(
     (iso: string | null) => api.setElectionDayDeadline(iso),
     { successMessage: ELECTION_DAY_TEXT.countdown.toast.saved },
   );
 
-  const setElectionDayDeadline = useCallback(
+  const setElectionDayDeadlineRaw = useCallback(
     async (iso: string | null) => {
       const result = await runSetDeadline(iso);
       if (result !== undefined) setDeadline(result);
+      return result;
     },
     [runSetDeadline, setDeadline],
+  );
+  const setElectionDayDeadline = guardedAction(
+    "electionDay.manageSettings",
+    setElectionDayDeadlineRaw,
+    "setElectionDayDeadline",
   );
 
   const { run: runSetRideArranged } = useAsyncAction(
@@ -385,7 +480,12 @@ export function useElectionDay() {
     },
   );
 
-  const setRideArranged = useCallback(
+  // Raw (unguarded) primitive - called directly both by the public
+  // `setRideArranged` below and by the ride-coordination composites
+  // (`toggleRideRequested`/`sendRideRequestToDriver`/`cancelRideCoordination`),
+  // which each carry their own single `voter.manageRide` guard at their own
+  // top instead of relying on this one's.
+  const applyRideArrangedRaw = useCallback(
     async (id: string, arranged: boolean) => {
       const updated = await runSetRideArranged(id, arranged);
       if (updated) {
@@ -397,6 +497,11 @@ export function useElectionDay() {
       return updated;
     },
     [runSetRideArranged, setContacts, reloadEvents],
+  );
+  const setRideArranged = guardedAction(
+    "voter.manageRide",
+    applyRideArrangedRaw,
+    "setRideArranged",
   );
 
   const applyContactUpdate = useCallback(
@@ -422,13 +527,20 @@ export function useElectionDay() {
     },
   );
 
-  const setReminder = useCallback(
+  const setReminderRaw = useCallback(
     async (id: string, minutes: number | null) => {
       const updated = await runSetReminder(id, minutes);
       if (updated) applyContactUpdate(updated);
       return updated;
     },
     [runSetReminder, applyContactUpdate],
+  );
+  // Also covers "cancel reminder" - callers pass `minutes: null` for that,
+  // same guarded function, same `voter.manageReminder` permission.
+  const setReminder = guardedAction(
+    "voter.manageReminder",
+    setReminderRaw,
+    "setReminder",
   );
 
   const { run: runSetVoted } = useAsyncAction(
@@ -441,7 +553,7 @@ export function useElectionDay() {
     },
   );
 
-  const setVoted = useCallback(
+  const setVotedRaw = useCallback(
     async (id: string, voted: boolean) => {
       const updated = await runSetVoted(id, voted);
       if (updated) applyContactUpdate(updated);
@@ -449,6 +561,7 @@ export function useElectionDay() {
     },
     [runSetVoted, applyContactUpdate],
   );
+  const setVoted = guardedAction("voter.markVoted", setVotedRaw, "setVoted");
 
   const { run: runSetRideCompleted } = useAsyncAction(
     (id: string, completed: boolean) => api.setRideCompleted(id, completed),
@@ -460,13 +573,18 @@ export function useElectionDay() {
     },
   );
 
-  const setRideCompleted = useCallback(
+  const setRideCompletedRaw = useCallback(
     async (id: string, completed: boolean) => {
       const updated = await runSetRideCompleted(id, completed);
       if (updated) applyContactUpdate(updated);
       return updated;
     },
     [runSetRideCompleted, applyContactUpdate],
+  );
+  const setRideCompleted = guardedAction(
+    "voter.manageRide",
+    setRideCompletedRaw,
+    "setRideCompleted",
   );
 
   const { run: runSetRideRequested } = useAsyncAction((id: string, requested: boolean) =>
@@ -477,7 +595,10 @@ export function useElectionDay() {
     api.setElectionDayNotes(id, notes),
   );
 
-  const setNotes = useCallback(
+  // Raw primitive - see `applyRideArrangedRaw`'s comment above; used both by
+  // the public `setNotes` and by the ride-coordination composites, which
+  // guard themselves once at their own top rather than through this.
+  const applyNotesRaw = useCallback(
     async (id: string, notes: string) => {
       const updated = await runSetNotes(id, notes);
       if (updated) applyContactUpdate(updated);
@@ -485,13 +606,14 @@ export function useElectionDay() {
     },
     [runSetNotes, applyContactUpdate],
   );
+  const setNotes = guardedAction("voter.editNotes", applyNotesRaw, "setNotes");
 
   const { run: runSetPhone, busy: settingPhone } = useAsyncAction(
     (id: string, phone: string) => api.setPhone(id, phone),
     { successMessage: ELECTION_DAY_TEXT.phoneEditor.toast.saved },
   );
 
-  const setPhone = useCallback(
+  const setPhoneRaw = useCallback(
     async (id: string, phone: string) => {
       const updated = await runSetPhone(id, phone);
       if (updated) applyContactUpdate(updated);
@@ -499,12 +621,13 @@ export function useElectionDay() {
     },
     [runSetPhone, applyContactUpdate],
   );
+  const setPhone = guardedAction("voter.editPhone", setPhoneRaw, "setPhone");
 
   /** Marking "יש דרישה להסעה" is a lighter-weight signal than actually
    * coordinating with a driver - just a note that this voter needs a ride.
    * Reversible (click again to clear), tagging/untagging the notes field
    * to match without disturbing anything else typed there. */
-  const toggleRideRequested = useCallback(
+  const toggleRideRequestedRaw = useCallback(
     async (contact: ElectionDayVoter) => {
       const nextRequested = !contact.rideRequested;
       const updated = await runSetRideRequested(contact.id, nextRequested);
@@ -513,9 +636,14 @@ export function useElectionDay() {
       const nextNotes = nextRequested
         ? addNoteTag(updated.notes, ELECTION_DAY_TEXT.noteTags.rideRequested)
         : removeNoteTag(updated.notes, ELECTION_DAY_TEXT.noteTags.rideRequested);
-      await setNotes(contact.id, nextNotes);
+      await applyNotesRaw(contact.id, nextNotes);
     },
-    [runSetRideRequested, applyContactUpdate, setNotes],
+    [runSetRideRequested, applyContactUpdate, applyNotesRaw],
+  );
+  const toggleRideRequested = guardedAction(
+    "voter.manageRide",
+    toggleRideRequestedRaw,
+    "toggleRideRequested",
   );
 
   const { run: runAddRideCoordinator } = useAsyncAction(
@@ -523,7 +651,7 @@ export function useElectionDay() {
     { successMessage: ELECTION_DAY_TEXT.coordinatorsManager.toast.added },
   );
 
-  const addRideCoordinator = useCallback(
+  const addRideCoordinatorRaw = useCallback(
     async (input: NewRideCoordinator) => {
       const result = await runAddRideCoordinator(input);
       if (result) reloadRideCoordinators();
@@ -531,18 +659,28 @@ export function useElectionDay() {
     },
     [runAddRideCoordinator, reloadRideCoordinators],
   );
+  const addRideCoordinator = guardedAction(
+    "electionDay.manageRideCoordinators",
+    addRideCoordinatorRaw,
+    "addRideCoordinator",
+  );
 
   const { run: runDeleteRideCoordinator } = useAsyncAction(
     (id: string) => api.deleteRideCoordinator(id),
     { successMessage: ELECTION_DAY_TEXT.coordinatorsManager.toast.deleted },
   );
 
-  const deleteRideCoordinator = useCallback(
+  const deleteRideCoordinatorRaw = useCallback(
     async (id: string) => {
       await runDeleteRideCoordinator(id);
       reloadRideCoordinators();
     },
     [runDeleteRideCoordinator, reloadRideCoordinators],
+  );
+  const deleteRideCoordinator = guardedAction(
+    "electionDay.manageRideCoordinators",
+    deleteRideCoordinatorRaw,
+    "deleteRideCoordinator",
   );
 
   const { run: runAddPermissionUser } = useAsyncAction(
@@ -550,7 +688,7 @@ export function useElectionDay() {
     { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.added },
   );
 
-  const addPermissionUser = useCallback(
+  const addPermissionUserRaw = useCallback(
     async (input: NewPermissionUser) => {
       const result = await runAddPermissionUser(input);
       if (result) reloadPermissionUsers();
@@ -558,25 +696,60 @@ export function useElectionDay() {
     },
     [runAddPermissionUser, reloadPermissionUsers],
   );
+  // `permissionUsers` here is the raw fetched value (not the `?? []` default
+  // used in the returned object below) so "still loading" is never confused
+  // with "genuinely empty" - same distinction `ElectionDayGuard` makes.
+  const rosterStillEmpty = permissionUsers !== null && permissionUsers.length === 0;
+  // The one deliberate exception in the whole permission model: creating the
+  // very first `PermissionUser` is allowed with no session at all, but only
+  // while `isBootstrap` (no session *and* the roster was empty when the page
+  // loaded - see `ElectionDayGuard`) *and* the roster is still empty right
+  // now. That second, live check is what makes the exception self-cancel
+  // after the first account is created - `isBootstrap` alone wouldn't, since
+  // it doesn't change again until the next full page load. This is not
+  // `role: manager` - every other permission still resolves through `can`
+  // exactly as it does everywhere else, and `deletePermissionUser` below
+  // deliberately has no such exception.
+  const addPermissionUser = useCallback(
+    async (input: NewPermissionUser) => {
+      const allowed = can("electionDay.manageUsers") || (isBootstrap && rosterStillEmpty);
+      if (!allowed) {
+        reportPermissionDenied({
+          role,
+          permission: "electionDay.manageUsers",
+          context: "addPermissionUser",
+        });
+        toast.error(ELECTION_DAY_TEXT.permissionDenied);
+        return undefined;
+      }
+      return addPermissionUserRaw(input);
+    },
+    [can, role, isBootstrap, rosterStillEmpty, addPermissionUserRaw],
+  );
 
   const { run: runDeletePermissionUser } = useAsyncAction(
     (id: string) => api.deletePermissionUser(id),
     { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.deleted },
   );
 
-  const deletePermissionUser = useCallback(
+  const deletePermissionUserRaw = useCallback(
     async (id: string) => {
       await runDeletePermissionUser(id);
       reloadPermissionUsers();
     },
     [runDeletePermissionUser, reloadPermissionUsers],
   );
+  const deletePermissionUser = guardedAction(
+    "electionDay.manageUsers",
+    deletePermissionUserRaw,
+    "deletePermissionUser",
+  );
 
   /** Opens WhatsApp with the voter's pickup details pre-filled but no target
    * contact - the activist picks the driver by name inside WhatsApp itself
    * and sends it manually. Then marks the ride as arranged and tags the
    * notes field (additive, not overwriting whatever was already typed). */
-  const sendRideRequestToDriver = useCallback(
+  const sendRideRequestToDriverRaw = useCallback(
     async (contact: ElectionDayVoter) => {
       const address = [contact.street, contact.houseNumber || "", contact.city]
         .filter(Boolean)
@@ -587,16 +760,21 @@ export function useElectionDay() {
         phone: contact.phone,
       });
       window.open(whatsAppShareHref(message), "_blank", "noreferrer");
-      const updated = await setRideArranged(contact.id, true);
+      const updated = await applyRideArrangedRaw(contact.id, true);
       if (updated) {
-        await setNotes(
+        await applyNotesRaw(
           contact.id,
           addNoteTag(updated.notes, ELECTION_DAY_TEXT.noteTags.rideArranged),
         );
       }
       toast.success(ELECTION_DAY_TEXT.driver.toast.sent);
     },
-    [setRideArranged, setNotes],
+    [applyRideArrangedRaw, applyNotesRaw],
+  );
+  const sendRideRequestToDriver = guardedAction(
+    "voter.manageRide",
+    sendRideRequestToDriverRaw,
+    "sendRideRequestToDriver",
   );
 
   /** Reverses a ride coordination (the "בטל תיאום" button) - always clears
@@ -605,7 +783,7 @@ export function useElectionDay() {
    * (not just the ride-related tags). Only opens WhatsApp with a
    * cancellation message when the notes actually carried the "תואם" tag -
    * i.e. a driver had really been contacted, not just a bare ride request. */
-  const cancelRideCoordination = useCallback(
+  const cancelRideCoordinationRaw = useCallback(
     async (contact: ElectionDayVoter) => {
       const wasArranged = hasNoteTag(
         contact.notes,
@@ -624,12 +802,17 @@ export function useElectionDay() {
         window.open(whatsAppShareHref(message), "_blank", "noreferrer");
       }
 
-      await setRideArranged(contact.id, false);
+      await applyRideArrangedRaw(contact.id, false);
       const updated = await runSetRideRequested(contact.id, false);
       if (updated) applyContactUpdate(updated);
-      await setNotes(contact.id, "");
+      await applyNotesRaw(contact.id, "");
     },
-    [setRideArranged, runSetRideRequested, applyContactUpdate, setNotes],
+    [applyRideArrangedRaw, runSetRideRequested, applyContactUpdate, applyNotesRaw],
+  );
+  const cancelRideCoordination = guardedAction(
+    "voter.manageRide",
+    cancelRideCoordinationRaw,
+    "cancelRideCoordination",
   );
 
   // Polls for due reminders and fires a toast for each (clearing it so it
@@ -643,6 +826,11 @@ export function useElectionDay() {
 
   useEffect(() => {
     const checkReminders = () => {
+      // A role that can't see reminder status shouldn't have one silently
+      // cleared, or a toast revealing a voter's name/coordinator, in the
+      // background - not a guardedAction denial (nothing was attempted),
+      // just a visibility gate on an automatic process.
+      if (!can("voter.viewReminderStatus")) return;
       const due = (contactsRef.current ?? []).filter(
         (c) => c.reminderAt && new Date(c.reminderAt).getTime() <= Date.now(),
       );
@@ -658,7 +846,7 @@ export function useElectionDay() {
     };
     const id = setInterval(checkReminders, 15_000);
     return () => clearInterval(id);
-  }, [applyContactUpdate]);
+  }, [applyContactUpdate, can]);
 
   return {
     contacts: pagedContacts,
@@ -699,6 +887,7 @@ export function useElectionDay() {
     clearElectionDayData,
     clearing,
     exportReport,
+    sendSnapshotReport,
     deadline: deadline ?? null,
     setElectionDayDeadline,
     setRideArranged,

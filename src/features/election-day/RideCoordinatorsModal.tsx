@@ -32,9 +32,13 @@ export function RideCoordinatorsModal({
     }
     setBusy(true);
     try {
-      await onAdd({ name: name.trim(), phone: phone.trim() });
-      setName("");
-      setPhone("");
+      // A blocked (no permission) or failed add resolves to `undefined` -
+      // only clear the form once the coordinator was actually created.
+      const result = await onAdd({ name: name.trim(), phone: phone.trim() });
+      if (result !== undefined) {
+        setName("");
+        setPhone("");
+      }
     } finally {
       setBusy(false);
     }

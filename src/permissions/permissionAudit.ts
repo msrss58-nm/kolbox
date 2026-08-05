@@ -1,7 +1,9 @@
 import type { EffectiveRole, Permission } from "./types";
 
 export interface PermissionDenialEvent {
-  role: EffectiveRole;
+  /** `null` when there is no Election Day session at all - a denial can
+   * happen with no role to attribute it to (e.g. a stale tab after logout). */
+  role: EffectiveRole | null;
   permission: Permission;
   timestamp: string;
   /** Optional free-text hint about where the denial happened, e.g. a
@@ -11,10 +13,10 @@ export interface PermissionDenialEvent {
 
 /**
  * The single, centralized place a denied permission check gets reported.
- * Stage 1 only: `console.warn` here, no DB table, no external telemetry -
- * see task-plan.md. Nothing calls this yet; Stage 3 is expected to wire it
- * into `useElectionDay`'s mutation guards so every blocked action reports
- * through this one function instead of each `handler` logging its own way.
+ * `console.warn` here, no DB table, no external telemetry - see task-plan.md.
+ * Wired into `useElectionDay`'s `guardedAction` mutation guards (Stage 3) so
+ * every blocked action - including one attempted with no session - reports
+ * through this one function instead of each handler logging its own way.
  */
 export function reportPermissionDenied(
   event: Omit<PermissionDenialEvent, "timestamp">,
