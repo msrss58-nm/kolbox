@@ -6,26 +6,26 @@
 
 ## Production
 
-- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Dynamic Roles & Permissions Phase 1.**
+- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Dynamic Roles & Permissions Phase 2.**
 - **Vercel project**: `kolbox`, scope `nahom10`, Git integration auto-deploys on push to `master`.
-- Current production deployment: `dpl_BbCLGPtefzD8CzEHvdtApUhsSThQ`, `readyState: READY`, `target: production`, built from commit `b3ce9b9` ("feat: cut election day permission engine over to dynamic roles") - created ~1 minute after that commit's push, no other push in between. Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`.
-- Verified live on 2026-08-05 (post-deploy production smoke test): HTTP 200; Election Day login screen renders; manager/operations/`נציג קלפי` all logged in successfully via temporary RPC-created test accounts (deleted immediately after); manager saw the full 1,928-contact dataset and every admin control; operations/voting saw zero admin controls and zero contacts (scoped away, as expected - their synthetic test names matched no real coordinator); 0 console/page errors. Real data confirmed unchanged after cleanup: **1,928 voters**, **5 `PermissionUser` accounts**.
+- Current production deployment: `dpl_GCJJkBDLJWtDHm4AEYguCbJiYP3C`, `readyState: READY`, `target: production`, built from commit `92e8162` ("feat: add dynamic role management (Phase 2)") - created ~1 minute after that commit's push, no other push in between. Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`.
+- Verified live on 2026-08-06 (post-deploy production smoke test, full Playwright run): HTTP 200; manager and a dynamic-role test account both logged in successfully via the real UI (temporary RPC-created accounts, deleted immediately after); manager saw the full 1,928-contact dataset and every admin control including the new "תפקידים" tab; created/edited/cloned/deleted a role and created a `PermissionUser` against it entirely through the UI; the delete button for a role with an assigned user was correctly disabled; the dynamic-role account (custom permission set, `scope_type: "all"`) saw the full dataset but none of the admin-only buttons it wasn't granted; 0 critical console/page errors - **27/27 checks passed**. Real data confirmed unchanged after cleanup: **1,928 voters**, `PermissionUser` roster count returned exactly to baseline.
 
 ## Git
 
 - Branch: `master`
-- HEAD: `b3ce9b9` ("feat: cut election day permission engine over to dynamic roles")
-- `origin/master...master`: 0 ahead / 0 behind - fully synced (push completed 2026-08-05)
+- HEAD: `92e8162` ("feat: add dynamic role management (Phase 2)")
+- `origin/master...master`: 0 ahead / 0 behind - fully synced (push completed 2026-08-06)
 - Working tree: has uncommitted documentation-only changes as of this note (this file + `CHANGELOG.md`'s post-deploy fill-in) - no application code, migration, or test changes pending.
 
 Recent history (newest first):
 
 ```
+92e8162 feat: add dynamic role management (Phase 2)
+58e70db docs: close Dynamic Roles Phase 1 documentation
 b3ce9b9 feat: cut election day permission engine over to dynamic roles
 d830d50 feat: add dynamic roles database foundation
 6080d05 feat: rename voting role UI label to נציג קלפי
-94ea634 docs: close election day voting-role milestone (Stage 4)
-b739f4b feat: make voting a real, loggable-in election day role
 ```
 
 ## Election Day Permission Engine - status
@@ -34,7 +34,7 @@ The `manager` / `operations` / `voting` permission engine (`src/permissions/`) i
 
 ## Dynamic Roles & Permissions - status
 
-A separate, newer initiative: replacing the hardcoded 3-role permission engine with a DB-backed, fully editable role catalog (create/rename/delete/clone roles, assign arbitrary permission sets), while keeping today's `manager`/`operations`/`voting` behavior byte-for-byte unchanged until each phase is proven. Phases 0 and 1 are shipped and documented in `CHANGELOG.md`; Phase 2's migration is applied and live-verified against the real database but not yet committed/pushed/deployed (not yet in `CHANGELOG.md` - that entry is written once something has actually shipped, per this project's documentation convention). **None of this is yet written up in `task-plan.md`**'s Progress Log - this file remains the most current/detailed source of truth for this initiative regardless.
+A separate, newer initiative: replacing the hardcoded 3-role permission engine with a DB-backed, fully editable role catalog (create/rename/delete/clone roles, assign arbitrary permission sets), while keeping today's `manager`/`operations`/`voting` behavior byte-for-byte unchanged until each phase is proven. Phases 0, 1, and 2 are all shipped and documented in `CHANGELOG.md`. **None of this is yet written up in `task-plan.md`**'s Progress Log - this file remains the most current/detailed source of truth for this initiative regardless.
 
 ### Phase 0 - COMPLETE (shipped, in production)
 
@@ -90,7 +90,7 @@ Permission-engine **read-path** cutover: the permission engine now resolves a se
 
 **Phase 1 is fully closed**: code implemented, migration applied, committed, pushed, deployed, and live-verified in production with zero regressions.
 
-### Phase 2 - MIGRATION APPLIED, LIVE-VERIFIED (not yet committed/pushed/deployed)
+### Phase 2 - COMPLETE (shipped, in production)
 
 Real role management: a "תפקידים" UI tab (`RoleManagementModal.tsx` + `useRoleManagement.ts`), RPCs to create/update/delete/clone a role, and a new RPC to create a `PermissionUser` against an arbitrary `role_id` (not just the 3 legacy checkboxes, via `PermissionUsersModal.tsx`'s now-unified role picker built from the live catalog instead of 3 hardcoded checkboxes).
 
@@ -120,7 +120,11 @@ Real role management: a "תפקידים" UI tab (`RoleManagementModal.tsx` + `us
 
 **Re-verified locally after both fixes**: `tsc -b` clean, `eslint .` clean (0 errors), `npm run build` clean, `git diff --check` clean (only harmless CRLF notices), all 9 relevant smoke suites pass (`smoke-permissions`, `smoke-permission-logic`, `smoke-permission-ui`, `smoke-bootstrap`, `smoke-role-normalization`, `smoke-role-catalog`, `smoke-election-day-scope`, `smoke-role-seed-parity`, `smoke-role-management-logic`).
 
-**Not yet done, in order**: commit, push, deploy, then a production smoke test - each its own explicit approval gate, same phased pattern as every phase before this one.
+**Committed, pushed, and deployed** (2026-08-06): commit `92e8162` ("feat: add dynamic role management (Phase 2)"), pushed to `origin/master` (0 ahead/0 behind), deployed to production as `dpl_GCJJkBDLJWtDHm4AEYguCbJiYP3C` (`READY`, `https://kolbox-gamma.vercel.app`, built ~1 minute after the push).
+
+**Production smoke test - PASSED** (2026-08-06, full Playwright run against `https://kolbox-gamma.vercel.app`, 4 temporary `PermissionUser` accounts + 1 temporary role created via RPC/UI and removed immediately after) - **27/27 checks passed**: manager login through the real UI saw the full 1,928-contact dataset and every admin control; opened the "תפקידים" tab and saw the 3 built-in roles with their legacy badge; created a role through the UI, edited its scope to "כל אנשי הקשר", cloned it, deleted the clone (no users) successfully; created a `PermissionUser` against the custom role through the now-unified role picker in "ניהול הרשאות משתמשים" (roster correctly showed the custom role's real name, never "תפקיד לא ידוע"); the delete button for the custom role became disabled once a user was assigned to it; logged out and logged in as that dynamic-role account - saw the full dataset (`scope_type: "all"` took effect) but none of the admin-only buttons it wasn't granted; 0 critical console/page errors. **Cleanup verified complete**: `PermissionUser` count returned exactly to baseline, no leftover test roles, **1,928 voters unchanged**.
+
+**Phase 2 is fully closed**: code implemented, migration applied, live-verified pre-commit (37/37) and post-deploy in production (27/27), committed, pushed, deployed, zero regressions. The one residual gap (`CANNOT_REMOVE_LAST_PERMISSION_HOLDER`'s blocking path, see above) remains explicitly documented, not silently assumed resolved.
 
 ### Phase 3 - NOT STARTED
 
@@ -144,4 +148,6 @@ Legacy cleanup: drop `election_day_permission_users.role`, its CHECK constraint,
 
 **Phase 1 is complete and closed.** Commit `b3ce9b9` is pushed to `origin/master` and deployed to production (`dpl_BbCLGPtefzD8CzEHvdtApUhsSThQ`, `READY`, `https://kolbox-gamma.vercel.app`). The permission engine now reads roles from the live `election_day_roles` catalog instead of a hardcoded map, fail-closed on every non-"loaded and matched" state, live-verified in production with 0 regressions - 1,928 voters and 5 `PermissionUser` accounts unchanged.
 
-**Phase 2's migration is applied and live-verified (37/37 checks), not yet committed/pushed/deployed.** The role-management UI ("תפקידים" tab), its 5 supporting RPCs, and the necessary session-resolution correction (matching by `roleId`, not legacy text - see above) are all implemented, live-verified against the real database (including a real ambiguous-column bug found and fixed during that verification), and locally re-verified (`tsc`/`eslint`/`build`/9 smoke suites all clean). One residual gap remains explicitly unresolved (the `CANNOT_REMOVE_LAST_PERMISSION_HOLDER` guard's blocking path couldn't be safely live-triggered without touching real account/role data - see above). The continuation point is: commit, push, deploy - each requires its own explicit approval before proceeding, same phased pattern as every prior phase.
+**Phase 2 is complete and closed.** Commit `92e8162` is pushed to `origin/master` and deployed to production (`dpl_GCJJkBDLJWtDHm4AEYguCbJiYP3C`, `READY`, `https://kolbox-gamma.vercel.app`). The role-management UI ("תפקידים" tab), its 5 supporting RPCs, and the necessary session-resolution correction (matching by `roleId`, not legacy text) are all live-verified in production with 0 regressions - 1,928 voters and the `PermissionUser` roster unchanged. One residual gap remains explicitly documented, not silently resolved (the `CANNOT_REMOVE_LAST_PERMISSION_HOLDER` guard's blocking path - see above).
+
+**Phase 3 has not started.** The continuation point is legacy cleanup: drop `election_day_permission_users.role`, its CHECK constraint, the old `election_day_create_permission_user` RPC, and `legacy_role_key` itself once nothing reads them anymore. No code, RPC, or migration for Phase 3 exists yet; it requires its own explicit approval before any work begins.
