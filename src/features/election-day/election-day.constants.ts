@@ -300,6 +300,26 @@ export const ELECTION_DAY_TEXT = {
     coordinatedLabel: "תואם",
   },
 
+  /** Call Attempts Counter - a running "attempts/threshold" badge next to the
+   * call button; every click counts as an attempt. Hitting the threshold
+   * (3, then 6, 9…) auto-opens a non-dismissible decision dialog. */
+  callAttempts: {
+    count: (attempts: number, threshold: number) => `${attempts}/${threshold}`,
+    /** The pre-existing non-voting reason "close as לא עונה" resolves to -
+     * matched by `name` against the loaded `nonVotingReasons` catalog, since
+     * that catalog is data (no stable id constant to key off). */
+    noAnswerReasonName: "לא עונה",
+    dialogTitle: "בוצעו 3 ניסיונות חיוג",
+    /** `voterName` is the full name (first + last), same as everywhere else
+     * in this modal. Each trigger represents exactly 3 NEW attempts since the
+     * last checkpoint, so "שלושה" is always literally correct - never
+     * parameterized by the actual threshold. */
+    dialogBody: (voterName: string) =>
+      `בוצעו שלושה ניסיונות חיוג לבוחר:\n${voterName}\nולא התקבל מענה.\n\nמה תרצה לעשות?`,
+    closeAsNoAnswerButton: 'סגור את הבוחר כ"לא עונה"',
+    continueButton: "המשך ניסיונות (+3)",
+  },
+
   phoneEditor: {
     addTitle: "הוספת מספר טלפון",
     editTitle: "עדכון מספר טלפון",

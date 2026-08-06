@@ -62,6 +62,8 @@ export interface Database {
           not_voting_reason_id: string | null;
           not_voting_reason_set_at: string | null;
           not_voting_reason_set_by: string | null;
+          call_attempts: number;
+          call_attempts_threshold: number;
           created_at: string;
           updated_at: string;
         };
@@ -88,6 +90,8 @@ export interface Database {
           not_voting_reason_id?: string | null;
           not_voting_reason_set_at?: string | null;
           not_voting_reason_set_by?: string | null;
+          call_attempts?: number;
+          call_attempts_threshold?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -440,6 +444,19 @@ export interface Database {
           is_active: boolean;
           sort_order: number;
         }[];
+      };
+      /** Call Attempts Counter: atomically increments call_attempts by 1.
+       * Fired on every call-button click. */
+      election_day_increment_call_attempts: {
+        Args: { p_id: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Call Attempts Counter: atomically advances call_attempts_threshold
+       * by 3. Fired when the user chooses "keep trying" from the no-answer
+       * decision dialog. */
+      election_day_extend_call_attempts_threshold: {
+        Args: { p_id: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
       };
     };
     Enums: Record<string, never>;

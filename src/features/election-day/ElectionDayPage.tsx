@@ -318,6 +318,8 @@ export function ElectionDayPage() {
         onSetNotes={(id, notes) => void electionDay.setNotes(id, notes)}
         onSetPhone={electionDay.setPhone}
         settingPhone={electionDay.settingPhone}
+        onIncrementCallAttempts={electionDay.incrementCallAttempts}
+        onExtendCallAttemptsThreshold={electionDay.extendCallAttemptsThreshold}
       />
 
       <RideCoordinatorsModal

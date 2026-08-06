@@ -78,6 +78,8 @@ type VoterRow = {
   not_voting_reason_id: string | null;
   not_voting_reason_set_at: string | null;
   not_voting_reason_set_by: string | null;
+  call_attempts: number;
+  call_attempts_threshold: number;
 };
 
 function toVoter(row: VoterRow): ElectionDayVoter {
@@ -104,6 +106,8 @@ function toVoter(row: VoterRow): ElectionDayVoter {
     notVotingReasonId: row.not_voting_reason_id,
     notVotingReasonSetAt: row.not_voting_reason_set_at,
     notVotingReasonSetBy: row.not_voting_reason_set_by,
+    callAttempts: row.call_attempts,
+    callAttemptsThreshold: row.call_attempts_threshold,
   };
 }
 
@@ -415,6 +419,24 @@ export class SupabaseElectionDayApi {
       not_voting_reason_set_at: reasonId ? new Date().toISOString() : null,
       not_voting_reason_set_by: reasonId ? setByName : null,
     });
+  }
+
+  /** These two go through a dedicated RPC (not the `updateVoter` REST-patch
+   * path every other single-field setter uses) because they need an atomic
+   * `column = column + 1`, which plain PostgREST PATCH can't express without
+   * a race-prone client-side read-modify-write. */
+  async incrementCallAttempts(id: string): Promise<ElectionDayVoter> {
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_increment_call_attempts", { p_id: id }),
+    );
+    return toVoter(data[0]);
+  }
+
+  async extendCallAttemptsThreshold(id: string): Promise<ElectionDayVoter> {
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_extend_call_attempts_threshold", { p_id: id }),
+    );
+    return toVoter(data[0]);
   }
 
   async setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter> {

@@ -488,6 +488,8 @@ export class MockApi implements ApiClient {
       notVotingReasonId: null,
       notVotingReasonSetAt: null,
       notVotingReasonSetBy: null,
+      callAttempts: 0,
+      callAttemptsThreshold: 3,
     }));
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     // A fresh import is a new ride-list for the day - last time's log no longer applies.
@@ -602,6 +604,24 @@ export class MockApi implements ApiClient {
     contact.notVotingReasonId = reasonId;
     contact.notVotingReasonSetAt = reasonId ? new Date().toISOString() : null;
     contact.notVotingReasonSetBy = reasonId ? setByName : null;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
+  async incrementCallAttempts(id: string): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.callAttempts += 1;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
+  async extendCallAttemptsThreshold(id: string): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.callAttemptsThreshold += 3;
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     return contact;
   }

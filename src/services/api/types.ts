@@ -209,6 +209,8 @@ export interface ApiClient {
     reasonId: string | null,
     setByName: string | null,
   ): Promise<ElectionDayVoter>;
+  incrementCallAttempts(id: string): Promise<ElectionDayVoter>;
+  extendCallAttemptsThreshold(id: string): Promise<ElectionDayVoter>;
   setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter>;
   /** Updates only the `phone` field, by internal id - never sends or
    * overwrites the rest of the voter record. */

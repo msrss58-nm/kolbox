@@ -10,6 +10,7 @@ import { cn } from "../../lib/utils";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
 import { usePermissions } from "../../permissions/usePermissions";
 import type { ElectionDayVoter, NonVotingReason } from "../../types";
+import { CallAttemptsDialog } from "./CallAttemptsDialog";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { PhoneEditDialog } from "./PhoneEditDialog";
 import { formatReminderDisplay } from "./reminderDisplay";
@@ -88,6 +89,8 @@ export function ElectionDayContactModal({
   onSetNotes,
   onSetPhone,
   settingPhone,
+  onIncrementCallAttempts,
+  onExtendCallAttemptsThreshold,
 }: {
   contact: ElectionDayVoter | null;
   onClose: () => void;
@@ -104,8 +107,14 @@ export function ElectionDayContactModal({
   onSetNotes: (id: string, notes: string) => void;
   onSetPhone: (id: string, phone: string) => Promise<unknown>;
   settingPhone: boolean;
+  /** Fired on every call-button click (the dial attempt itself) - resolves
+   * to the updated voter so the caller can tell whether the threshold was
+   * just reached. */
+  onIncrementCallAttempts: (id: string) => Promise<ElectionDayVoter | undefined>;
+  onExtendCallAttemptsThreshold: (id: string) => Promise<ElectionDayVoter | undefined>;
 }) {
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
+  const [callAttemptsDialogOpen, setCallAttemptsDialogOpen] = useState(false);
   const { can } = usePermissions();
   const fullName = contact ? `${contact.firstName} ${contact.lastName}` : "";
   const address = contact
@@ -202,15 +211,38 @@ export function ElectionDayContactModal({
               )}
             >
               {showCall && (
-                <Button
-                  className="w-full bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
-                  disabled={!contact.phone}
-                  onClick={() => {
-                    if (contact.phone) window.location.href = telHref(contact.phone);
-                  }}
-                >
-                  📞 {ELECTION_DAY_TEXT.modal.call}
-                </Button>
+                <div className="flex flex-col items-stretch gap-1">
+                  <Button
+                    className="w-full bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
+                    disabled={!contact.phone}
+                    onClick={() => {
+                      if (!contact.phone) return;
+                      // Navigation is immediate/synchronous - the attempt
+                      // counter is a fire-and-forget side effect that must
+                      // never delay dialing.
+                      window.location.href = telHref(contact.phone);
+                      void onIncrementCallAttempts(contact.id).then((updated) => {
+                        if (
+                          updated &&
+                          updated.callAttempts === updated.callAttemptsThreshold
+                        ) {
+                          setCallAttemptsDialogOpen(true);
+                        }
+                      });
+                    }}
+                  >
+                    📞 {ELECTION_DAY_TEXT.modal.call}
+                  </Button>
+                  <span
+                    dir="ltr"
+                    className="self-center text-xs font-semibold tabular-nums text-slate-400"
+                  >
+                    {ELECTION_DAY_TEXT.callAttempts.count(
+                      contact.callAttempts,
+                      contact.callAttemptsThreshold,
+                    )}
+                  </span>
+                </div>
               )}
               {showVotedToggle && (
                 <Button
@@ -325,6 +357,23 @@ export function ElectionDayContactModal({
             contact={contact}
             busy={settingPhone}
             onSave={onSetPhone}
+          />
+
+          <CallAttemptsDialog
+            open={callAttemptsDialogOpen}
+            voterName={fullName}
+            canCloseAsNoAnswer={showVotedToggle}
+            onCloseAsNoAnswer={() => {
+              const noAnswerReason = nonVotingReasons.find(
+                (r) => r.name === ELECTION_DAY_TEXT.callAttempts.noAnswerReasonName,
+              );
+              if (noAnswerReason) onSetNonVotingReason(contact.id, noAnswerReason.id);
+              setCallAttemptsDialogOpen(false);
+            }}
+            onContinue={() => {
+              void onExtendCallAttemptsThreshold(contact.id);
+              setCallAttemptsDialogOpen(false);
+            }}
           />
         </div>
       )}

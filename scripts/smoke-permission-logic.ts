@@ -54,6 +54,8 @@ const MUTATION_PERMISSIONS: Record<string, Permission> = {
   deletePermissionUser: "electionDay.manageUsers",
   addRideCoordinator: "electionDay.manageRideCoordinators",
   deleteRideCoordinator: "electionDay.manageRideCoordinators",
+  incrementCallAttempts: "voter.viewPhone",
+  extendCallAttemptsThreshold: "voter.viewPhone",
 };
 
 // ---- manager: every mutation allowed, no exceptions ----------------------
@@ -73,6 +75,8 @@ const OPERATIONS_ALLOWED = new Set([
   "setRideCompleted",
   "setPhone",
   "setNotes",
+  "incrementCallAttempts",
+  "extendCallAttemptsThreshold",
 ]);
 for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
   const expected = OPERATIONS_ALLOWED.has(mutation);
@@ -82,9 +86,16 @@ for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
   );
 }
 
-// ---- voting: only setVoted allowed, every other mutation denied ----------
+// ---- voting: setVoted allowed (its whole purpose) plus the call-attempts --
+// pair, since "voting" also carries voter.viewPhone (sees phone/can call,
+// same as every other role) - every other mutation denied.
+const VOTING_ALLOWED = new Set([
+  "setVoted",
+  "incrementCallAttempts",
+  "extendCallAttemptsThreshold",
+]);
 for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
-  const expected = mutation === "setVoted";
+  const expected = VOTING_ALLOWED.has(mutation);
   assert(
     can(VOTING, permission) === expected,
     `voting: "${mutation}" (${permission}) ${expected ? "allowed" : "denied"}`,

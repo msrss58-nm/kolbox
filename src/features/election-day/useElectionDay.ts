@@ -744,6 +744,49 @@ export function useElectionDay(isBootstrap: boolean) {
   );
   const setPhone = guardedAction("voter.editPhone", setPhoneRaw, "setPhone");
 
+  // Call Attempts Counter: every click of the call button is itself a "dial
+  // attempt" - no confirmation toast (would fire on every single click, too
+  // noisy), just a silent counter bump. Gated on the same `voter.viewPhone`
+  // permission as the call button itself (rather than a dedicated
+  // permission) - whoever can see/dial the phone number is exactly who can
+  // record an attempt against it.
+  const { run: runIncrementCallAttempts } = useAsyncAction((id: string) =>
+    api.incrementCallAttempts(id),
+  );
+  const incrementCallAttemptsRaw = useCallback(
+    async (id: string) => {
+      const updated = await runIncrementCallAttempts(id);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runIncrementCallAttempts, applyContactUpdate],
+  );
+  const incrementCallAttempts = guardedAction(
+    "voter.viewPhone",
+    incrementCallAttemptsRaw,
+    "incrementCallAttempts",
+  );
+
+  // "המשך ניסיונות (+3)" - advances the threshold (3 -> 6 -> 9…) from the
+  // auto-opened `CallAttemptsDialog`. Same permission gate as above - anyone
+  // who could trigger the dialog by dialing can always choose this option.
+  const { run: runExtendCallAttemptsThreshold } = useAsyncAction((id: string) =>
+    api.extendCallAttemptsThreshold(id),
+  );
+  const extendCallAttemptsThresholdRaw = useCallback(
+    async (id: string) => {
+      const updated = await runExtendCallAttemptsThreshold(id);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runExtendCallAttemptsThreshold, applyContactUpdate],
+  );
+  const extendCallAttemptsThreshold = guardedAction(
+    "voter.viewPhone",
+    extendCallAttemptsThresholdRaw,
+    "extendCallAttemptsThreshold",
+  );
+
   /** Marking "יש דרישה להסעה" is a lighter-weight signal than actually
    * coordinating with a driver - just a note that this voter needs a ride.
    * Reversible (click again to clear), tagging/untagging the notes field
@@ -1032,6 +1075,8 @@ export function useElectionDay(isBootstrap: boolean) {
     setNotes,
     setPhone,
     settingPhone,
+    incrementCallAttempts,
+    extendCallAttemptsThreshold,
     toggleRideRequested,
     cancelRideCoordination,
     rideCoordinators: rideCoordinators ?? [],

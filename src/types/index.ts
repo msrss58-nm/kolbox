@@ -113,6 +113,8 @@ export interface ElectionDayVoter {
   notVotingReasonId: string | null;
   notVotingReasonSetAt: string | null; // ISO timestamp
   notVotingReasonSetBy: string | null; // denormalized PermissionUser name, not a FK
+  callAttempts: number; // raw click count on the call button, monotonic, never reset
+  callAttemptsThreshold: number; // next call_attempts value that triggers the decision dialog, starts at 3, +3 per "keep trying" choice
 }
 
 /** סיבת אי-הצבעה - a dynamic, fully CRUD-managed catalog entry ("ניהול סיבות

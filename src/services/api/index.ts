@@ -62,6 +62,9 @@ export const api: ApiClient = {
   setReminderAt: (...args) => electionDayApi.setReminderAt(...args),
   setVoted: (...args) => electionDayApi.setVoted(...args),
   setNonVotingReason: (...args) => electionDayApi.setNonVotingReason(...args),
+  incrementCallAttempts: (...args) => electionDayApi.incrementCallAttempts(...args),
+  extendCallAttemptsThreshold: (...args) =>
+    electionDayApi.extendCallAttemptsThreshold(...args),
   setElectionDayNotes: (...args) => electionDayApi.setElectionDayNotes(...args),
   setPhone: (...args) => electionDayApi.setPhone(...args),
 
