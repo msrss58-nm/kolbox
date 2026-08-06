@@ -70,7 +70,6 @@ export const api: ApiClient = {
 
   // election day - permission users roster (Supabase-backed, RPC-only)
   listPermissionUsers: (...args) => electionDayApi.listPermissionUsers(...args),
-  addPermissionUser: (...args) => electionDayApi.addPermissionUser(...args),
   deletePermissionUser: (...args) => electionDayApi.deletePermissionUser(...args),
   verifyPermissionUserLogin: (...args) =>
     electionDayApi.verifyPermissionUserLogin(...args),
@@ -83,8 +82,7 @@ export const api: ApiClient = {
   updateRole: (...args) => electionDayApi.updateRole(...args),
   deleteRole: (...args) => electionDayApi.deleteRole(...args),
   cloneRole: (...args) => electionDayApi.cloneRole(...args),
-  createPermissionUserForRole: (...args) =>
-    electionDayApi.createPermissionUserForRole(...args),
+  createPermissionUser: (...args) => electionDayApi.createPermissionUser(...args),
 
   // election day - live cross-device sync (Supabase Realtime)
   subscribeToElectionDayChanges: (...args) =>

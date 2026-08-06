@@ -1,13 +1,13 @@
-/** Dynamic Roles & Permissions Phase 1 - API-boundary validation smoke test.
+/** Dynamic Roles & Permissions - API-boundary validation smoke test.
  * Run via: npx esbuild scripts/smoke-role-normalization.ts --bundle --format=cjs --outfile=scripts/smoke-role-normalization.cjs && node scripts/smoke-role-normalization.cjs
  *
  * `normalizeRoleRecord` (`src/permissions/roleRecordMapper.ts`) is the only
  * place a raw `election_day_list_roles()` row becomes a trusted `RoleRecord`
  * - never a blind cast. This suite proves every untrusted field fails
- * closed independently: an unrecognized `scope_type`/`legacy_role_key`
- * becomes `null` (never guessed at or defaulted to something permissive),
- * and a permission string not in the live `ALL_PERMISSIONS` catalog is
- * dropped (never silently cast into a `Permission`).
+ * closed independently: an unrecognized `scope_type` becomes `null` (never
+ * guessed at or defaulted to something permissive), and a permission string
+ * not in the live `ALL_PERMISSIONS` catalog is dropped (never silently cast
+ * into a `Permission`).
  */
 import { ALL_PERMISSIONS } from "../src/permissions/permissionsMap";
 import { normalizeRoleRecord } from "../src/permissions/roleRecordMapper";
@@ -21,7 +21,7 @@ const assert = (cond: boolean, msg: string) => {
 };
 
 // ---- a well-formed row round-trips exactly ------------------------------
-const manager = BUILT_IN_ROLE_SEED.find((r) => r.legacyRoleKey === "manager")!;
+const manager = BUILT_IN_ROLE_SEED.find((r) => r.id === "seed-manager")!;
 const wellFormedRow = {
   id: manager.id,
   name: manager.name,
@@ -29,7 +29,6 @@ const wellFormedRow = {
   permissions: [...manager.permissions],
   scope_type: manager.scopeType,
   scope_value: manager.scopeValue,
-  legacy_role_key: manager.legacyRoleKey,
 };
 const roundTripped = normalizeRoleRecord(wellFormedRow);
 assert(
@@ -38,10 +37,6 @@ assert(
   "a well-formed row's permissions round-trip exactly, none dropped",
 );
 assert(roundTripped.scopeType === "all", "a well-formed row's scope_type round-trips exactly");
-assert(
-  roundTripped.legacyRoleKey === "manager",
-  "a well-formed row's legacy_role_key round-trips exactly",
-);
 
 // ---- unknown scope_type -> null (fail closed), not "all" or a guess -----
 const unknownScope = normalizeRoleRecord(MALFORMED_ROLE_ROWS.unknownScopeType);
@@ -53,13 +48,6 @@ assert(
 // ---- missing scope_type -> null --------------------------------------
 const missingScope = normalizeRoleRecord(MALFORMED_ROLE_ROWS.missingScopeType);
 assert(missingScope.scopeType === null, "a null scope_type normalizes to null");
-
-// ---- unknown legacy_role_key -> null (never a guessed DatabaseRole) ------
-const unknownLegacyKey = normalizeRoleRecord(MALFORMED_ROLE_ROWS.unknownLegacyRoleKey);
-assert(
-  unknownLegacyKey.legacyRoleKey === null,
-  'an unrecognized legacy_role_key ("superadmin") normalizes to null, never passed through',
-);
 
 // ---- garbage/unknown permission strings never survive normalization -----
 const garbageRow = MALFORMED_ROLE_ROWS.garbagePermissionStrings;
@@ -89,7 +77,6 @@ const weirdShapeRow = {
   permissions: [],
   scope_type: "all",
   scope_value: { note: "reserved for a future scope dimension" },
-  legacy_role_key: null,
 };
 const normalizedWeird = normalizeRoleRecord(weirdShapeRow as never);
 assert(typeof normalizedWeird.id === "string", "a non-string id is coerced to a string, never thrown on");

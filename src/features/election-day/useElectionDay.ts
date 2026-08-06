@@ -9,11 +9,7 @@ import { reportPermissionDenied } from "../../permissions/permissionAudit";
 import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
 import { api } from "../../services/api";
-import type {
-  NewPermissionUser,
-  NewPermissionUserForRole,
-  NewRideCoordinator,
-} from "../../services/api";
+import type { NewPermissionUser, NewRideCoordinator } from "../../services/api";
 import {
   exportElectionDayVotersToExcel,
   parseSpreadsheet,
@@ -690,7 +686,7 @@ export function useElectionDay(isBootstrap: boolean) {
   );
 
   const { run: runAddPermissionUser } = useAsyncAction(
-    (input: NewPermissionUser) => api.addPermissionUser(input),
+    (input: NewPermissionUser) => api.createPermissionUser(input),
     { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.added },
   );
 
@@ -712,8 +708,8 @@ export function useElectionDay(isBootstrap: boolean) {
   // loaded - see `ElectionDayGuard`) *and* the roster is still empty right
   // now. That second, live check is what makes the exception self-cancel
   // after the first account is created - `isBootstrap` alone wouldn't, since
-  // it doesn't change again until the next full page load. This is not
-  // `role: manager` - every other permission still resolves through `can`
+  // it doesn't change again until the next full page load. This is not a
+  // role-based grant - every other permission still resolves through `can`
   // exactly as it does everywhere else, and `deletePermissionUser` below
   // deliberately has no such exception.
   const addPermissionUser = useCallback(
@@ -731,41 +727,6 @@ export function useElectionDay(isBootstrap: boolean) {
       return addPermissionUserRaw(input);
     },
     [can, role, isBootstrap, rosterStillEmpty, addPermissionUserRaw],
-  );
-
-  const { run: runAddPermissionUserForRole } = useAsyncAction(
-    (input: NewPermissionUserForRole) => api.createPermissionUserForRole(input),
-    { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.added },
-  );
-
-  const addPermissionUserForRoleRaw = useCallback(
-    async (input: NewPermissionUserForRole) => {
-      const result = await runAddPermissionUserForRole(input);
-      if (result) reloadPermissionUsers();
-      return result;
-    },
-    [runAddPermissionUserForRole, reloadPermissionUsers],
-  );
-  // Dynamic Roles & Permissions Phase 2: the counterpart to
-  // `addPermissionUser` for an arbitrary role_id - carries the exact same
-  // bootstrap exception (creating the very first account, whichever role
-  // is picked in the now-unified role dropdown, while the roster is still
-  // empty and no session exists yet).
-  const addPermissionUserForRole = useCallback(
-    async (input: NewPermissionUserForRole) => {
-      const allowed = can("electionDay.manageUsers") || (isBootstrap && rosterStillEmpty);
-      if (!allowed) {
-        reportPermissionDenied({
-          role,
-          permission: "electionDay.manageUsers",
-          context: "addPermissionUserForRole",
-        });
-        toast.error(ELECTION_DAY_TEXT.permissionDenied);
-        return undefined;
-      }
-      return addPermissionUserForRoleRaw(input);
-    },
-    [can, role, isBootstrap, rosterStillEmpty, addPermissionUserForRoleRaw],
   );
 
   const { run: runDeletePermissionUser } = useAsyncAction(
@@ -946,7 +907,6 @@ export function useElectionDay(isBootstrap: boolean) {
     sendRideRequestToDriver,
     permissionUsers: permissionUsers ?? [],
     addPermissionUser,
-    addPermissionUserForRole,
     deletePermissionUser,
     roles,
   };

@@ -25,7 +25,6 @@ import type {
   NewActivist,
   NewElectionDayVoter,
   NewPermissionUser,
-  NewPermissionUserForRole,
   NewRideCoordinator,
   NewRole,
   NewVoter,
@@ -44,7 +43,7 @@ interface StoredPermissionUser extends PermissionUser {
 }
 
 function toPublicPermissionUser(u: StoredPermissionUser): PermissionUser {
-  return { id: u.id, name: u.name, role: u.role, roleId: u.roleId };
+  return { id: u.id, name: u.name, roleId: u.roleId };
 }
 
 const STORE_KEY = "dataset-v1";
@@ -628,21 +627,6 @@ export class MockApi implements ApiClient {
     return this.permissionUsers.map(toPublicPermissionUser);
   }
 
-  async addPermissionUser(input: NewPermissionUser): Promise<PermissionUser> {
-    await latency();
-    const roleId =
-      this.roles.find((r) => r.legacyRoleKey === input.role)?.id ??
-      `legacy-${input.role}`;
-    const user: StoredPermissionUser = {
-      id: `pu-${crypto.randomUUID().slice(0, 8)}`,
-      roleId,
-      ...input,
-    };
-    this.permissionUsers.push(user);
-    saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
-    return toPublicPermissionUser(user);
-  }
-
   async deletePermissionUser(id: string): Promise<void> {
     await latency();
     this.permissionUsers = this.permissionUsers.filter((u) => u.id !== id);
@@ -682,7 +666,6 @@ export class MockApi implements ApiClient {
       permissions: input.permissions,
       scopeType: input.scopeType,
       scopeValue: null,
-      legacyRoleKey: null,
     };
     this.roles.push(role);
     return role;
@@ -719,21 +702,17 @@ export class MockApi implements ApiClient {
       ...source,
       id: `role-${crypto.randomUUID().slice(0, 8)}`,
       name: newName,
-      legacyRoleKey: null,
     };
     this.roles.push(clone);
     return clone;
   }
 
-  async createPermissionUserForRole(
-    input: NewPermissionUserForRole,
-  ): Promise<PermissionUser> {
+  async createPermissionUser(input: NewPermissionUser): Promise<PermissionUser> {
     await latency();
     const user: StoredPermissionUser = {
       id: `pu-${crypto.randomUUID().slice(0, 8)}`,
       name: input.name,
       password: input.password,
-      role: null,
       roleId: input.roleId,
     };
     this.permissionUsers.push(user);

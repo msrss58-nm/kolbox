@@ -2,7 +2,6 @@ import { create } from "zustand";
 import { useRoleCatalogStore } from "../../permissions/roleCatalogStore";
 import { api } from "../../services/api";
 import { loadJson, removeKey, saveJson } from "../../services/storage/localStore";
-import type { PermissionRole } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 
 const SESSION_KEY = "election-day-session-v1";
@@ -10,12 +9,10 @@ const SESSION_KEY = "election-day-session-v1";
 export interface ElectionDaySessionUser {
   id: string;
   name: string;
-  /** `null` for a user created against an arbitrary dynamic role (Phase 2) -
-   * never used to resolve permissions, see `roleId`. */
-  role: PermissionRole | null;
   /** Always present (NOT NULL in the DB since Phase 0) - the permission
    * engine resolves this session's `RoleRecord` by this id
-   * (`resolveSessionRole`), not by `role`. */
+   * (`resolveSessionRole`). The only identity a session carries since the
+   * Phase 3 legacy cleanup. */
   roleId: string;
 }
 
@@ -31,8 +28,8 @@ interface ElectionDaySessionState {
  * deliberately not real authentication (no server, no hashing): it checks
  * the entered name/password against the same local roster managed in
  * "ניהול הרשאות משתמשים" (`PermissionUser`, via `ApiClient`/`MockApi`), then
- * persists just `{id, name, role}` to localStorage so a page refresh doesn't
- * sign the user out.
+ * persists just `{id, name, roleId}` to localStorage so a page refresh
+ * doesn't sign the user out.
  */
 export const useElectionDaySession = create<ElectionDaySessionState>((set) => ({
   user: loadJson<ElectionDaySessionUser>(SESSION_KEY),
@@ -43,7 +40,6 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set) => ({
     const sessionUser: ElectionDaySessionUser = {
       id: match.id,
       name: match.name,
-      role: match.role,
       roleId: match.roleId,
     };
     saveJson(SESSION_KEY, sessionUser);

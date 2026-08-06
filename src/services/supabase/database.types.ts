@@ -160,13 +160,13 @@ export interface Database {
        * All access goes through the election_day_login /
        * election_day_create_permission_user / election_day_list_permission_users /
        * election_day_delete_permission_user RPC functions below. Row type
-       * included here only for completeness. */
+       * included here only for completeness. Phase 3: the legacy `role` text
+       * column is gone - `role_id` is the only identity a row carries. */
       election_day_permission_users: {
         Row: {
           id: string;
           name: string;
           password_hash: string;
-          role: string | null;
           role_id: string;
           created_at: string;
         };
@@ -174,7 +174,6 @@ export interface Database {
           id?: string;
           name: string;
           password_hash: string;
-          role?: string | null;
           role_id: string;
           created_at?: string;
         };
@@ -187,7 +186,8 @@ export interface Database {
       /** Dynamic Roles & Permissions (Phase 0). RLS-enabled, zero policies -
        * never queried directly by the client. All access goes through the
        * `election_day_list_roles` RPC below (Phase 1) - this Row type is
-       * included only for completeness/future role-management RPCs. */
+       * included only for completeness/future role-management RPCs. Phase 3:
+       * the `legacy_role_key` migration-bookkeeping column is gone. */
       election_day_roles: {
         Row: {
           id: string;
@@ -196,7 +196,6 @@ export interface Database {
           permissions: string[];
           scope_type: string;
           scope_value: Json | null;
-          legacy_role_key: string | null;
           created_at: string;
         };
         Insert: {
@@ -206,7 +205,6 @@ export interface Database {
           permissions?: string[];
           scope_type?: string;
           scope_value?: Json | null;
-          legacy_role_key?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["election_day_roles"]["Insert"]>;
@@ -217,15 +215,18 @@ export interface Database {
     Functions: {
       election_day_login: {
         Args: { p_name: string; p_password: string };
-        Returns: { id: string; name: string; role: string | null; role_id: string }[];
+        Returns: { id: string; name: string; role_id: string }[];
       };
+      /** Dynamic Roles & Permissions Phase 3: creates a PermissionUser
+       * against an arbitrary role_id - the only creation path now that the
+       * legacy 3-checkbox RPC has been dropped. */
       election_day_create_permission_user: {
-        Args: { p_name: string; p_password: string; p_role: string };
-        Returns: { id: string; name: string; role: string | null; role_id: string }[];
+        Args: { p_name: string; p_password: string; p_role_id: string };
+        Returns: { id: string; name: string; role_id: string }[];
       };
       election_day_list_permission_users: {
         Args: Record<string, never>;
-        Returns: { id: string; name: string; role: string | null; role_id: string }[];
+        Returns: { id: string; name: string; role_id: string }[];
       };
       election_day_delete_permission_user: {
         Args: { p_id: string };
@@ -250,7 +251,6 @@ export interface Database {
           permissions: string[];
           scope_type: string;
           scope_value: Json | null;
-          legacy_role_key: string | null;
         }[];
       };
       /** Dynamic Roles & Permissions, Phase 2. Raises `CANNOT_REMOVE_LAST_PERMISSION_HOLDER`
@@ -271,7 +271,6 @@ export interface Database {
           permissions: string[];
           scope_type: string;
           scope_value: Json | null;
-          legacy_role_key: string | null;
         }[];
       };
       /** Dynamic Roles & Permissions, Phase 2. Raises `ROLE_HAS_ASSIGNED_USERS`
@@ -291,23 +290,14 @@ export interface Database {
           permissions: string[];
           scope_type: string;
           scope_value: Json | null;
-          legacy_role_key: string | null;
         }[];
-      };
-      /** Dynamic Roles & Permissions, Phase 2: creates a PermissionUser
-       * against an arbitrary role_id - `role` is always null in the result
-       * (no legacy text equivalent for a dynamic role). */
-      election_day_create_permission_user_for_role: {
-        Args: { p_name: string; p_password: string; p_role_id: string };
-        Returns: { id: string; name: string; role: string | null; role_id: string }[];
       };
       /** Dynamic Roles & Permissions, Phase 1. Returns raw, untrusted rows -
        * `SupabaseElectionDayApi.listElectionDayRoles()` runs every row
        * through `normalizeRoleRecord` before the app ever sees it (see
-       * `permissions/roleRecordMapper.ts`), so `permissions`/`scope_type`/
-       * `legacy_role_key` are intentionally left as loose `string[]`/
-       * `string | null` here rather than the app's validated `Permission`/
-       * `RoleScopeType`/`DatabaseRole` types. */
+       * `permissions/roleRecordMapper.ts`), so `permissions`/`scope_type`
+       * are intentionally left as loose `string[]`/`string` here rather
+       * than the app's validated `Permission`/`RoleScopeType` types. */
       election_day_list_roles: {
         Args: Record<string, never>;
         Returns: {
@@ -317,7 +307,6 @@ export interface Database {
           permissions: string[];
           scope_type: string;
           scope_value: Json | null;
-          legacy_role_key: string | null;
         }[];
       };
       election_day_import_voters: {

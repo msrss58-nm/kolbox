@@ -6,8 +6,8 @@ import { Field, Input, Select } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { toast } from "../../components/ui/Toast";
 import type { RoleRecord } from "../../permissions/types";
-import type { NewPermissionUserForRole } from "../../services/api";
-import type { PermissionRole, PermissionUser } from "../../types";
+import type { NewPermissionUser } from "../../services/api";
+import type { PermissionUser } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { roleDisplayName } from "./roleDisplayName";
 
@@ -19,22 +19,15 @@ export function PermissionUsersModal({
   users,
   roles,
   onAdd,
-  onAddForRole,
   onDelete,
 }: {
   open: boolean;
   onClose: () => void;
   users: PermissionUser[];
-  /** Dynamic Roles & Permissions Phase 2: the live catalog - built-in
-   * legacy-anchored roles (manager/user/voting) and any dynamic role alike,
-   * offered together as one picker. */
+  /** Dynamic Roles & Permissions: the live catalog - the 3 built-in roles
+   * and any custom role alike, offered together as one picker. */
   roles: readonly RoleRecord[];
-  onAdd: (input: {
-    name: string;
-    password: string;
-    role: PermissionRole;
-  }) => Promise<unknown>;
-  onAddForRole: (input: NewPermissionUserForRole) => Promise<unknown>;
+  onAdd: (input: NewPermissionUser) => Promise<unknown>;
   onDelete: (id: string) => Promise<void>;
 }) {
   const [name, setName] = useState("");
@@ -45,42 +38,33 @@ export function PermissionUsersModal({
 
   const effectiveRoleId = selectedRoleId ?? roles[0]?.id ?? null;
 
-  // Managers always sort above everyone else, insertion order preserved within each group.
-  const sortedUsers = [...users].sort((a, b) => {
-    if (a.role === b.role) return 0;
-    if (a.role === "manager") return -1;
-    if (b.role === "manager") return 1;
-    return 0;
-  });
+  // Full-admin users (holding electionDay.manageRolesAndPermissions) sort
+  // above everyone else, insertion order preserved within each group - no
+  // role carries any special status in code beyond what its permissions
+  // grant, so this reads the live catalog rather than a hardcoded role name.
+  const roleById = new Map(roles.map((r) => [r.id, r]));
+  const isFullAdmin = (u: PermissionUser) =>
+    roleById
+      .get(u.roleId)
+      ?.permissions.includes("electionDay.manageRolesAndPermissions") ?? false;
+  const sortedUsers = [...users].sort(
+    (a, b) => Number(isFullAdmin(b)) - Number(isFullAdmin(a)),
+  );
 
   const handleAdd = async () => {
     if (!name.trim() || !password.trim() || !effectiveRoleId) {
       toast.error(text.toast.invalid);
       return;
     }
-    const selectedRole = roles.find((r) => r.id === effectiveRoleId);
-    if (!selectedRole) {
-      toast.error(text.toast.invalid);
-      return;
-    }
     setBusy(true);
     try {
       // A blocked (no permission) or failed add resolves to `undefined` -
-      // only clear the form once the account was actually created. A role
-      // with a legacyRoleKey uses the legacy 3-checkbox RPC (byte-for-byte
-      // the pre-Phase-2 path); any other (dynamic) role goes through the
-      // Phase 2 arbitrary-role_id RPC.
-      const result = selectedRole.legacyRoleKey
-        ? await onAdd({
-            name: name.trim(),
-            password: password.trim(),
-            role: selectedRole.legacyRoleKey,
-          })
-        : await onAddForRole({
-            name: name.trim(),
-            password: password.trim(),
-            roleId: selectedRole.id,
-          });
+      // only clear the form once the account was actually created.
+      const result = await onAdd({
+        name: name.trim(),
+        password: password.trim(),
+        roleId: effectiveRoleId,
+      });
       if (result !== undefined) {
         setName("");
         setPassword("");

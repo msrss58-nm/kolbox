@@ -292,7 +292,6 @@ export function ElectionDayPage() {
         users={electionDay.permissionUsers}
         roles={electionDay.roles}
         onAdd={electionDay.addPermissionUser}
-        onAddForRole={electionDay.addPermissionUserForRole}
         onDelete={electionDay.deletePermissionUser}
       />
 

@@ -52,7 +52,6 @@ const ROLE_ALL: RoleRecord = {
   permissions: [],
   scopeType: "all",
   scopeValue: null,
-  legacyRoleKey: "manager",
 };
 const ROLE_ASSIGNED: RoleRecord = {
   id: "r2",
@@ -61,7 +60,6 @@ const ROLE_ASSIGNED: RoleRecord = {
   permissions: [],
   scopeType: "assigned_to_me",
   scopeValue: null,
-  legacyRoleKey: "user",
 };
 const ROLE_UNKNOWN_SCOPE: RoleRecord = {
   id: "r3",
@@ -70,7 +68,6 @@ const ROLE_UNKNOWN_SCOPE: RoleRecord = {
   permissions: [],
   scopeType: null, // as normalizeRoleRecord would produce for an unrecognized/missing scope_type
   scopeValue: null,
-  legacyRoleKey: null,
 };
 
 // ---- contacts list itself still loading - unrelated to roles -----------
@@ -102,7 +99,7 @@ for (const status of ["idle", "loading", "error"] as const) {
 // ---- THE FIX: catalog loaded, but session's role never resolved (null) -- -> []
 assert(
   resolveVisibleContacts(CONTACTS, SESSION_AVI, "loaded", null)?.length === 0,
-  "loaded catalog but unresolved role (unknown legacy_role_key) -> [] (fail-closed)",
+  "loaded catalog but unresolved role (unmatched roleId) -> [] (fail-closed)",
 );
 
 // ---- THE FIX: resolved role with unrecognized/missing scopeType -> [] ----

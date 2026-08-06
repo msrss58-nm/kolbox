@@ -151,16 +151,9 @@ export function RoleManagementModal({
                     className="flex items-center justify-between gap-2 px-3 py-2.5"
                   >
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-bold text-slate-800">
-                          {role.name}
-                        </p>
-                        {role.legacyRoleKey && (
-                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                            {text.legacyBadge}
-                          </span>
-                        )}
-                      </div>
+                      <p className="truncate text-sm font-bold text-slate-800">
+                        {role.name}
+                      </p>
                       {role.description && (
                         <p className="truncate text-xs text-slate-500">
                           {role.description}

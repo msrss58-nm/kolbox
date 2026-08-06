@@ -3,7 +3,6 @@ import type { RoleRecord } from "../../permissions/types";
 import { supabase } from "../supabase/client";
 import type {
   ElectionDayVoter,
-  PermissionRole,
   PermissionUser,
   RideCoordinator,
   RideStatusEvent,
@@ -11,7 +10,6 @@ import type {
 import type {
   NewElectionDayVoter,
   NewPermissionUser,
-  NewPermissionUserForRole,
   NewRideCoordinator,
   NewRole,
   RoleUpdate,
@@ -121,7 +119,6 @@ function toRideStatusEvent(row: RideStatusEventRow): RideStatusEvent {
 type PermissionUserRpcRow = {
   id: string;
   name: string;
-  role: string | null;
   role_id: string;
 };
 
@@ -129,7 +126,6 @@ function toPermissionUser(row: PermissionUserRpcRow): PermissionUser {
   return {
     id: row.id,
     name: row.name,
-    role: row.role as PermissionRole | null,
     roleId: row.role_id,
   };
 }
@@ -389,17 +385,6 @@ export class SupabaseElectionDayApi {
     return data.map(toPermissionUser);
   }
 
-  async addPermissionUser(input: NewPermissionUser): Promise<PermissionUser> {
-    const data = unwrapArray<PermissionUserRpcRow[]>(
-      await supabase.rpc("election_day_create_permission_user", {
-        p_name: input.name,
-        p_password: input.password,
-        p_role: input.role,
-      }),
-    );
-    return toPermissionUser(data[0]);
-  }
-
   async deletePermissionUser(id: string): Promise<void> {
     checkError(await supabase.rpc("election_day_delete_permission_user", { p_id: id }));
   }
@@ -418,10 +403,10 @@ export class SupabaseElectionDayApi {
   }
 
   /** Dynamic Roles & Permissions, Phase 1. Unlike every other RPC result in
-   * this file, this one is NOT blindly cast - `permissions`/`scope_type`/
-   * `legacy_role_key` directly drive security decisions downstream, so each
-   * row goes through `normalizeRoleRecord`, which validates every untrusted
-   * field independently and fails closed on anything unrecognized (see that
+   * this file, this one is NOT blindly cast - `permissions`/`scope_type`
+   * directly drive security decisions downstream, so each row goes through
+   * `normalizeRoleRecord`, which validates every untrusted field
+   * independently and fails closed on anything unrecognized (see that
    * function's own doc comment). */
   async listElectionDayRoles(): Promise<RoleRecord[]> {
     const data = unwrapArray<RawRoleRow[]>(await supabase.rpc("election_day_list_roles"));
@@ -467,11 +452,9 @@ export class SupabaseElectionDayApi {
     return normalizeRoleRecord(data[0]);
   }
 
-  async createPermissionUserForRole(
-    input: NewPermissionUserForRole,
-  ): Promise<PermissionUser> {
+  async createPermissionUser(input: NewPermissionUser): Promise<PermissionUser> {
     const data = await callRoleRpc<PermissionUserRpcRow[]>(
-      supabase.rpc("election_day_create_permission_user_for_role", {
+      supabase.rpc("election_day_create_permission_user", {
         p_name: input.name,
         p_password: input.password,
         p_role_id: input.roleId,

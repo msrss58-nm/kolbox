@@ -3,10 +3,14 @@
  *
  * `BUILT_IN_ROLE_SEED` (`src/permissions/builtInRoleSeed.ts`) is supposed to
  * mirror the Phase 0 migration's `insert into public.election_day_roles`
- * seed byte-for-byte (same name/permissions/scope_type/legacy_role_key per
- * role). Every other Phase 1 smoke test trusts that mirror - this is the
- * one script that actually parses the migration SQL itself and diffs it
- * against the TS fixture, so the two can never silently drift apart.
+ * seed byte-for-byte (same name/permissions/scope_type per role). Every
+ * other smoke test trusts that mirror - this is the one script that
+ * actually parses the migration SQL itself and diffs it against the TS
+ * fixture, so the two can never silently drift apart. Matches tuples by
+ * role `name` (Phase 3: the migration's own `legacy_role_key` column this
+ * used to match on is now gone from the live schema - the historical
+ * migration file's SQL text is unaffected and still parseable, but `name`
+ * is a stable, still-present anchor on both sides).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -54,26 +58,26 @@ const tupleChunks = valuesBlock
   .split(/\)\s*,\s*\(/);
 assert(tupleChunks.length === 3, `migration SQL splits into exactly 3 role tuples (got ${tupleChunks.length})`);
 
-function extractRoleFromSql(legacyRoleKey: "manager" | "user" | "voting") {
-  const chunk = tupleChunks.find((c) => new RegExp(`'${legacyRoleKey}'\\s*$`).test(c.trim()));
-  assert(chunk !== undefined, `migration SQL has an isolated tuple ending in legacy_role_key='${legacyRoleKey}'`);
+function extractRoleFromSql(name: string) {
+  const chunk = tupleChunks.find((c) => new RegExp(`^\\s*'${name}'`).test(c));
+  assert(chunk !== undefined, `migration SQL has an isolated tuple starting with name='${name}'`);
   const match = chunk?.match(/array\[([\s\S]*?)\]\s*,\s*'(all|assigned_to_me)'\s*,/);
-  assert(match !== null && match !== undefined, `tuple for legacy_role_key='${legacyRoleKey}' has a parseable array[...] + scope_type`);
+  assert(match !== null && match !== undefined, `tuple for name='${name}' has a parseable array[...] + scope_type`);
   const permissionsRaw = match?.[1] ?? "";
   const scopeType = match?.[2] ?? "";
   const permissions = [...permissionsRaw.matchAll(/'([a-zA-Z.]+)'/g)].map((m) => m[1]);
   return { permissions, scopeType };
 }
 
-for (const legacyRoleKey of ["manager", "user", "voting"] as const) {
-  const fromSql = extractRoleFromSql(legacyRoleKey);
-  const fixture = BUILT_IN_ROLE_SEED.find((r) => r.legacyRoleKey === legacyRoleKey);
-  assert(fixture !== undefined, `BUILT_IN_ROLE_SEED has an entry for legacyRoleKey="${legacyRoleKey}"`);
+for (const name of ["מנהל", "משתמש", "נציג קלפי"] as const) {
+  const fromSql = extractRoleFromSql(name);
+  const fixture = BUILT_IN_ROLE_SEED.find((r) => r.name === name);
+  assert(fixture !== undefined, `BUILT_IN_ROLE_SEED has an entry for name="${name}"`);
   if (!fixture) continue;
 
   assert(
     fixture.scopeType === fromSql.scopeType,
-    `${legacyRoleKey}: fixture scopeType ("${fixture.scopeType}") matches migration SQL ("${fromSql.scopeType}")`,
+    `${name}: fixture scopeType ("${fixture.scopeType}") matches migration SQL ("${fromSql.scopeType}")`,
   );
 
   const fixtureSet = new Set(fixture.permissions);
@@ -82,11 +86,11 @@ for (const legacyRoleKey of ["manager", "user", "voting"] as const) {
   const extraInFixture = fixture.permissions.filter((p) => !sqlSet.has(p));
   assert(
     missingFromFixture.length === 0,
-    `${legacyRoleKey}: fixture is missing permission(s) present in the migration seed: [${missingFromFixture.join(", ")}]`,
+    `${name}: fixture is missing permission(s) present in the migration seed: [${missingFromFixture.join(", ")}]`,
   );
   assert(
     extraInFixture.length === 0,
-    `${legacyRoleKey}: fixture has extra permission(s) not present in the migration seed: [${extraInFixture.join(", ")}]`,
+    `${name}: fixture has extra permission(s) not present in the migration seed: [${extraInFixture.join(", ")}]`,
   );
 }
 

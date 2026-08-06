@@ -1,19 +1,19 @@
 /** Permission Engine smoke test - run via: npx esbuild scripts/smoke-permissions.ts --bundle --format=cjs --outfile=scripts/smoke-permissions.cjs && node scripts/smoke-permissions.cjs
  *
- * Dynamic Roles & Permissions Phase 1: the engine no longer has a hardcoded
+ * Dynamic Roles & Permissions: the engine has no hardcoded
  * `PERMISSIONS_BY_ROLE`/`EffectiveRole` map - roles are data
  * (`election_day_roles`, fetched via `election_day_list_roles()`), not code.
  * This suite exercises the exact same 3 built-in roles via
  * `BUILT_IN_ROLE_SEED` (mirrored verbatim from the Phase 0 migration's seed -
  * see `scripts/smoke-role-seed-parity.ts` for the drift check) so the truth
- * table below is a faithful regression of the pre-Phase-1 behavior, not a
- * weaker approximation of it.
+ * table below is a faithful regression of the historical pre-dynamic-roles
+ * behavior, not a weaker approximation of it.
  */
 import { ALL_PERMISSIONS } from "../src/permissions/permissionsMap";
 import { hasPermission } from "../src/permissions/hasPermission";
 import { resolveSessionRole } from "../src/permissions/resolveSessionRole";
 import { computePermissions } from "../src/permissions/computePermissions";
-import type { DatabaseRole, Permission, RoleRecord } from "../src/permissions/types";
+import type { Permission, RoleRecord } from "../src/permissions/types";
 import { BUILT_IN_ROLE_SEED } from "./fixtures/electionDayRoles";
 
 const assert = (cond: boolean, msg: string) => {
@@ -23,27 +23,29 @@ const assert = (cond: boolean, msg: string) => {
   } else console.log("ok:", msg);
 };
 
-const roleFor = (legacyRoleKey: DatabaseRole): RoleRecord => {
-  const role = BUILT_IN_ROLE_SEED.find((r) => r.legacyRoleKey === legacyRoleKey);
-  if (!role) throw new Error(`no seed role for legacyRoleKey "${legacyRoleKey}"`);
+// Phase 3: the seed's placeholder ids ("seed-manager"/"seed-user"/
+// "seed-voting") are the only stable anchor left - legacyRoleKey is gone.
+const roleFor = (id: "seed-manager" | "seed-user" | "seed-voting"): RoleRecord => {
+  const role = BUILT_IN_ROLE_SEED.find((r) => r.id === id);
+  if (!role) throw new Error(`no seed role for id "${id}"`);
   return role;
 };
 
-const MANAGER = roleFor("manager");
-const OPERATIONS = roleFor("user"); // legacy "user" -> the "משתמש"/operations role
-const VOTING = roleFor("voting");
+const MANAGER = roleFor("seed-manager");
+const OPERATIONS = roleFor("seed-user"); // "משתמש"/operations role
+const VOTING = roleFor("seed-voting");
 
-// ---- resolveSessionRole (Phase 2: matches by roleId, not legacy text) ----
+// ---- resolveSessionRole (matches by roleId, not legacy text) ------------
 assert(
-  resolveSessionRole("seed-manager", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "manager",
+  resolveSessionRole("seed-manager", BUILT_IN_ROLE_SEED)?.id === "seed-manager",
   "resolveSessionRole(seed-manager) resolves to the manager row",
 );
 assert(
-  resolveSessionRole("seed-user", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "user",
-  "resolveSessionRole(seed-user) resolves to the legacy 'user' row",
+  resolveSessionRole("seed-user", BUILT_IN_ROLE_SEED)?.id === "seed-user",
+  "resolveSessionRole(seed-user) resolves to the operations ('משתמש') row",
 );
 assert(
-  resolveSessionRole("seed-voting", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "voting",
+  resolveSessionRole("seed-voting", BUILT_IN_ROLE_SEED)?.id === "seed-voting",
   "resolveSessionRole(seed-voting) resolves to the voting row",
 );
 assert(
@@ -161,14 +163,14 @@ assert(
 );
 
 // ---- computePermissions composes resolveSessionRole + hasPermission -----
-// correctly for a real, loaded session (Phase 2: keyed by roleId)
+// correctly for a real, loaded session (keyed by roleId)
 assert(
-  computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).role?.legacyRoleKey === "manager",
-  'computePermissions("seed-manager", "loaded", seed).role.legacyRoleKey is "manager"',
+  computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).role?.id === "seed-manager",
+  'computePermissions("seed-manager", "loaded", seed).role.id is "seed-manager"',
 );
 assert(
-  computePermissions("seed-user", "loaded", BUILT_IN_ROLE_SEED).role?.legacyRoleKey === "user",
-  'computePermissions("seed-user", "loaded", seed).role.legacyRoleKey is "user" (legacy mapping preserved)',
+  computePermissions("seed-user", "loaded", BUILT_IN_ROLE_SEED).role?.id === "seed-user",
+  'computePermissions("seed-user", "loaded", seed).role.id is "seed-user"',
 );
 assert(
   computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).can("electionDay.manageUsers"),

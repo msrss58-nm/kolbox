@@ -118,25 +118,20 @@ export interface RideCoordinator {
 }
 
 /** Election Day's local user/manager roster ("ניהול הרשאות משתמשים") - a
- * simple directory, not a real login/auth system. */
-export type PermissionRole = "user" | "manager" | "voting";
-
-/** Never carries a password/hash - creation-only input types (see
- * `NewPermissionUser` in services/api/types.ts) accept a plaintext password,
- * but nothing that returns a stored user ever echoes it back.
+ * simple directory, not a real login/auth system. Never carries a
+ * password/hash - creation-only input types (see `NewPermissionUser` in
+ * services/api/types.ts) accept a plaintext password, but nothing that
+ * returns a stored user ever echoes it back.
  *
- * Dynamic Roles & Permissions Phase 2: `role` is `null` for a user created
- * against an arbitrary dynamic role (no legacy text equivalent) - `roleId`
- * is always present (NOT NULL in the DB since Phase 0, for legacy and
- * dynamic accounts alike) and is what the permission engine actually
- * resolves against (`resolveSessionRole`). Never derive display text or a
- * permission decision from `role` except on the legacy-checkbox creation
- * form itself - always go through the live `RoleRecord` looked up by
- * `roleId`. */
+ * Dynamic Roles & Permissions Phase 3: `roleId` (NOT NULL in the DB since
+ * Phase 0) is the only identity a user carries - the permission engine
+ * resolves against it exclusively (`resolveSessionRole`). The legacy
+ * `role`/`PermissionRole` text ("user"/"manager"/"voting") is gone; the 3
+ * built-in roles are ordinary `RoleRecord` rows looked up by `roleId` like
+ * any other. */
 export interface PermissionUser {
   id: string;
   name: string;
-  role: PermissionRole | null;
   roleId: string;
 }
 

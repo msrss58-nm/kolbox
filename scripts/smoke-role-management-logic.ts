@@ -59,11 +59,12 @@ for (const status of ["idle", "loading", "error"] as const) {
   }
 }
 
-// ---- addPermissionUserForRole (Phase 2's counterpart to addPermissionUser) -
-// carries the exact same electionDay.manageUsers permission + bootstrap
-// exception as the legacy addPermissionUser - re-pinned here since it's a
-// distinct guardedAction call site in useElectionDay.ts.
-function addPermissionUserForRoleAllowed(
+// ---- addPermissionUser: same electionDay.manageUsers permission + bootstrap
+// exception re-pinned here since role management shares its guardedAction
+// call site's shape. Full coverage of this guard lives in
+// smoke-permission-logic.ts - this is a lighter confirmation, not a duplicate
+// of every branch.
+function addPermissionUserAllowed(
   roleId: string | null,
   isBootstrap: boolean,
   rosterStillEmpty: boolean,
@@ -72,20 +73,20 @@ function addPermissionUserForRoleAllowed(
 }
 
 assert(
-  addPermissionUserForRoleAllowed(MANAGER, false, false) === true,
-  "addPermissionUserForRole: manager allowed via real permission",
+  addPermissionUserAllowed(MANAGER, false, false) === true,
+  "addPermissionUser: manager allowed via real permission",
 );
 assert(
-  addPermissionUserForRoleAllowed(OPERATIONS, false, false) === false,
-  "addPermissionUserForRole: operations denied (no permission, not bootstrap)",
+  addPermissionUserAllowed(OPERATIONS, false, false) === false,
+  "addPermissionUser: operations denied (no permission, not bootstrap)",
 );
 assert(
-  addPermissionUserForRoleAllowed(NO_SESSION, true, true) === true,
-  "addPermissionUserForRole: no session + isBootstrap + roster still empty -> allowed",
+  addPermissionUserAllowed(NO_SESSION, true, true) === true,
+  "addPermissionUser: no session + isBootstrap + roster still empty -> allowed",
 );
 assert(
-  addPermissionUserForRoleAllowed(NO_SESSION, true, false) === false,
-  "addPermissionUserForRole: bootstrap exception self-cancels once the roster is no longer empty",
+  addPermissionUserAllowed(NO_SESSION, true, false) === false,
+  "addPermissionUser: bootstrap exception self-cancels once the roster is no longer empty",
 );
 
 // ---- pinned copy of supabaseElectionDayApi.ts's mapRoleRpcErrorMessage ----

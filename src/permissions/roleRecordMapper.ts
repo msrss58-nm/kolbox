@@ -1,13 +1,12 @@
 import { ALL_PERMISSIONS } from "./permissionsMap";
-import type { DatabaseRole, Json, Permission, RoleRecord, RoleScopeType } from "./types";
+import type { Json, Permission, RoleRecord, RoleScopeType } from "./types";
 
 /** The untrusted shape of one row as it comes back from the
  * `election_day_list_roles()` RPC - `unknown` for every field whose content
- * this app must not blindly trust (permissions/scope_type/legacy_role_key
- * directly drive security decisions, unlike e.g. a voter's phone number).
- * Deliberately has no import on Supabase/the API layer, so it stays
- * Node-testable the same way `computePermissions.ts` is (see
- * `scripts/smoke-role-normalization.ts`). */
+ * this app must not blindly trust (permissions/scope_type directly drive
+ * security decisions, unlike e.g. a voter's phone number). Deliberately has
+ * no import on Supabase/the API layer, so it stays Node-testable the same
+ * way `computePermissions.ts` is (see `scripts/smoke-role-normalization.ts`). */
 export interface RawRoleRow {
   id: unknown;
   name: unknown;
@@ -15,23 +14,14 @@ export interface RawRoleRow {
   permissions: unknown;
   scope_type: unknown;
   scope_value: unknown;
-  legacy_role_key: unknown;
 }
 
 const VALID_SCOPE_TYPES: readonly RoleScopeType[] = ["all", "assigned_to_me"];
-const VALID_DATABASE_ROLES: readonly DatabaseRole[] = ["user", "manager", "voting"];
 const ALL_PERMISSIONS_SET: ReadonlySet<string> = new Set(ALL_PERMISSIONS);
 
 function isValidScopeType(value: unknown): value is RoleScopeType {
   return (
     typeof value === "string" && (VALID_SCOPE_TYPES as readonly string[]).includes(value)
-  );
-}
-
-function isValidDatabaseRole(value: unknown): value is DatabaseRole {
-  return (
-    typeof value === "string" &&
-    (VALID_DATABASE_ROLES as readonly string[]).includes(value)
   );
 }
 
@@ -51,10 +41,6 @@ function isValidDatabaseRole(value: unknown): value is DatabaseRole {
  * - `scope_type`: `"all"` / `"assigned_to_me"` pass through; anything else
  *   (including missing/null/a future not-yet-supported value) becomes
  *   `null` - never guessed at or defaulted to a permissive value.
- * - `legacy_role_key`: only `"user"`/`"manager"`/`"voting"` pass through;
- *   anything else becomes `null` (a genuinely dynamic role, or a corrupted
- *   value - both are treated identically, since neither should resolve a
- *   legacy session to this row).
  * - `scope_value`: passed through as-is as `Json | null` - Phase 1 never
  *   reads it, so there is nothing to validate yet.
  * - `id`/`name`/`description`: coerced to `string`, defaulting to `""` if
@@ -74,6 +60,5 @@ export function normalizeRoleRecord(row: RawRoleRow): RoleRecord {
     permissions,
     scopeType: isValidScopeType(row.scope_type) ? row.scope_type : null,
     scopeValue: (row.scope_value ?? null) as Json | null,
-    legacyRoleKey: isValidDatabaseRole(row.legacy_role_key) ? row.legacy_role_key : null,
   };
 }

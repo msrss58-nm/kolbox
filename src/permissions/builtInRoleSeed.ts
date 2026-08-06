@@ -3,9 +3,10 @@ import type { RoleRecord } from "./types";
 /**
  * The 3 built-in roles, mirrored verbatim from the Phase 0 migration's seed
  * (`supabase/migrations/20260805181806_election_day_dynamic_roles_phase0.sql`)
- * - same `name`/`permissions`/`scopeType`/`legacyRoleKey` values, byte-for-byte.
- * `id` is a placeholder (the real id is a DB-generated uuid) - never compared
- * or relied upon; every lookup in this engine matches on `legacyRoleKey`.
+ * - same `name`/`permissions`/`scopeType` values, byte-for-byte. `id` is a
+ * placeholder (the real id is a DB-generated uuid) - never compared or
+ * relied upon by the running app (a real session always resolves by the
+ * DB's actual `role_id`); tests key off these placeholder ids instead.
  *
  * Two consumers:
  * - `MockApi.listElectionDayRoles()` - interface compliance only. Never
@@ -50,7 +51,6 @@ export const BUILT_IN_ROLE_SEED: readonly RoleRecord[] = [
     ],
     scopeType: "all",
     scopeValue: null,
-    legacyRoleKey: "manager",
   },
   {
     id: "seed-user",
@@ -74,7 +74,6 @@ export const BUILT_IN_ROLE_SEED: readonly RoleRecord[] = [
     ],
     scopeType: "assigned_to_me",
     scopeValue: null,
-    legacyRoleKey: "user",
   },
   {
     id: "seed-voting",
@@ -89,6 +88,5 @@ export const BUILT_IN_ROLE_SEED: readonly RoleRecord[] = [
     ],
     scopeType: "assigned_to_me",
     scopeValue: null,
-    legacyRoleKey: "voting",
   },
 ];

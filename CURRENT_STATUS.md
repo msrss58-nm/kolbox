@@ -6,26 +6,26 @@
 
 ## Production
 
-- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Dynamic Roles & Permissions Phase 2.**
+- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Dynamic Roles & Permissions Phase 2 (docs closed).**
 - **Vercel project**: `kolbox`, scope `nahom10`, Git integration auto-deploys on push to `master`.
-- Current production deployment: `dpl_GCJJkBDLJWtDHm4AEYguCbJiYP3C`, `readyState: READY`, `target: production`, built from commit `92e8162` ("feat: add dynamic role management (Phase 2)") - created ~1 minute after that commit's push, no other push in between. Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`.
-- Verified live on 2026-08-06 (post-deploy production smoke test, full Playwright run): HTTP 200; manager and a dynamic-role test account both logged in successfully via the real UI (temporary RPC-created accounts, deleted immediately after); manager saw the full 1,928-contact dataset and every admin control including the new "תפקידים" tab; created/edited/cloned/deleted a role and created a `PermissionUser` against it entirely through the UI; the delete button for a role with an assigned user was correctly disabled; the dynamic-role account (custom permission set, `scope_type: "all"`) saw the full dataset but none of the admin-only buttons it wasn't granted; 0 critical console/page errors - **27/27 checks passed**. Real data confirmed unchanged after cleanup: **1,928 voters**, `PermissionUser` roster count returned exactly to baseline.
+- Current production deployment: `dpl_9GRnWFNGAkSMstLxKz1DDCwTK1wV`, `readyState: READY`, `target: production`, built from commit `461f6b0` ("docs: close Dynamic Roles Phase 2 documentation") - created ~40 seconds after that commit's push, no other push in between. Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`.
+- Verified live on 2026-08-06 (post-deploy production smoke test, full Playwright run against the `92e8162` code deploy, unchanged by the subsequent docs-only `461f6b0` deploy): HTTP 200; manager and a dynamic-role test account both logged in successfully via the real UI (temporary RPC-created accounts, deleted immediately after); manager saw the full 1,928-contact dataset and every admin control including the new "תפקידים" tab; created/edited/cloned/deleted a role and created a `PermissionUser` against it entirely through the UI; the delete button for a role with an assigned user was correctly disabled; the dynamic-role account (custom permission set, `scope_type: "all"`) saw the full dataset but none of the admin-only buttons it wasn't granted; 0 critical console/page errors - **27/27 checks passed**. Real data confirmed unchanged after cleanup: **1,928 voters**, `PermissionUser` roster count returned exactly to baseline. Re-verified HTTP 200 again on 2026-08-06 after the `461f6b0` docs deploy (no functional retest needed - no code changed).
 
 ## Git
 
 - Branch: `master`
-- HEAD: `92e8162` ("feat: add dynamic role management (Phase 2)")
+- HEAD: `461f6b0` ("docs: close Dynamic Roles Phase 2 documentation")
 - `origin/master...master`: 0 ahead / 0 behind - fully synced (push completed 2026-08-06)
-- Working tree: has uncommitted documentation-only changes as of this note (this file + `CHANGELOG.md`'s post-deploy fill-in) - no application code, migration, or test changes pending.
+- Working tree: clean as of this note - no uncommitted changes.
 
 Recent history (newest first):
 
 ```
+461f6b0 docs: close Dynamic Roles Phase 2 documentation
 92e8162 feat: add dynamic role management (Phase 2)
 58e70db docs: close Dynamic Roles Phase 1 documentation
 b3ce9b9 feat: cut election day permission engine over to dynamic roles
 d830d50 feat: add dynamic roles database foundation
-6080d05 feat: rename voting role UI label to נציג קלפי
 ```
 
 ## Election Day Permission Engine - status
@@ -126,9 +126,13 @@ Real role management: a "תפקידים" UI tab (`RoleManagementModal.tsx` + `us
 
 **Phase 2 is fully closed**: code implemented, migration applied, live-verified pre-commit (37/37) and post-deploy in production (27/27), committed, pushed, deployed, zero regressions. The one residual gap (`CANNOT_REMOVE_LAST_PERMISSION_HOLDER`'s blocking path, see above) remains explicitly documented, not silently assumed resolved.
 
-### Phase 3 - NOT STARTED
+### Phase 3 - MIGRATION APPLIED, CODE VERIFIED LOCALLY, AWAITING COMMIT APPROVAL
 
-Legacy cleanup: drop `election_day_permission_users.role`, its CHECK constraint, the old `election_day_create_permission_user` RPC, and `legacy_role_key` itself once nothing reads them anymore.
+Legacy cleanup migration `supabase/migrations/20260806150000_election_day_dynamic_roles_phase3.sql` **is applied** to the linked remote Supabase project (2026-08-06): `election_day_permission_users.role` (+ its CHECK constraint) and `election_day_roles.legacy_role_key` (+ its partial unique index) are dropped; the old `election_day_create_permission_user(text,text,text)` RPC and `election_day_create_permission_user_for_role(text,text,uuid)` are both dropped; a new `election_day_create_permission_user(text,text,uuid)` takes the freed-up short name (found and fixed mid-verification: the migration file as originally written never actually performed this rename - corrected directly against remote, then the migration file updated to match, before it was committed anywhere). `election_day_login`/`list_permission_users`/`create_role`/`update_role`/`clone_role`/`list_roles` are re-created without `role`/`legacy_role_key` in their return shape; `election_day_delete_role` was untouched (never referenced either column). Verified live: legacy columns/functions gone, new RPC's signature/`SECURITY DEFINER`/`search_path=""` correct, `anon`/`authenticated` EXECUTE grants intact on every roster RPC, `PUBLIC` denied throughout, internal helpers (`election_day_is_valid_permission`/`election_day_validate_role_input`) still locked down to nobody but their SECURITY DEFINER callers.
+
+All application code updated to match: `RoleRecord.legacyRoleKey`/`DatabaseRole`/`PermissionRole` types removed; `PermissionUser`/`NewPermissionUser` no longer carry a `role` field; `addPermissionUser`/`createPermissionUserForRole` merged into a single `createPermissionUser(name, password, roleId)` path; `PermissionUsersModal.tsx`'s `legacyRoleKey`-branching removed; `RoleManagementModal.tsx`'s "תפקיד מובנה" badge removed (no role carries any special marking in code); `election-day.constants.ts`'s dead `roleOptions`/`legacyBadge` removed. Test suite updated to match (seed-parity/normalization/scope fixtures no longer reference `legacyRoleKey`/`legacy_role_key`; the one-off, self-documented-as-deletable `smoke-role-live-db-parity.ts` was deleted). `npm run build` (tsc + vite), `npm run lint`, and all 10 smoke suites pass with 0 errors. Live-verified against a local dev server talking to the now-migrated remote DB (temporary RPC-created accounts, Playwright driving the real UI): login as manager/operations/a brand-new dynamic role, create/edit/clone/delete a role, create a `PermissionUser` against a dynamic role, delete-blocked-while-assigned, logout/login round-trip - **23/23 checks passed**, 0 console errors, real 1,928-voter dataset and `PermissionUser` roster (baseline 0) both unchanged after cleanup.
+
+**Known transient risk, disclosed and accepted, self-resolving on the next deploy**: the currently-*deployed* production frontend (commit `461f6b0`, pre-Phase-3) still calls both the now-dropped `election_day_create_permission_user(text,text,text)` (legacy checkbox path) and `election_day_create_permission_user_for_role` (dynamic-role path) by name - **creating any new `PermissionUser` via the live production UI at `https://kolbox-gamma.vercel.app/election-day` will fail** (function-not-found) until this phase's frontend code is committed, pushed, and deployed. Every other production capability (login, role CRUD, list/delete a user, delete a role) is unaffected, since those RPC names/signatures didn't change in a way that breaks argument matching - only their return shape lost a field, which JS tolerates silently. Not yet done: commit, push, deploy, and a fresh post-deploy production smoke test - all pending explicit approval.
 
 ## Approved architectural decisions (do not change without explicit re-approval)
 
@@ -150,4 +154,4 @@ Legacy cleanup: drop `election_day_permission_users.role`, its CHECK constraint,
 
 **Phase 2 is complete and closed.** Commit `92e8162` is pushed to `origin/master` and deployed to production (`dpl_GCJJkBDLJWtDHm4AEYguCbJiYP3C`, `READY`, `https://kolbox-gamma.vercel.app`). The role-management UI ("תפקידים" tab), its 5 supporting RPCs, and the necessary session-resolution correction (matching by `roleId`, not legacy text) are all live-verified in production with 0 regressions - 1,928 voters and the `PermissionUser` roster unchanged. One residual gap remains explicitly documented, not silently resolved (the `CANNOT_REMOVE_LAST_PERMISSION_HOLDER` guard's blocking path - see above).
 
-**Phase 3 has not started.** The continuation point is legacy cleanup: drop `election_day_permission_users.role`, its CHECK constraint, the old `election_day_create_permission_user` RPC, and `legacy_role_key` itself once nothing reads them anymore. No code, RPC, or migration for Phase 3 exists yet; it requires its own explicit approval before any work begins.
+**Phase 3's migration is applied and its code is live-verified, not yet committed.** The legacy cleanup migration (`20260806150000_election_day_dynamic_roles_phase3.sql`) is applied to the linked Supabase project; every dependent code/type/test change is written and verified both statically (build, lint, 10/10 smoke suites) and live (23/23 UI checks against the migrated DB via a local dev server) - see the Phase 3 section above, including the disclosed transient production risk. The continuation point is: commit, push, deploy, and re-run production smoke tests (all pending explicit approval).

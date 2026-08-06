@@ -84,17 +84,10 @@ export interface NewRideCoordinator {
   phone: string;
 }
 
+/** Dynamic Roles & Permissions Phase 3: creates a `PermissionUser` against
+ * an arbitrary role_id - the only creation shape now that the legacy
+ * 3-checkbox path has been removed. */
 export interface NewPermissionUser {
-  name: string;
-  password: string;
-  role: "user" | "manager" | "voting";
-}
-
-/** Dynamic Roles & Permissions Phase 2: creates a `PermissionUser` against
- * an arbitrary role - the counterpart to `NewPermissionUser`'s legacy
- * 3-checkbox shape. `role` on the resulting `PermissionUser` is always
- * `null` (no legacy text equivalent). */
-export interface NewPermissionUserForRole {
   name: string;
   password: string;
   roleId: string;
@@ -196,7 +189,6 @@ export interface ApiClient {
 
   // election day - local user/manager permissions roster (no real auth)
   listPermissionUsers(): Promise<PermissionUser[]>;
-  addPermissionUser(input: NewPermissionUser): Promise<PermissionUser>;
   deletePermissionUser(id: string): Promise<void>;
   /** Verifies name+password and returns the matching user (never a
    * password/hash) on success, or null on no match. */
@@ -222,9 +214,9 @@ export interface ApiClient {
   updateRole(input: RoleUpdate): Promise<RoleRecord>;
   deleteRole(id: string): Promise<void>;
   cloneRole(id: string, newName: string): Promise<RoleRecord>;
-  /** Creates a `PermissionUser` against an arbitrary role_id - the
-   * counterpart to `addPermissionUser`'s legacy 3-checkbox path. */
-  createPermissionUserForRole(input: NewPermissionUserForRole): Promise<PermissionUser>;
+  /** Creates a `PermissionUser` against an arbitrary role_id - the only
+   * creation path since the legacy 3-checkbox RPC was removed (Phase 3). */
+  createPermissionUser(input: NewPermissionUser): Promise<PermissionUser>;
 
   /**
    * Optional live cross-device sync for Election Day's ride-coordination

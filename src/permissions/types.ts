@@ -1,11 +1,3 @@
-import type { PermissionRole } from "../types";
-
-/** The role as stored today in `election_day_permission_users.role` /
- * `PermissionUser.role` - unchanged by this engine. See
- * `resolveSessionRole` for how this text is resolved against the live
- * `RoleRecord` catalog (Dynamic Roles & Permissions, Phase 1). */
-export type DatabaseRole = PermissionRole;
-
 /** Every permission this engine knows about, namespaced by the area of the
  * app it governs. Field-level `voter.view*` permissions are intentionally
  * atomic (one per field actually rendered in `ElectionDayRow`/
@@ -65,23 +57,18 @@ export type RoleScopeType = "all" | "assigned_to_me";
 
 /** A normalized, trusted row from the live `election_day_roles` catalog
  * (Dynamic Roles & Permissions, Phase 1) - the type every permission/scope
- * decision in the app is based on. There is no more hardcoded three-way
+ * decision in the app is based on. There is no hardcoded three-way
  * `EffectiveRole` union; `manager`/`operations`/`voting` are just three
- * ordinary rows in this table today, indistinguishable in code from any
- * future dynamic role except by their `permissions`/`scopeType`.
+ * ordinary rows in this table, indistinguishable in code from any other
+ * role except by their `permissions`/`scopeType` (Phase 3: the
+ * `legacyRoleKey` migration-bookkeeping field that used to mark them is
+ * gone - resolution has matched exclusively by `id`/`roleId` since Phase 2).
  *
  * NEVER constructed by casting a raw RPC row directly - always produced by
  * `roleRecordMapper.ts`'s `normalizeRoleRecord`, which validates every
- * untrusted field and fails closed (`scopeType`/`legacyRoleKey`: `null` if
- * unrecognized; `permissions`: filtered against the live `Permission`
- * catalog) rather than ever passing an unvalidated value through.
- *
- * `legacyRoleKey` is migration bookkeeping only ("user"/"manager"/"voting",
- * or `null` for every role created after Phase 0) - never shown in any UI,
- * never touched by role create/rename/edit, plays no part in any
- * permission or scope decision itself (only in resolving *which* row a
- * legacy session's `DatabaseRole` text maps to). Removed entirely in the
- * future Phase 3 cleanup. */
+ * untrusted field and fails closed (`scopeType`: `null` if unrecognized;
+ * `permissions`: filtered against the live `Permission` catalog) rather
+ * than ever passing an unvalidated value through. */
 export interface RoleRecord {
   id: string;
   name: string;
@@ -92,5 +79,4 @@ export interface RoleRecord {
    * treated as "all" or any other implicit default. */
   scopeType: RoleScopeType | null;
   scopeValue: Json | null;
-  legacyRoleKey: DatabaseRole | null;
 }

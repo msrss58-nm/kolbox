@@ -321,11 +321,6 @@ export const ELECTION_DAY_TEXT = {
     showPasswordAriaLabel: "הצג סיסמה",
     hidePasswordAriaLabel: "הסתר סיסמה",
     roleLabel: "הרשאה",
-    roleOptions: {
-      user: "משתמש",
-      manager: "מנהל",
-      voting: "נציג קלפי",
-    },
     /** Dynamic Roles & Permissions Phase 2: shown when a user's role can't be
      * resolved from the live catalog (should not normally happen given the
      * DB's FK guarantee). */
@@ -363,7 +358,6 @@ export const ELECTION_DAY_TEXT = {
     cloneSuffix: (name: string) => `${name} (עותק)`,
     deleteAriaLabel: "מחיקת תפקיד",
     editAriaLabel: "עריכת תפקיד",
-    legacyBadge: "תפקיד מובנה",
     usersCount: (n: number) => `${n} משתמשים`,
     empty: "לא נוספו תפקידים עדיין",
     confirmDeleteTitle: "מחיקת תפקיד",
