@@ -106,6 +106,27 @@ export interface ElectionDayVoter {
   reminderAt: string | null; // ISO timestamp - when a follow-up reminder should fire
   voted: boolean;
   votedAt: string | null; // ISO timestamp
+  /** סיבת אי-הצבעה - only meaningful while voted = false, but NOT cleared
+   * automatically when voted flips to true (product decision - kept for
+   * history/future reports). Only ever an ID into the dynamic
+   * NonVotingReason catalog below, never free text. */
+  notVotingReasonId: string | null;
+  notVotingReasonSetAt: string | null; // ISO timestamp
+  notVotingReasonSetBy: string | null; // denormalized PermissionUser name, not a FK
+}
+
+/** סיבת אי-הצבעה - a dynamic, fully CRUD-managed catalog entry ("ניהול סיבות
+ * אי-הצבעה"), never hardcoded - mirrors RoleRecord's role in the Dynamic
+ * Roles & Permissions system. `sortOrder` drives display order everywhere
+ * (management screen, the voter-level dropdown, filters). A disabled
+ * (`isActive: false`) reason stays visible on any voter already assigned to
+ * it, just excluded from the active list offered for new assignments. */
+export interface NonVotingReason {
+  id: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  sortOrder: number;
 }
 
 /** נהג/אחראי הסעות - a fixed, pre-registered ride-coordinator contact that a

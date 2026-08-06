@@ -21,6 +21,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "electionDay.manageUsers": "ניהול הרשאות משתמשים",
   "electionDay.manageRideCoordinators": "ניהול אחראי הסעות",
   "electionDay.manageRolesAndPermissions": "ניהול תפקידים והרשאות",
+  "electionDay.manageNonVotingReasons": "ניהול סיבות אי-הצבעה",
   "app.accessFullNavigation": "גישה לתפריט הראשי המלא",
   "voter.viewName": "צפייה בשם",
   "voter.viewAddress": "צפייה בכתובת",
@@ -150,6 +151,11 @@ export const ELECTION_DAY_TEXT = {
     all: "כל הסטטוסים",
   },
 
+  reasonFilter: {
+    label: "סיבת אי-הצבעה",
+    all: "כל הסיבות",
+  },
+
   dashboard: {
     totalContacts: 'סה"כ אנשי קשר',
     arranged: "הסעות תואמו",
@@ -224,8 +230,15 @@ export const ELECTION_DAY_TEXT = {
     toast: {
       voted: "סומן כהצביע",
       notVoted: "הסימון בוטל",
+      reasonSet: "סיבת אי-ההצבעה נשמרה",
     },
     showUnvotedOnly: "הצג רק מי שטרם הצביע",
+    /** Shown only while voted = false - the reason is never cleared when
+     * voted flips to true (kept for history/reports), it just stops being
+     * offered for editing (see useElectionDay.ts's setNonVotingReason). */
+    reasonLabel: "סיבת אי-הצבעה",
+    reasonPlaceholder: "בחרו סיבה (אופציונלי)",
+    reasonNoneOption: "ללא סיבה",
   },
 
   reminder: {
@@ -379,6 +392,44 @@ export const ELECTION_DAY_TEXT = {
       deleted: "התפקיד נמחק",
       cloned: "התפקיד שוכפל",
       invalid: "יש להזין שם לתפקיד",
+    },
+  },
+
+  /** Dynamic Non-Voting Reasons: catalog management ("ניהול סיבות
+   * אי-הצבעה") - mirrors `rolesManager` above exactly. */
+  nonVotingReasonsManager: {
+    button: "ניהול סיבות אי-הצבעה",
+    modalTitle: "ניהול סיבות אי-הצבעה",
+    newButton: "סיבה חדשה",
+    createTitle: "סיבה חדשה",
+    editTitle: "עריכת סיבה",
+    nameLabel: "שם הסיבה",
+    namePlaceholder: "לדוגמה: לא עונה",
+    descriptionLabel: "תיאור",
+    descriptionPlaceholder: "תיאור קצר (אופציונלי)",
+    saveButton: "שמירה",
+    cancelButton: "ביטול",
+    activeLabel: "פעילה",
+    inactiveBadge: "מושבתת",
+    moveUpAriaLabel: "הזזה למעלה",
+    moveDownAriaLabel: "הזזה למטה",
+    editAriaLabel: "עריכת סיבה",
+    deleteAriaLabel: "מחיקת סיבה",
+    activateAriaLabel: "הפעלת סיבה",
+    deactivateAriaLabel: "השבתת סיבה",
+    usageCount: (n: number) => `${n} בוחרים`,
+    empty: "לא הוגדרו סיבות אי-הצבעה עדיין",
+    confirmDeleteTitle: "מחיקת סיבה",
+    confirmDeleteMessage: "פעולה זו אינה הפיכה. סיבות המשויכות לבוחרים לא ניתנות למחיקה.",
+    confirmDeleteButton: "מחיקת הסיבה",
+    toast: {
+      created: "הסיבה נוצרה",
+      updated: "הסיבה עודכנה",
+      deleted: "הסיבה נמחקה",
+      activated: "הסיבה הופעלה",
+      deactivated: "הסיבה הושבתה",
+      reordered: "הסדר נשמר",
+      invalid: "יש להזין שם לסיבה",
     },
   },
 

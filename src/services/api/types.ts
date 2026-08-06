@@ -6,6 +6,7 @@ import type {
   Classification,
   ClassificationEvent,
   ElectionDayVoter,
+  NonVotingReason,
   PermissionUser,
   PollingStation,
   RideCoordinator,
@@ -107,6 +108,16 @@ export interface RoleUpdate extends NewRole {
   id: string;
 }
 
+/** Dynamic Non-Voting Reasons: catalog create/update input. */
+export interface NewNonVotingReason {
+  name: string;
+  description: string;
+}
+
+export interface NonVotingReasonUpdate extends NewNonVotingReason {
+  id: string;
+}
+
 /**
  * The single data-access seam of the app.
  * MVP: implemented by MockApi (in-memory + localStorage).
@@ -182,6 +193,21 @@ export interface ApiClient {
    * reminder (of either kind) still goes through `setReminder(id, null)`. */
   setReminderAt(id: string, at: string): Promise<ElectionDayVoter>;
   setVoted(id: string, voted: boolean): Promise<ElectionDayVoter>;
+  /** `reasonId: null` clears the reason. `setByName` is the signed-in
+   * session's display name (or `null` with no session), written to the
+   * denormalized `notVotingReasonSetBy` for future reporting - passed in
+   * explicitly by the caller (rather than this layer reaching into
+   * election-day session state itself) to avoid a circular import between
+   * the API singleton and `electionDaySession.ts`, which itself imports the
+   * `api` singleton. Setting/changing the reason does not itself touch
+   * `voted` - and setting `voted = true` does NOT clear this field either
+   * (product decision - kept for history/future reports, the UI just stops
+   * offering it for editing while voted = true). */
+  setNonVotingReason(
+    id: string,
+    reasonId: string | null,
+    setByName: string | null,
+  ): Promise<ElectionDayVoter>;
   setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter>;
   /** Updates only the `phone` field, by internal id - never sends or
    * overwrites the rest of the voter record. */
@@ -222,6 +248,21 @@ export interface ApiClient {
   /** Creates a `PermissionUser` against an arbitrary role_id - the only
    * creation path since the legacy 3-checkbox RPC was removed (Phase 3). */
   createPermissionUser(input: NewPermissionUser): Promise<PermissionUser>;
+
+  /** Dynamic Non-Voting Reasons: the full catalog ("ניהול סיבות אי-הצבעה"),
+   * including inactive rows - the voter-level dropdown filters to
+   * `isActive` itself. Real CRUD (`createNonVotingReason`/
+   * `updateNonVotingReason`/`deleteNonVotingReason`) mirrors `createRole`/
+   * `updateRole`/`deleteRole` exactly, including `deleteNonVotingReason`
+   * rejecting a reason still referenced by any voter. */
+  listNonVotingReasons(): Promise<NonVotingReason[]>;
+  createNonVotingReason(input: NewNonVotingReason): Promise<NonVotingReason>;
+  updateNonVotingReason(input: NonVotingReasonUpdate): Promise<NonVotingReason>;
+  setNonVotingReasonActive(id: string, isActive: boolean): Promise<NonVotingReason>;
+  deleteNonVotingReason(id: string): Promise<void>;
+  /** Bulk reorder - `orderedIds` must contain every existing reason's id
+   * exactly once. */
+  reorderNonVotingReasons(orderedIds: string[]): Promise<NonVotingReason[]>;
 
   /**
    * Optional live cross-device sync for Election Day's ride-coordination

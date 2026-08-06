@@ -122,6 +122,14 @@ export function useElectionDay(isBootstrap: boolean) {
   const { data: permissionUsers, reload: reloadPermissionUsers } =
     useAsyncData(fetchPermissionUsers);
 
+  // Dynamic Non-Voting Reasons: not security-critical (unlike `roles`) so
+  // just a plain `useAsyncData` fetch, no dedicated catalog-status state
+  // machine - nothing downstream makes a fail-closed access decision based
+  // on this list.
+  const fetchNonVotingReasons = useCallback(() => api.listNonVotingReasons(), []);
+  const { data: nonVotingReasons, reload: reloadNonVotingReasons } =
+    useAsyncData(fetchNonVotingReasons);
+
   // Which contacts a signed-in session sees is governed by its resolved
   // role's `scopeType` (Dynamic Roles & Permissions Phase 1) - fail-closed
   // via `resolveVisibleContacts`: only an explicit `scopeType === "all"`
@@ -139,12 +147,14 @@ export function useElectionDay(isBootstrap: boolean) {
   const [coordinatorFilter, setCoordinatorFilter] = useState<string[]>([]);
   const [cityFilter, setCityFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<RideStatusFilterValue[]>([]);
+  const [reasonFilter, setReasonFilter] = useState<string[]>([]);
   const [showUnvotedOnly, setShowUnvotedOnly] = useState(false);
   const hasActiveFilters =
     debouncedSearch.trim() !== "" ||
     coordinatorFilter.length > 0 ||
     cityFilter.length > 0 ||
     statusFilter.length > 0 ||
+    reasonFilter.length > 0 ||
     showUnvotedOnly;
 
   // A single atomic { key, dir } state - toggling both from one updater
@@ -192,6 +202,10 @@ export function useElectionDay(isBootstrap: boolean) {
       base = base.filter((c) =>
         statusFilter.includes(c.rideArranged ? "arranged" : "notArranged"),
       );
+    if (reasonFilter.length)
+      base = base.filter(
+        (c) => c.notVotingReasonId && reasonFilter.includes(c.notVotingReasonId),
+      );
     if (showUnvotedOnly) base = base.filter((c) => !c.voted);
 
     if (!scopedContacts) return null;
@@ -212,6 +226,7 @@ export function useElectionDay(isBootstrap: boolean) {
     coordinatorFilter,
     cityFilter,
     statusFilter,
+    reasonFilter,
     showUnvotedOnly,
     sortBy,
     sortDir,
@@ -252,6 +267,7 @@ export function useElectionDay(isBootstrap: boolean) {
       string[],
       string[],
       RideStatusFilterValue[],
+      string[],
       boolean,
       ElectionDaySortKey | null,
       SortDir,
@@ -261,6 +277,7 @@ export function useElectionDay(isBootstrap: boolean) {
     coordinatorFilter,
     cityFilter,
     statusFilter,
+    reasonFilter,
     showUnvotedOnly,
     sortBy,
     sortDir,
@@ -270,15 +287,17 @@ export function useElectionDay(isBootstrap: boolean) {
     trackedQuery[1] !== coordinatorFilter ||
     trackedQuery[2] !== cityFilter ||
     trackedQuery[3] !== statusFilter ||
-    trackedQuery[4] !== showUnvotedOnly ||
-    trackedQuery[5] !== sortBy ||
-    trackedQuery[6] !== sortDir;
+    trackedQuery[4] !== reasonFilter ||
+    trackedQuery[5] !== showUnvotedOnly ||
+    trackedQuery[6] !== sortBy ||
+    trackedQuery[7] !== sortDir;
   if (queryChanged) {
     setTrackedQuery([
       debouncedSearch,
       coordinatorFilter,
       cityFilter,
       statusFilter,
+      reasonFilter,
       showUnvotedOnly,
       sortBy,
       sortDir,
@@ -591,6 +610,29 @@ export function useElectionDay(isBootstrap: boolean) {
   );
   const setVoted = guardedAction("voter.markVoted", setVotedRaw, "setVoted");
 
+  // Rides on the same `voter.markVoted` permission as `setVoted` itself (no
+  // separate permission by product decision - see PERMISSION type's comment)
+  // - the reason is edited from the same control (the mark-voted area of
+  // `ElectionDayContactModal`) that already requires this permission.
+  const { run: runSetNonVotingReason } = useAsyncAction(
+    (id: string, reasonId: string | null) =>
+      api.setNonVotingReason(id, reasonId, sessionUser?.name ?? null),
+    { successMessage: ELECTION_DAY_TEXT.voted.toast.reasonSet },
+  );
+  const setNonVotingReasonRaw = useCallback(
+    async (id: string, reasonId: string | null) => {
+      const updated = await runSetNonVotingReason(id, reasonId);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runSetNonVotingReason, applyContactUpdate],
+  );
+  const setNonVotingReason = guardedAction(
+    "voter.markVoted",
+    setNonVotingReasonRaw,
+    "setNonVotingReason",
+  );
+
   const { run: runSetRideCompleted } = useAsyncAction(
     (id: string, completed: boolean) => api.setRideCompleted(id, completed),
     {
@@ -878,6 +920,11 @@ export function useElectionDay(isBootstrap: boolean) {
 
   return {
     contacts: pagedContacts,
+    // The full, unpaged/unfiltered fetched list - used by
+    // `NonVotingReasonsModal`'s usage-count (a reason must be blocked from
+    // deletion if ANY voter references it, not just the current page/filter
+    // view) - `pagedContacts` above is deliberately narrower for the list.
+    allContacts: contacts ?? [],
     total: contacts?.length ?? 0,
     filteredTotal,
     loaded: contacts !== null,
@@ -896,6 +943,10 @@ export function useElectionDay(isBootstrap: boolean) {
     hasActiveFilters,
     statusFilter,
     setStatusFilter,
+    reasonFilter,
+    setReasonFilter,
+    nonVotingReasons: nonVotingReasons ?? [],
+    reloadNonVotingReasons,
     showUnvotedOnly,
     setShowUnvotedOnly,
     sortBy,
@@ -922,6 +973,7 @@ export function useElectionDay(isBootstrap: boolean) {
     setReminder,
     setReminderAt,
     setVoted,
+    setNonVotingReason,
     setRideCompleted,
     setNotes,
     setPhone,

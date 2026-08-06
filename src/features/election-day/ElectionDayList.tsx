@@ -4,7 +4,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { cn } from "../../lib/utils";
 import { usePermissions } from "../../permissions/usePermissions";
-import type { ElectionDayVoter } from "../../types";
+import type { ElectionDayVoter, NonVotingReason } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayRow } from "./ElectionDayRow";
 import {
@@ -122,6 +122,7 @@ export function ElectionDayList({
   sortDir,
   onSort,
   onOpen,
+  nonVotingReasons,
 }: {
   contacts: ElectionDayVoter[] | null;
   hasActiveFilters: boolean;
@@ -129,6 +130,7 @@ export function ElectionDayList({
   sortDir: SortDir;
   onSort: (key: ElectionDaySortKey) => void;
   onOpen: (id: string) => void;
+  nonVotingReasons: readonly NonVotingReason[];
 }) {
   const { can } = usePermissions();
   const visibleColumns = useMemo(
@@ -180,6 +182,7 @@ export function ElectionDayList({
           contact={contact}
           columns={visibleColumns}
           onOpen={() => onOpen(contact.id)}
+          nonVotingReasons={nonVotingReasons}
         />
       ))}
     </div>

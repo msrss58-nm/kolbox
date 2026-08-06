@@ -5,6 +5,7 @@ import type {
   Classification,
   ClassificationEvent,
   ElectionDayVoter,
+  NonVotingReason,
   PermissionUser,
   PollingStation,
   RideCoordinator,
@@ -24,10 +25,12 @@ import type {
   ImportSummary,
   NewActivist,
   NewElectionDayVoter,
+  NewNonVotingReason,
   NewPermissionUser,
   NewRideCoordinator,
   NewRole,
   NewVoter,
+  NonVotingReasonUpdate,
   Paged,
   RoleUpdate,
   VoterQuery,
@@ -73,6 +76,11 @@ export class MockApi implements ApiClient {
   /** Interface compliance only (see `listElectionDayRoles`'s comment) - not
    * persisted, reset on every reload. */
   private roles: RoleRecord[];
+  /** Interface compliance only - Election Day always delegates to
+   * `SupabaseElectionDayApi` in the real app (see `services/api/index.ts`),
+   * so this never actually backs the running UI. Not persisted, reset on
+   * every reload. */
+  private nonVotingReasons: NonVotingReason[];
 
   constructor() {
     this.data = loadJson<Dataset>(STORE_KEY) ?? generateDataset();
@@ -82,6 +90,7 @@ export class MockApi implements ApiClient {
     this.rideCoordinators = loadJson<RideCoordinator[]>(RIDE_COORDINATORS_KEY) ?? [];
     this.permissionUsers = loadJson<StoredPermissionUser[]>(PERMISSION_USERS_KEY) ?? [];
     this.roles = [...BUILT_IN_ROLE_SEED];
+    this.nonVotingReasons = [];
   }
 
   /** Debounced persistence - mutations land in localStorage at most every `persistDebounceMs`. */
@@ -476,6 +485,9 @@ export class MockApi implements ApiClient {
       reminderAt: null,
       voted: false,
       votedAt: null,
+      notVotingReasonId: null,
+      notVotingReasonSetAt: null,
+      notVotingReasonSetBy: null,
     }));
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     // A fresh import is a new ride-list for the day - last time's log no longer applies.
@@ -575,6 +587,21 @@ export class MockApi implements ApiClient {
     if (!contact) throw new Error("רשומה לא נמצאה");
     contact.voted = voted;
     contact.votedAt = voted ? new Date().toISOString() : null;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
+  async setNonVotingReason(
+    id: string,
+    reasonId: string | null,
+    setByName: string | null,
+  ): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.notVotingReasonId = reasonId;
+    contact.notVotingReasonSetAt = reasonId ? new Date().toISOString() : null;
+    contact.notVotingReasonSetBy = reasonId ? setByName : null;
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     return contact;
   }
@@ -727,5 +754,72 @@ export class MockApi implements ApiClient {
     this.permissionUsers.push(user);
     saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
     return toPublicPermissionUser(user);
+  }
+
+  /** Interface compliance only (see `nonVotingReasons`' field comment) - a
+   * minimal, non-persisted mirror of the real RPCs' shape, not their full
+   * validation/guard behavior. */
+  async listNonVotingReasons(): Promise<NonVotingReason[]> {
+    await latency();
+    return [...this.nonVotingReasons];
+  }
+
+  async createNonVotingReason(input: NewNonVotingReason): Promise<NonVotingReason> {
+    await latency();
+    const reason: NonVotingReason = {
+      id: `nvr-${crypto.randomUUID().slice(0, 8)}`,
+      name: input.name,
+      description: input.description,
+      isActive: true,
+      sortOrder: this.nonVotingReasons.length,
+    };
+    this.nonVotingReasons.push(reason);
+    return reason;
+  }
+
+  async updateNonVotingReason(input: NonVotingReasonUpdate): Promise<NonVotingReason> {
+    await latency();
+    const existing = this.nonVotingReasons.find((r) => r.id === input.id);
+    if (!existing) throw new Error("הסיבה לא נמצאה");
+    const updated: NonVotingReason = {
+      ...existing,
+      name: input.name,
+      description: input.description,
+    };
+    this.nonVotingReasons = this.nonVotingReasons.map((r) =>
+      r.id === input.id ? updated : r,
+    );
+    return updated;
+  }
+
+  async setNonVotingReasonActive(
+    id: string,
+    isActive: boolean,
+  ): Promise<NonVotingReason> {
+    await latency();
+    const existing = this.nonVotingReasons.find((r) => r.id === id);
+    if (!existing) throw new Error("הסיבה לא נמצאה");
+    const updated: NonVotingReason = { ...existing, isActive };
+    this.nonVotingReasons = this.nonVotingReasons.map((r) => (r.id === id ? updated : r));
+    return updated;
+  }
+
+  async deleteNonVotingReason(id: string): Promise<void> {
+    await latency();
+    if (this.electionDayVoters.some((v) => v.notVotingReasonId === id)) {
+      throw new Error("לא ניתן למחוק סיבה המשויכת לבוחרים");
+    }
+    this.nonVotingReasons = this.nonVotingReasons.filter((r) => r.id !== id);
+  }
+
+  async reorderNonVotingReasons(orderedIds: string[]): Promise<NonVotingReason[]> {
+    await latency();
+    this.nonVotingReasons = orderedIds
+      .map((id, index) => {
+        const existing = this.nonVotingReasons.find((r) => r.id === id);
+        return existing ? { ...existing, sortOrder: index } : null;
+      })
+      .filter((r): r is NonVotingReason => r !== null);
+    return [...this.nonVotingReasons];
   }
 }

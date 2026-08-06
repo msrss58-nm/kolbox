@@ -28,6 +28,14 @@ export type Permission =
   // a future Phase 2 "תפקידים" tab's job). Present in the catalog so the
   // DB-side seed data and the TS-side catalog agree from day one.
   | "electionDay.manageRolesAndPermissions"
+  // Dynamic Non-Voting Reasons: gates only the "ניהול סיבות אי-הצבעה" catalog
+  // management screen (create/edit/delete/enable-disable/reorder a reason).
+  // By product decision there is no separate "view the reason on a voter"
+  // permission - anyone who can see a voter's voted status (voter.
+  // viewVotedStatus) also sees its non-voting reason, and setting/changing
+  // the reason rides on the existing voter.markVoted (the same action that
+  // already gates the voted/not-voted toggle itself).
+  | "electionDay.manageNonVotingReasons"
   // navigation scope (outside Election Day entirely)
   | "app.accessFullNavigation"
   // field-level view permissions

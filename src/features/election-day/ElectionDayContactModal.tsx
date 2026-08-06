@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "../../components/ui/Button";
-import { fieldClasses } from "../../components/ui/Field";
+import { Field, fieldClasses, Select } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { APP_CONFIG } from "../../constants/config";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
@@ -9,7 +9,7 @@ import { telHref } from "../../lib/phone";
 import { cn } from "../../lib/utils";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
 import { usePermissions } from "../../permissions/usePermissions";
-import type { ElectionDayVoter } from "../../types";
+import type { ElectionDayVoter, NonVotingReason } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { PhoneEditDialog } from "./PhoneEditDialog";
 import { formatReminderDisplay } from "./reminderDisplay";
@@ -83,6 +83,8 @@ export function ElectionDayContactModal({
   onSetReminderAt,
   onCancelReminder,
   onToggleVoted,
+  onSetNonVotingReason,
+  nonVotingReasons,
   onSetNotes,
   onSetPhone,
   settingPhone,
@@ -96,6 +98,9 @@ export function ElectionDayContactModal({
   onSetReminderAt: (contact: ElectionDayVoter, at: Date) => void;
   onCancelReminder: (contact: ElectionDayVoter) => void;
   onToggleVoted: (contact: ElectionDayVoter, voted: boolean) => void;
+  /** `reasonId: null` clears the selection. */
+  onSetNonVotingReason: (id: string, reasonId: string | null) => void;
+  nonVotingReasons: readonly NonVotingReason[];
   onSetNotes: (id: string, notes: string) => void;
   onSetPhone: (id: string, phone: string) => Promise<unknown>;
   settingPhone: boolean;
@@ -219,6 +224,30 @@ export function ElectionDayContactModal({
                 </Button>
               )}
             </div>
+          )}
+
+          {/* Only while not-voted (editing rides on the same voter.markVoted
+           * permission as the mark-voted button above - no separate
+           * permission by product decision). The reason itself is never
+           * cleared when voted flips to true elsewhere - it just stops
+           * being offered here, and the value is pre-filled if one was
+           * already set (e.g. re-opening after marking not-voted again). */}
+          {showVotedToggle && !contact.voted && (
+            <Field label={ELECTION_DAY_TEXT.voted.reasonLabel}>
+              <Select
+                value={contact.notVotingReasonId ?? ""}
+                onChange={(e) => onSetNonVotingReason(contact.id, e.target.value || null)}
+              >
+                <option value="">{ELECTION_DAY_TEXT.voted.reasonNoneOption}</option>
+                {nonVotingReasons
+                  .filter((r) => r.isActive || r.id === contact.notVotingReasonId)
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+              </Select>
+            </Field>
           )}
 
           <PermissionGuard permission="voter.manageReminder">

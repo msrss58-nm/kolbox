@@ -59,6 +59,9 @@ export interface Database {
           reminder_at: string | null;
           voted: boolean;
           voted_at: string | null;
+          not_voting_reason_id: string | null;
+          not_voting_reason_set_at: string | null;
+          not_voting_reason_set_by: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -82,11 +85,22 @@ export interface Database {
           reminder_at?: string | null;
           voted?: boolean;
           voted_at?: string | null;
+          not_voting_reason_id?: string | null;
+          not_voting_reason_set_at?: string | null;
+          not_voting_reason_set_by?: string | null;
           created_at?: string;
           updated_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["election_day_voters"]["Insert"]>;
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "election_day_voters_not_voting_reason_id_fkey";
+            columns: ["not_voting_reason_id"];
+            isOneToOne: false;
+            referencedRelation: "election_day_not_voting_reasons";
+            referencedColumns: ["id"];
+          },
+        ];
       };
 
       election_day_ride_status_events: {
@@ -210,6 +224,36 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["election_day_roles"]["Insert"]>;
         Relationships: [];
       };
+
+      /** Dynamic Non-Voting Reasons (Phase 0). RLS-enabled, zero policies -
+       * never queried directly by the client. All access goes through the
+       * `election_day_list_non_voting_reasons`/create/update/set_active/
+       * delete/reorder RPCs below - this Row type is included only for
+       * completeness. */
+      election_day_not_voting_reasons: {
+        Row: {
+          id: string;
+          name: string;
+          description: string;
+          is_active: boolean;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          description?: string;
+          is_active?: boolean;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["election_day_not_voting_reasons"]["Insert"]
+        >;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -323,6 +367,65 @@ export interface Database {
           }[];
         };
         Returns: number;
+      };
+      /** Dynamic Non-Voting Reasons: lists the full catalog (active and
+       * inactive) ordered by sort_order. */
+      election_day_list_non_voting_reasons: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          is_active: boolean;
+          sort_order: number;
+        }[];
+      };
+      election_day_create_non_voting_reason: {
+        Args: { p_name: string; p_description: string | null };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          is_active: boolean;
+          sort_order: number;
+        }[];
+      };
+      election_day_update_non_voting_reason: {
+        Args: { p_id: string; p_name: string; p_description: string | null };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          is_active: boolean;
+          sort_order: number;
+        }[];
+      };
+      election_day_set_non_voting_reason_active: {
+        Args: { p_id: string; p_is_active: boolean };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          is_active: boolean;
+          sort_order: number;
+        }[];
+      };
+      /** Raises `REASON_IN_USE` if any voter still references this reason. */
+      election_day_delete_non_voting_reason: {
+        Args: { p_id: string };
+        Returns: undefined;
+      };
+      /** Raises `REORDER_ID_MISMATCH` unless given every existing reason id
+       * exactly once. */
+      election_day_reorder_non_voting_reasons: {
+        Args: { p_ordered_ids: string[] };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          is_active: boolean;
+          sort_order: number;
+        }[];
       };
     };
     Enums: Record<string, never>;

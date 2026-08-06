@@ -61,6 +61,7 @@ export const api: ApiClient = {
   setReminder: (...args) => electionDayApi.setReminder(...args),
   setReminderAt: (...args) => electionDayApi.setReminderAt(...args),
   setVoted: (...args) => electionDayApi.setVoted(...args),
+  setNonVotingReason: (...args) => electionDayApi.setNonVotingReason(...args),
   setElectionDayNotes: (...args) => electionDayApi.setElectionDayNotes(...args),
   setPhone: (...args) => electionDayApi.setPhone(...args),
 
@@ -84,6 +85,14 @@ export const api: ApiClient = {
   deleteRole: (...args) => electionDayApi.deleteRole(...args),
   cloneRole: (...args) => electionDayApi.cloneRole(...args),
   createPermissionUser: (...args) => electionDayApi.createPermissionUser(...args),
+
+  // election day - dynamic non-voting reason catalog (Supabase-backed, RPC-only)
+  listNonVotingReasons: (...args) => electionDayApi.listNonVotingReasons(...args),
+  createNonVotingReason: (...args) => electionDayApi.createNonVotingReason(...args),
+  updateNonVotingReason: (...args) => electionDayApi.updateNonVotingReason(...args),
+  setNonVotingReasonActive: (...args) => electionDayApi.setNonVotingReasonActive(...args),
+  deleteNonVotingReason: (...args) => electionDayApi.deleteNonVotingReason(...args),
+  reorderNonVotingReasons: (...args) => electionDayApi.reorderNonVotingReasons(...args),
 
   // election day - live cross-device sync (Supabase Realtime)
   subscribeToElectionDayChanges: (...args) =>

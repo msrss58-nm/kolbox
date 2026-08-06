@@ -16,6 +16,7 @@ import type { ElectionDayOutletContext } from "./ElectionDayGuard";
 import { ElectionDayImportButton } from "./ElectionDayImportButton";
 import { ElectionDayList } from "./ElectionDayList";
 import { useElectionDaySession } from "./electionDaySession";
+import { NonVotingReasonsModal } from "./NonVotingReasonsModal";
 import { PermissionUsersModal } from "./PermissionUsersModal";
 import { RideCoordinatorsModal } from "./RideCoordinatorsModal";
 import { RoleManagementModal } from "./RoleManagementModal";
@@ -23,6 +24,7 @@ import { roleDisplayName } from "./roleDisplayName";
 import { usePermissions } from "../../permissions/usePermissions";
 import { useCountdown } from "./useCountdown";
 import { useElectionDay } from "./useElectionDay";
+import { useNonVotingReasons } from "./useNonVotingReasons";
 import { useRoleManagement } from "./useRoleManagement";
 
 export function ElectionDayPage() {
@@ -35,7 +37,12 @@ export function ElectionDayPage() {
   const [coordinatorsModalOpen, setCoordinatorsModalOpen] = useState(false);
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
+  const [reasonsModalOpen, setReasonsModalOpen] = useState(false);
   const roleManagement = useRoleManagement();
+  const reasonsManagement = useNonVotingReasons(
+    electionDay.nonVotingReasons,
+    electionDay.reloadNonVotingReasons,
+  );
 
   const sessionUser = useElectionDaySession((s) => s.user);
   const logout = useElectionDaySession((s) => s.logout);
@@ -50,13 +57,15 @@ export function ElectionDayPage() {
   // action it triggers actually being allowed stay in sync.
   const showManageUsers = can("electionDay.manageUsers") || isBootstrap;
   const showManageRoles = can("electionDay.manageRolesAndPermissions");
+  const showManageReasons = can("electionDay.manageNonVotingReasons");
   const showExport = can("electionDay.export");
   const showControlPanelLeft =
     showImport ||
     showClearData ||
     showManageRideCoordinators ||
     showManageUsers ||
-    showManageRoles;
+    showManageRoles ||
+    showManageReasons;
   const showControlPanel = showControlPanelLeft || showExport;
 
   const openContact = electionDay.contacts?.find((c) => c.id === openContactId) ?? null;
@@ -110,6 +119,11 @@ export function ElectionDayPage() {
                 {showManageRoles && (
                   <Button variant="secondary" onClick={() => setRolesModalOpen(true)}>
                     🛡️ {ELECTION_DAY_TEXT.rolesManager.button}
+                  </Button>
+                )}
+                {showManageReasons && (
+                  <Button variant="secondary" onClick={() => setReasonsModalOpen(true)}>
+                    🗳️ {ELECTION_DAY_TEXT.nonVotingReasonsManager.button}
                   </Button>
                 )}
               </div>
@@ -224,6 +238,9 @@ export function ElectionDayPage() {
               onCityFilterChange={electionDay.setCityFilter}
               statusFilter={electionDay.statusFilter}
               onStatusFilterChange={electionDay.setStatusFilter}
+              nonVotingReasons={electionDay.nonVotingReasons}
+              reasonFilter={electionDay.reasonFilter}
+              onReasonFilterChange={electionDay.setReasonFilter}
             />
           </div>
         )}
@@ -246,6 +263,7 @@ export function ElectionDayPage() {
             sortDir={electionDay.sortDir}
             onSort={electionDay.toggleSort}
             onOpen={setOpenContactId}
+            nonVotingReasons={electionDay.nonVotingReasons}
           />
 
           <Pagination
@@ -276,6 +294,10 @@ export function ElectionDayPage() {
         }
         onCancelReminder={(contact) => void electionDay.setReminder(contact.id, null)}
         onToggleVoted={(contact, voted) => void electionDay.setVoted(contact.id, voted)}
+        onSetNonVotingReason={(id, reasonId) =>
+          void electionDay.setNonVotingReason(id, reasonId)
+        }
+        nonVotingReasons={electionDay.nonVotingReasons}
         onSetNotes={(id, notes) => void electionDay.setNotes(id, notes)}
         onSetPhone={electionDay.setPhone}
         settingPhone={electionDay.settingPhone}
@@ -303,6 +325,13 @@ export function ElectionDayPage() {
         onClose={() => setRolesModalOpen(false)}
         permissionUsers={electionDay.permissionUsers}
         roleManagement={roleManagement}
+      />
+
+      <NonVotingReasonsModal
+        open={reasonsModalOpen}
+        onClose={() => setReasonsModalOpen(false)}
+        contacts={electionDay.allContacts}
+        reasonsManagement={reasonsManagement}
       />
 
       <ConfirmDialog

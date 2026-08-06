@@ -1,20 +1,35 @@
 import { BellRing } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { usePermissions } from "../../permissions/usePermissions";
-import type { ElectionDayVoter } from "../../types";
+import type { ElectionDayVoter, NonVotingReason } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { ElectionDayColumnDef } from "./electionDayRowColumns";
 import { isReminderActive } from "./reminderStatus";
 import { VotedBadge } from "./VotedBadge";
 
+/** `null` if the voter has no reason set, or the reason was deleted since
+ * (an id no longer in the loaded catalog) - never a raw id leaking into the
+ * UI. Same "not voted → still shows the value" behavior as everywhere else:
+ * a disabled reason still resolves here, only deletion (blocked while any
+ * voter references it) would ever make this go missing. */
+function resolveReasonName(
+  reasonId: string | null,
+  reasons: readonly NonVotingReason[],
+): string | null {
+  if (!reasonId) return null;
+  return reasons.find((r) => r.id === reasonId)?.name ?? null;
+}
+
 function DesktopCell({
   columnKey,
   contact,
   showReminderBadge,
+  reasonName,
 }: {
   columnKey: ElectionDayColumnDef["key"];
   contact: ElectionDayVoter;
   showReminderBadge: boolean;
+  reasonName: string | null;
 }) {
   switch (columnKey) {
     case "masad":
@@ -80,8 +95,13 @@ function DesktopCell({
       );
     case "status":
       return (
-        <div className="flex min-w-0 items-center justify-center overflow-hidden">
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5 overflow-hidden">
           <VotedBadge voted={contact.voted} />
+          {!contact.voted && reasonName && (
+            <span className="max-w-full truncate text-xs text-slate-400">
+              {reasonName}
+            </span>
+          )}
         </div>
       );
   }
@@ -91,15 +111,24 @@ export function ElectionDayRow({
   contact,
   columns,
   onOpen,
+  nonVotingReasons,
 }: {
   contact: ElectionDayVoter;
   columns: readonly ElectionDayColumnDef[];
   onOpen: () => void;
+  nonVotingReasons: readonly NonVotingReason[];
 }) {
   const { can } = usePermissions();
   const showReminderBadge = can("voter.viewReminderStatus");
   const showCoordinator = can("voter.viewCoordinator");
   const showNotes = can("voter.viewNotes");
+  // No separate permission (product decision) - anyone who can see the
+  // voted/not-voted badge itself (voter.viewVotedStatus) also sees the
+  // non-voting reason attached to it.
+  const showVotedStatus = can("voter.viewVotedStatus");
+  const reasonName = showVotedStatus
+    ? resolveReasonName(contact.notVotingReasonId, nonVotingReasons)
+    : null;
   const reminderActive = showReminderBadge && isReminderActive(contact.reminderAt);
 
   return (
@@ -124,6 +153,7 @@ export function ElectionDayRow({
             columnKey={col.key}
             contact={contact}
             showReminderBadge={showReminderBadge}
+            reasonName={reasonName}
           />
         ))}
       </div>
@@ -157,8 +187,13 @@ export function ElectionDayRow({
               <p className="mt-0.5 truncate text-xs text-slate-400">{contact.notes}</p>
             )}
           </div>
-          <div className="shrink-0">
+          <div className="flex shrink-0 flex-col items-end gap-0.5">
             <VotedBadge voted={contact.voted} />
+            {!contact.voted && reasonName && (
+              <span className="max-w-24 truncate text-xs text-slate-400">
+                {reasonName}
+              </span>
+            )}
           </div>
         </div>
       </div>

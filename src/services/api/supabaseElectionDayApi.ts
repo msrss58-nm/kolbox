@@ -1,17 +1,24 @@
+import {
+  normalizeNonVotingReasonRecord,
+  type RawNonVotingReasonRow,
+} from "./nonVotingReasonMapper";
 import { normalizeRoleRecord, type RawRoleRow } from "../../permissions/roleRecordMapper";
 import type { RoleRecord } from "../../permissions/types";
 import { supabase } from "../supabase/client";
 import type {
   ElectionDayVoter,
+  NonVotingReason,
   PermissionUser,
   RideCoordinator,
   RideStatusEvent,
 } from "../../types";
 import type {
   NewElectionDayVoter,
+  NewNonVotingReason,
   NewPermissionUser,
   NewRideCoordinator,
   NewRole,
+  NonVotingReasonUpdate,
   RoleUpdate,
 } from "./types";
 
@@ -68,6 +75,9 @@ type VoterRow = {
   reminder_at: string | null;
   voted: boolean;
   voted_at: string | null;
+  not_voting_reason_id: string | null;
+  not_voting_reason_set_at: string | null;
+  not_voting_reason_set_by: string | null;
 };
 
 function toVoter(row: VoterRow): ElectionDayVoter {
@@ -91,6 +101,9 @@ function toVoter(row: VoterRow): ElectionDayVoter {
     reminderAt: row.reminder_at,
     voted: row.voted,
     votedAt: row.voted_at,
+    notVotingReasonId: row.not_voting_reason_id,
+    notVotingReasonSetAt: row.not_voting_reason_set_at,
+    notVotingReasonSetBy: row.not_voting_reason_set_by,
   };
 }
 
@@ -164,6 +177,43 @@ async function callRoleRpc<T>(
 ): Promise<T> {
   const result = await promise;
   if (result.error) throw new Error(mapRoleRpcErrorMessage(result.error.message));
+  return result.data as T;
+}
+
+/** Dynamic Non-Voting Reasons: the catalog-management RPCs raise the same
+ * kind of small, stable English error codes as the role RPCs
+ * (`REASON_IN_USE`, `REASON_NOT_FOUND`, `REASON_NAME_REQUIRED`,
+ * `REORDER_ID_MISMATCH`, the `election_day_not_voting_reasons_name_key`
+ * unique-violation message) - translated here, once, mirroring
+ * `mapRoleRpcErrorMessage` exactly. */
+function mapNonVotingReasonRpcErrorMessage(message: string): string {
+  if (message.includes("REASON_IN_USE")) {
+    return "לא ניתן למחוק סיבה המשויכת לבוחרים";
+  }
+  if (message.includes("REASON_NOT_FOUND")) {
+    return "הסיבה לא נמצאה - ייתכן שנמחקה על ידי משתמש אחר";
+  }
+  if (message.includes("REASON_NAME_REQUIRED")) {
+    return "יש להזין שם לסיבה";
+  }
+  if (message.includes("REORDER_ID_MISMATCH")) {
+    return "רשימת הסידור אינה תואמת את רשימת הסיבות הקיימת - רעננו ונסו שוב";
+  }
+  if (
+    message.includes("election_day_not_voting_reasons_name_key") ||
+    message.includes("duplicate key")
+  ) {
+    return "כבר קיימת סיבה בשם זה";
+  }
+  return message;
+}
+
+async function callNonVotingReasonRpc<T>(
+  promise: PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<T> {
+  const result = await promise;
+  if (result.error)
+    throw new Error(mapNonVotingReasonRpcErrorMessage(result.error.message));
   return result.data as T;
 }
 
@@ -349,6 +399,24 @@ export class SupabaseElectionDayApi {
     });
   }
 
+  /** Plain REST update via the same `updateVoter` path as `setVoted`/
+   * `setPhone`/`setNotes` - no RPC, since `election_day_voters`' RLS is
+   * already permissive. Does NOT touch `voted`/`voted_at` - the reason is
+   * purely additive metadata, and by product decision is never cleared
+   * automatically (not even when `voted` is later set to `true`
+   * elsewhere) - only an explicit call with `reasonId: null` clears it. */
+  async setNonVotingReason(
+    id: string,
+    reasonId: string | null,
+    setByName: string | null,
+  ): Promise<ElectionDayVoter> {
+    return this.updateVoter(id, {
+      not_voting_reason_id: reasonId,
+      not_voting_reason_set_at: reasonId ? new Date().toISOString() : null,
+      not_voting_reason_set_by: reasonId ? setByName : null,
+    });
+  }
+
   async setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter> {
     return this.updateVoter(id, { notes });
   }
@@ -465,6 +533,66 @@ export class SupabaseElectionDayApi {
       }),
     );
     return toPermissionUser(data[0]);
+  }
+
+  /** Dynamic Non-Voting Reasons: the full catalog, including inactive rows -
+   * not security-critical the way `listElectionDayRoles` is (a reason can't
+   * grant a capability), but still normalized defensively via
+   * `normalizeNonVotingReasonRecord` rather than a blind cast. */
+  async listNonVotingReasons(): Promise<NonVotingReason[]> {
+    const data = unwrapArray<RawNonVotingReasonRow[]>(
+      await supabase.rpc("election_day_list_non_voting_reasons"),
+    );
+    return data.map(normalizeNonVotingReasonRecord);
+  }
+
+  async createNonVotingReason(input: NewNonVotingReason): Promise<NonVotingReason> {
+    const data = await callNonVotingReasonRpc<RawNonVotingReasonRow[]>(
+      supabase.rpc("election_day_create_non_voting_reason", {
+        p_name: input.name,
+        p_description: input.description,
+      }),
+    );
+    return normalizeNonVotingReasonRecord(data[0]);
+  }
+
+  async updateNonVotingReason(input: NonVotingReasonUpdate): Promise<NonVotingReason> {
+    const data = await callNonVotingReasonRpc<RawNonVotingReasonRow[]>(
+      supabase.rpc("election_day_update_non_voting_reason", {
+        p_id: input.id,
+        p_name: input.name,
+        p_description: input.description,
+      }),
+    );
+    return normalizeNonVotingReasonRecord(data[0]);
+  }
+
+  async setNonVotingReasonActive(
+    id: string,
+    isActive: boolean,
+  ): Promise<NonVotingReason> {
+    const data = await callNonVotingReasonRpc<RawNonVotingReasonRow[]>(
+      supabase.rpc("election_day_set_non_voting_reason_active", {
+        p_id: id,
+        p_is_active: isActive,
+      }),
+    );
+    return normalizeNonVotingReasonRecord(data[0]);
+  }
+
+  async deleteNonVotingReason(id: string): Promise<void> {
+    await callNonVotingReasonRpc<null>(
+      supabase.rpc("election_day_delete_non_voting_reason", { p_id: id }),
+    );
+  }
+
+  async reorderNonVotingReasons(orderedIds: string[]): Promise<NonVotingReason[]> {
+    const data = await callNonVotingReasonRpc<RawNonVotingReasonRow[]>(
+      supabase.rpc("election_day_reorder_non_voting_reasons", {
+        p_ordered_ids: orderedIds,
+      }),
+    );
+    return data.map(normalizeNonVotingReasonRecord);
   }
 
   /** Live cross-device sync for the two Realtime-enabled tables (see the

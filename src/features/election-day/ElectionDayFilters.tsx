@@ -1,5 +1,6 @@
 import { MultiSelectDropdown } from "../../components/ui/MultiSelectDropdown";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
+import type { NonVotingReason } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { RideStatusFilterValue } from "./useElectionDay";
 
@@ -17,6 +18,9 @@ export function ElectionDayFilters({
   onCityFilterChange,
   statusFilter,
   onStatusFilterChange,
+  nonVotingReasons,
+  reasonFilter,
+  onReasonFilterChange,
 }: {
   coordinators: string[];
   coordinatorFilter: string[];
@@ -26,6 +30,9 @@ export function ElectionDayFilters({
   onCityFilterChange: (values: string[]) => void;
   statusFilter: RideStatusFilterValue[];
   onStatusFilterChange: (values: RideStatusFilterValue[]) => void;
+  nonVotingReasons: readonly NonVotingReason[];
+  reasonFilter: string[];
+  onReasonFilterChange: (values: string[]) => void;
 }) {
   return (
     <>
@@ -51,6 +58,17 @@ export function ElectionDayFilters({
           options={STATUS_OPTIONS}
           selected={statusFilter}
           onChange={(values) => onStatusFilterChange(values as RideStatusFilterValue[])}
+          className="md:w-52"
+        />
+      </PermissionGuard>
+      {/* No separate permission (product decision) - same gate as the
+       * voted/not-voted badge itself, which the reason is metadata of. */}
+      <PermissionGuard permission="voter.viewVotedStatus">
+        <MultiSelectDropdown
+          emptyLabel={ELECTION_DAY_TEXT.reasonFilter.all}
+          options={nonVotingReasons.map((r) => ({ value: r.id, label: r.name }))}
+          selected={reasonFilter}
+          onChange={onReasonFilterChange}
           className="md:w-52"
         />
       </PermissionGuard>

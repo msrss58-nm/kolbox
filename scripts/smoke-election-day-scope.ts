@@ -39,10 +39,17 @@ function makeContact(id: string, coordinator: string): ElectionDayVoter {
     reminderAt: null,
     voted: false,
     votedAt: null,
+    notVotingReasonId: null,
+    notVotingReasonSetAt: null,
+    notVotingReasonSetBy: null,
   };
 }
 
-const CONTACTS = [makeContact("1", "אבי"), makeContact("2", "אבי"), makeContact("3", "אלי")];
+const CONTACTS = [
+  makeContact("1", "אבי"),
+  makeContact("2", "אבי"),
+  makeContact("3", "אלי"),
+];
 const SESSION_AVI = { name: "אבי" };
 
 const ROLE_ALL: RoleRecord = {
@@ -104,13 +111,15 @@ assert(
 
 // ---- THE FIX: resolved role with unrecognized/missing scopeType -> [] ----
 assert(
-  resolveVisibleContacts(CONTACTS, SESSION_AVI, "loaded", ROLE_UNKNOWN_SCOPE)?.length === 0,
+  resolveVisibleContacts(CONTACTS, SESSION_AVI, "loaded", ROLE_UNKNOWN_SCOPE)?.length ===
+    0,
   "resolved role with scopeType=null (unrecognized/missing) -> [] (fail-closed)",
 );
 
 // ---- correct, positive behavior: scopeType "all" sees everything --------
 assert(
-  resolveVisibleContacts(CONTACTS, SESSION_AVI, "loaded", ROLE_ALL)?.length === CONTACTS.length,
+  resolveVisibleContacts(CONTACTS, SESSION_AVI, "loaded", ROLE_ALL)?.length ===
+    CONTACTS.length,
   'manager-equivalent role (scopeType "all"), catalog loaded -> sees every contact',
 );
 

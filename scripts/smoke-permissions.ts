@@ -35,6 +35,24 @@ const MANAGER = roleFor("seed-manager");
 const OPERATIONS = roleFor("seed-user"); // "משתמש"/operations role
 const VOTING = roleFor("seed-voting");
 
+/** `BUILT_IN_ROLE_SEED` is a frozen mirror of the Phase 0 migration's
+ * one-time seed insert (see that file's own doc comment) - `smoke-role-
+ * seed-parity.ts` enforces it never drifts from that historical SQL, so it
+ * can never be edited to retroactively include a permission introduced
+ * after Phase 0 shipped. Permissions are code, roles are data (Dynamic
+ * Roles & Permissions Phase 1+) - adding a new permission to `ALL_
+ * PERMISSIONS` does NOT itself grant it to any existing role, live or
+ * seeded; an admin opts a role into it explicitly via "ניהול תפקידים
+ * והרשאות". "manager = every permission" below is therefore checked against
+ * every permission that existed AS OF Phase 0, not every permission that
+ * will ever exist - this list is exactly the deliberate exceptions. */
+const PERMISSIONS_ADDED_AFTER_PHASE_0: readonly Permission[] = [
+  "electionDay.manageNonVotingReasons",
+];
+const PHASE_0_PERMISSIONS = ALL_PERMISSIONS.filter(
+  (p) => !PERMISSIONS_ADDED_AFTER_PHASE_0.includes(p),
+);
+
 // ---- resolveSessionRole (matches by roleId, not legacy text) ------------
 assert(
   resolveSessionRole("seed-manager", BUILT_IN_ROLE_SEED)?.id === "seed-manager",
@@ -68,20 +86,36 @@ for (const role of ROLES) {
   }
 }
 
-// ---- manager: every known permission, no exceptions ---------------------
+// ---- manager: every permission that existed as of Phase 0 ---------------
 assert(
-  MANAGER.permissions.length === ALL_PERMISSIONS.length,
-  `manager has all ${ALL_PERMISSIONS.length} permissions (has ${MANAGER.permissions.length})`,
+  MANAGER.permissions.length === PHASE_0_PERMISSIONS.length,
+  `manager has all ${PHASE_0_PERMISSIONS.length} Phase-0 permissions (has ${MANAGER.permissions.length})`,
 );
-for (const p of ALL_PERMISSIONS) {
+for (const p of PHASE_0_PERMISSIONS) {
   assert(hasPermission(MANAGER, p), `manager has "${p}"`);
+}
+// ---- a permission added after Phase 0 is deliberately NOT retrofitted ---
+// into the frozen seed (see PERMISSIONS_ADDED_AFTER_PHASE_0's comment) -
+// confirms this is an intentional, checked exception, not an oversight.
+for (const p of PERMISSIONS_ADDED_AFTER_PHASE_0) {
+  assert(
+    ALL_PERMISSIONS.includes(p),
+    `"${p}" is a real Permission in the catalog`,
+  );
+  assert(
+    !hasPermission(MANAGER, p),
+    `seed manager deliberately does NOT have "${p}" (post-Phase-0 addition - opt-in via ניהול תפקידים)`,
+  );
 }
 
 // ---- full expected table, independently re-derived from the approved ----
 // product decisions (not just re-reading the seed back at itself) - every
 // permission x every role is checked, so a missing OR an extraneous grant
 // both fail loudly.
-const EXPECTED: Record<"manager" | "operations" | "voting", Partial<Record<Permission, boolean>>> = {
+const EXPECTED: Record<
+  "manager" | "operations" | "voting",
+  Partial<Record<Permission, boolean>>
+> = {
   manager: {}, // covered exhaustively above - "everything true"
   operations: {
     "voter.markVoted": false,
@@ -165,7 +199,8 @@ assert(
 // ---- computePermissions composes resolveSessionRole + hasPermission -----
 // correctly for a real, loaded session (keyed by roleId)
 assert(
-  computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).role?.id === "seed-manager",
+  computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).role?.id ===
+    "seed-manager",
   'computePermissions("seed-manager", "loaded", seed).role.id is "seed-manager"',
 );
 assert(
@@ -173,11 +208,15 @@ assert(
   'computePermissions("seed-user", "loaded", seed).role.id is "seed-user"',
 );
 assert(
-  computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).can("electionDay.manageUsers"),
+  computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).can(
+    "electionDay.manageUsers",
+  ),
   'computePermissions("seed-manager", "loaded", seed).can("electionDay.manageUsers") is true',
 );
 assert(
-  !computePermissions("seed-user", "loaded", BUILT_IN_ROLE_SEED).can("electionDay.manageUsers"),
+  !computePermissions("seed-user", "loaded", BUILT_IN_ROLE_SEED).can(
+    "electionDay.manageUsers",
+  ),
   'computePermissions("seed-user", "loaded", seed).can("electionDay.manageUsers") is false (operations)',
 );
 assert(
@@ -225,11 +264,11 @@ for (const p of ALL_PERMISSIONS) {
   );
 }
 
-// ---- manager still gets every permission in the catalog (unaffected by --
-// the fail-closed contract when the catalog IS loaded correctly)
+// ---- manager still gets every Phase-0 permission (unaffected by the -----
+// fail-closed contract when the catalog IS loaded correctly)
 assert(
-  MANAGER.permissions.length === ALL_PERMISSIONS.length,
-  `manager still has all ${ALL_PERMISSIONS.length} permissions`,
+  MANAGER.permissions.length === PHASE_0_PERMISSIONS.length,
+  `manager still has all ${PHASE_0_PERMISSIONS.length} Phase-0 permissions`,
 );
 
 // ---- Dynamic Roles & Permissions, Phase 0/1: manageRolesAndPermissions --
