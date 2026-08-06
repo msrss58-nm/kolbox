@@ -6,22 +6,24 @@
 
 ## Production
 
-- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Dynamic Non-Voting Reasons.**
+- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Dynamic Non-Voting Reasons - fully functional, including role management.**
 - **Vercel project**: `kolbox`, scope `nahom10`, Git integration auto-deploys on push to `master`.
-- Current production deployment: `dpl_4qBm7TmR7F3WH62UQ7PMNeMonmYd`, `readyState: READY`, `target: production`, built from commit `2c92470` ("feat: add dynamic non-voting reasons") - confirmed via GitHub's commit-status API (`state: success`, matching deployment id). Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`. HTTP 200 confirmed.
+- Current production deployment: `dpl_4Nh8D8LfczkysaRb54zL3QLrj3F5`, `readyState: READY`, `target: production`, built from commit `e98f180` ("fix: recognize manageNonVotingReasons in the DB permission validator") - confirmed via GitHub's commit-status API (`state: success`, matching deployment id). Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`. HTTP 200 confirmed.
 - Verified live on 2026-08-06 (post-deploy production smoke test, full Playwright run against the `2c92470` deploy): **21/21 checks passed**, 0 console/page errors - assigning a non-voting reason, the save toast, persistence across refresh and logout/login, the reason dropdown correctly disappearing once a voter is marked voted (value confirmed still present in the DB directly), reappearing with the same value after un-voting, the reason filter, plus regression coverage (role management modal, reminders, reversed-word-order search). A separate direct-RPC pass (31/31 checks) verified the full catalog CRUD, duplicate-name rejection, `REASON_IN_USE`/`REASON_NOT_FOUND`/`REORDER_ID_MISMATCH` rejections, and FK-restrict against a real voter assignment. All temporary test accounts/roles were created via RPC and removed immediately after; real data confirmed unchanged after cleanup: **1,928 voters**, catalog back to exactly its 6 seed reasons, `PermissionUser`/role roster back to its exact 4-account baseline.
-- **Known gap, not yet fixed**: `election_day_is_valid_permission` (DB-side role-permission allowlist) doesn't yet recognize `electionDay.manageNonVotingReasons` - no role can be granted it until a follow-up migration ships. See `CLAUDE.md`'s "Known Security Limitations" and `CHANGELOG.md`'s matching entry.
+- **Gap found, fixed, and verified the same day**: `election_day_is_valid_permission` (DB-side role-permission allowlist) didn't recognize `electionDay.manageNonVotingReasons`, blocking any role from being granted it. Fixed via migration `election_day_valid_permission_non_voting_reasons`, shipped as commit `e98f180`, deployed as `dpl_4Nh8D8LfczkysaRb54zL3QLrj3F5`. Verified live in two rounds (8/8 then 7/7 checks, 0 console/page errors both times): the permission is now recognized and grantable, a role with it sees and can open "ניהול סיבות אי-הצבעה", a role without it correctly does not, no regressions. See `CLAUDE.md`'s "Known Security Limitations" and `CHANGELOG.md`'s matching entries.
 
 ## Git
 
 - Branch: `master`
-- HEAD: `2c92470` ("feat: add dynamic non-voting reasons")
+- HEAD: `e98f180` ("fix: recognize manageNonVotingReasons in the DB permission validator")
 - `origin/master...master`: 0 ahead / 0 behind - fully synced (push completed 2026-08-06)
 - Working tree: this feature's own files are clean; unrelated pre-existing uncommitted work from before this feature predates it and is untouched.
 
 Recent history (newest first):
 
 ```
+e98f180 fix: recognize manageNonVotingReasons in the DB permission validator
+4d37005 docs: verify dynamic non-voting reasons in production, flag validator gap
 2c92470 feat: add dynamic non-voting reasons
 2e8191c feat: remove legacy role model (Phase 3)
 461f6b0 docs: close Dynamic Roles Phase 2 documentation
