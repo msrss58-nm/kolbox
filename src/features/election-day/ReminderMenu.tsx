@@ -44,7 +44,14 @@ export function ReminderMenu({
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) closeAll();
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      // The date/time picker's calendar renders via a body-level portal
+      // (see DateTimePicker.tsx's `portalId`) so it's never a DOM descendant
+      // of `rootRef` - without this check, clicking a day/time inside it
+      // would look like an outside click and close the whole menu.
+      if (target instanceof Element && target.closest(".kb-datepicker-popper")) return;
+      closeAll();
     };
     const onKeyDown = (e: KeyboardEvent) => e.key === "Escape" && closeAll();
     document.addEventListener("mousedown", onPointerDown);

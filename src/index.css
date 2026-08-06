@@ -165,9 +165,21 @@
  * single-class rules, so override order here doesn't matter either.
  * Internal layout stays LTR (react-datepicker isn't RTL-aware) - same
  * reasoning as the countdown clock digits elsewhere in the app.
+ *
+ * z-index 45: the calendar renders via `portalId` (see DateTimePicker.tsx)
+ * into a body-level portal, so once portaled it's a sibling of `Modal`/
+ * `Drawer`'s own z-40 fixed overlay rather than a nested descendant - it
+ * needs to out-rank that 40 to stay visible/clickable above an open modal,
+ * while staying below Toast's z-50 so a toast is never hidden behind it.
+ * `div.kb-datepicker-popper` (not just `.kb-datepicker-popper`): react-
+ * datepicker's own stylesheet sets `.react-datepicker-popper { z-index: 1 }`
+ * on the same element (its always-applied base class, alongside our
+ * `popperClassName`) at equal specificity - source order alone left that
+ * rule winning, so this adds the element-selector specificity bump to
+ * reliably override it, same reasoning as the `.kb-datepicker` prefix above.
  */
-.kb-datepicker-popper {
-  z-index: 30;
+div.kb-datepicker-popper {
+  z-index: 45;
   direction: ltr;
 }
 
