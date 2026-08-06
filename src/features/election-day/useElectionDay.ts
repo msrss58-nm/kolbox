@@ -363,7 +363,9 @@ export function useElectionDay(isBootstrap: boolean) {
       coveragePct: total ? Math.round((arranged / total) * 100) : 0,
       voted,
       notVoted: total - voted,
-      votedPct: total ? Math.round((voted / total) * 100) : 0,
+      // Raw, unrounded ratio - rounding is a display concern (fmtVotedPct),
+      // not part of this calculation, so it's never applied here.
+      votedPct: total ? (voted / total) * 100 : 0,
     };
   }, [scopedContacts, reasonsById]);
 

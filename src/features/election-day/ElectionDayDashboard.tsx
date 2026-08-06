@@ -14,6 +14,7 @@ import {
 import { Card, CardTitle } from "../../components/ui/Card";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { CHART_TOOLTIP_STYLE_COMPACT } from "../../constants/chart";
+import { fmtVotedPct } from "../../lib/utils";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
@@ -28,7 +29,7 @@ function VotingProgressBar({ stats }: { stats: ElectionDayStats }) {
     <Card className="p-4">
       <div className="flex items-center justify-between gap-2 text-sm font-bold text-slate-700">
         <span>📈 {ELECTION_DAY_TEXT.dashboard.votingProgress.title}</span>
-        <span className="tabular-nums text-slate-500">{stats.votedPct}%</span>
+        <span className="tabular-nums text-slate-500">{fmtVotedPct(stats.votedPct)}</span>
       </div>
       <div className="relative mt-3 h-4.5 overflow-hidden rounded-full bg-slate-100">
         <div
@@ -55,7 +56,7 @@ function StatCard({
   suffix = "",
 }: {
   label: string;
-  value: number;
+  value: number | string;
   suffix?: string;
 }) {
   return (
@@ -229,8 +230,7 @@ export function ElectionDayDashboard({
           />
           <StatCard
             label={ELECTION_DAY_TEXT.dashboard.votingProgress.votingPct}
-            value={stats.votedPct}
-            suffix="%"
+            value={fmtVotedPct(stats.votedPct)}
           />
           <StatCard
             label={ELECTION_DAY_TEXT.dashboard.worklist.closed}

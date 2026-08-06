@@ -1,3 +1,4 @@
+import { fmtVotedPct } from "../../lib/utils";
 import type { Permission, RoleScopeType } from "../../permissions/types";
 
 export const REMINDER_MINUTES_OPTIONS = [15, 30, 60] as const;
@@ -126,7 +127,7 @@ export const ELECTION_DAY_TEXT = {
         "",
         `סה"כ בוחרים: ${opts.total}`,
         `כמה הצביעו: ${opts.voted}`,
-        `אחוז הצבעה: ${opts.votedPct}%`,
+        `אחוז הצבעה: ${fmtVotedPct(opts.votedPct)}`,
         "",
         ...opts.coordinators.map(
           (c) => `${c.name}: ${c.total} בוחרים, ${c.voted} הצביעו`,
