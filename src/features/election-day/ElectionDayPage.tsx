@@ -16,6 +16,7 @@ import type { ElectionDayOutletContext } from "./ElectionDayGuard";
 import { ElectionDayImportButton } from "./ElectionDayImportButton";
 import { ElectionDayList } from "./ElectionDayList";
 import { useElectionDaySession } from "./electionDaySession";
+import { NonVotingReasonDrillDownModal } from "./NonVotingReasonDrillDownModal";
 import { NonVotingReasonsModal } from "./NonVotingReasonsModal";
 import { PermissionUsersModal } from "./PermissionUsersModal";
 import { RideCoordinatorsModal } from "./RideCoordinatorsModal";
@@ -38,6 +39,12 @@ export function ElectionDayPage() {
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [reasonsModalOpen, setReasonsModalOpen] = useState(false);
+  // Which non-voting reason's drill-down is open (see
+  // NonVotingReasonsReportCard / NonVotingReasonDrillDownModal) - `null` =
+  // closed. Opening a voter from inside the drill-down closes this first
+  // (see `onOpenVoter` below) so the single-contact modal never stacks on
+  // top of it.
+  const [reportReasonId, setReportReasonId] = useState<string | null>(null);
   const roleManagement = useRoleManagement();
   const reasonsManagement = useNonVotingReasons(
     electionDay.nonVotingReasons,
@@ -68,7 +75,13 @@ export function ElectionDayPage() {
     showManageReasons;
   const showControlPanel = showControlPanelLeft || showExport;
 
-  const openContact = electionDay.contacts?.find((c) => c.id === openContactId) ?? null;
+  // Looks up against `allContacts` (the full, unfiltered/unpaginated fetched
+  // list), not `contacts` (the filtered/paginated view the main table
+  // renders) - a voter opened from elsewhere (e.g. the non-voting-reasons
+  // report drill-down) is very often NOT present in the main list's current
+  // filter (a "closed" reason's voter is excluded by the default "נותרו
+  // לטיפול" follow-up filter, for instance), and must still be openable.
+  const openContact = electionDay.allContacts.find((c) => c.id === openContactId) ?? null;
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -241,6 +254,8 @@ export function ElectionDayPage() {
               nonVotingReasons={electionDay.nonVotingReasons}
               reasonFilter={electionDay.reasonFilter}
               onReasonFilterChange={electionDay.setReasonFilter}
+              followUpFilter={electionDay.followUpFilter}
+              onFollowUpFilterChange={electionDay.setFollowUpFilter}
             />
           </div>
         )}
@@ -253,6 +268,8 @@ export function ElectionDayPage() {
         onToggleRideCompleted={(contact, completed) =>
           void electionDay.setRideCompleted(contact.id, completed)
         }
+        nonVotingReasonReport={electionDay.nonVotingReasonReport}
+        onOpenReasonReport={setReportReasonId}
         loaded={electionDay.loaded}
       >
         <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
@@ -332,6 +349,19 @@ export function ElectionDayPage() {
         onClose={() => setReasonsModalOpen(false)}
         contacts={electionDay.allContacts}
         reasonsManagement={reasonsManagement}
+      />
+
+      <NonVotingReasonDrillDownModal
+        open={reportReasonId !== null}
+        onClose={() => setReportReasonId(null)}
+        row={
+          electionDay.nonVotingReasonReport.find((r) => r.reasonId === reportReasonId) ??
+          null
+        }
+        onOpenVoter={(id) => {
+          setReportReasonId(null);
+          setOpenContactId(id);
+        }}
       />
 
       <ConfirmDialog

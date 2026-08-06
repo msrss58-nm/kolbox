@@ -13,6 +13,7 @@ export interface RawNonVotingReasonRow {
   description: unknown;
   is_active: unknown;
   sort_order: unknown;
+  requires_follow_up: unknown;
 }
 
 /** The one and only place a raw `election_day_list_non_voting_reasons()` row
@@ -24,7 +25,14 @@ export interface RawNonVotingReasonRow {
  *   "probably active".
  * - `sort_order`: only a finite `number` survives - anything else falls
  *   back to `Number.MAX_SAFE_INTEGER` so a corrupted row sinks to the end
- *   of the display order instead of crashing a sort or jumping to the top. */
+ *   of the display order instead of crashing a sort or jumping to the top.
+ * - `requires_follow_up`: the OPPOSITE fail-safe direction from `is_active`
+ *   on purpose - only an explicit `false` closes a case; anything else
+ *   (missing, null, a stray string, even a genuine `true`) defaults to
+ *   `true` (still requires follow-up). A voter who still needs a call
+ *   silently dropped out of the active worklist is a worse failure than a
+ *   closed voter staying visible a bit longer, so corruption here must fail
+ *   toward "still needs attention," never toward "safely closed". */
 export function normalizeNonVotingReasonRecord(
   row: RawNonVotingReasonRow,
 ): NonVotingReason {
@@ -37,5 +45,6 @@ export function normalizeNonVotingReasonRecord(
       typeof row.sort_order === "number" && Number.isFinite(row.sort_order)
         ? row.sort_order
         : Number.MAX_SAFE_INTEGER,
+    requiresFollowUp: row.requires_follow_up === false ? false : true,
   };
 }

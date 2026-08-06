@@ -237,6 +237,7 @@ export interface Database {
           description: string;
           is_active: boolean;
           sort_order: number;
+          requires_follow_up: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -246,6 +247,7 @@ export interface Database {
           description?: string;
           is_active?: boolean;
           sort_order?: number;
+          requires_follow_up?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -378,26 +380,38 @@ export interface Database {
           description: string;
           is_active: boolean;
           sort_order: number;
+          requires_follow_up: boolean;
         }[];
       };
       election_day_create_non_voting_reason: {
-        Args: { p_name: string; p_description: string | null };
+        Args: {
+          p_name: string;
+          p_description: string | null;
+          p_requires_follow_up: boolean;
+        };
         Returns: {
           id: string;
           name: string;
           description: string;
           is_active: boolean;
           sort_order: number;
+          requires_follow_up: boolean;
         }[];
       };
       election_day_update_non_voting_reason: {
-        Args: { p_id: string; p_name: string; p_description: string | null };
+        Args: {
+          p_id: string;
+          p_name: string;
+          p_description: string | null;
+          p_requires_follow_up: boolean;
+        };
         Returns: {
           id: string;
           name: string;
           description: string;
           is_active: boolean;
           sort_order: number;
+          requires_follow_up: boolean;
         }[];
       };
       election_day_set_non_voting_reason_active: {

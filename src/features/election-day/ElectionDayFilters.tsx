@@ -2,11 +2,18 @@ import { MultiSelectDropdown } from "../../components/ui/MultiSelectDropdown";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
 import type { NonVotingReason } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import type { FollowUpStatus } from "./followUpStatus";
 import type { RideStatusFilterValue } from "./useElectionDay";
 
 const STATUS_OPTIONS: { value: RideStatusFilterValue; label: string }[] = [
   { value: "arranged", label: ELECTION_DAY_TEXT.status.arranged },
   { value: "notArranged", label: ELECTION_DAY_TEXT.status.notArranged },
+];
+
+const FOLLOW_UP_OPTIONS: { value: FollowUpStatus; label: string }[] = [
+  { value: "remaining", label: ELECTION_DAY_TEXT.followUpFilter.options.remaining },
+  { value: "closed", label: ELECTION_DAY_TEXT.followUpFilter.options.closed },
+  { value: "voted", label: ELECTION_DAY_TEXT.followUpFilter.options.voted },
 ];
 
 export function ElectionDayFilters({
@@ -21,6 +28,8 @@ export function ElectionDayFilters({
   nonVotingReasons,
   reasonFilter,
   onReasonFilterChange,
+  followUpFilter,
+  onFollowUpFilterChange,
 }: {
   coordinators: string[];
   coordinatorFilter: string[];
@@ -33,6 +42,8 @@ export function ElectionDayFilters({
   nonVotingReasons: readonly NonVotingReason[];
   reasonFilter: string[];
   onReasonFilterChange: (values: string[]) => void;
+  followUpFilter: FollowUpStatus[];
+  onFollowUpFilterChange: (values: FollowUpStatus[]) => void;
 }) {
   return (
     <>
@@ -69,6 +80,18 @@ export function ElectionDayFilters({
           options={nonVotingReasons.map((r) => ({ value: r.id, label: r.name }))}
           selected={reasonFilter}
           onChange={onReasonFilterChange}
+          className="md:w-52"
+        />
+      </PermissionGuard>
+      {/* Coordinator worklist filter - same rationale/gate as the reason
+       * filter above: it's derived from voted-status + reason metadata, no
+       * separate permission. */}
+      <PermissionGuard permission="voter.viewVotedStatus">
+        <MultiSelectDropdown
+          emptyLabel={ELECTION_DAY_TEXT.followUpFilter.all}
+          options={FOLLOW_UP_OPTIONS}
+          selected={followUpFilter}
+          onChange={(values) => onFollowUpFilterChange(values as FollowUpStatus[])}
           className="md:w-52"
         />
       </PermissionGuard>

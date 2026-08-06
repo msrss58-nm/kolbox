@@ -17,14 +17,22 @@ const text = ELECTION_DAY_TEXT.nonVotingReasonsManager;
 interface ReasonFormState {
   name: string;
   description: string;
+  requiresFollowUp: boolean;
 }
 
 function emptyForm(): ReasonFormState {
-  return { name: "", description: "" };
+  // Defaults to `true` (matches the DB default) - the fail-safe direction:
+  // a brand-new reason should be treated as still needing follow-up until
+  // an admin deliberately marks it closed.
+  return { name: "", description: "", requiresFollowUp: true };
 }
 
 function formFromReason(reason: NonVotingReason): ReasonFormState {
-  return { name: reason.name, description: reason.description };
+  return {
+    name: reason.name,
+    description: reason.description,
+    requiresFollowUp: reason.requiresFollowUp,
+  };
 }
 
 export function NonVotingReasonsModal({
@@ -76,6 +84,7 @@ export function NonVotingReasonsModal({
     const input: NewNonVotingReason = {
       name: form.name.trim(),
       description: form.description.trim(),
+      requiresFollowUp: form.requiresFollowUp,
     };
     const result =
       editing !== "new" && editing !== null
@@ -130,6 +139,11 @@ export function NonVotingReasonsModal({
                         {!reason.isActive && (
                           <span className="ms-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-500">
                             {text.inactiveBadge}
+                          </span>
+                        )}
+                        {!reason.requiresFollowUp && (
+                          <span className="ms-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-500">
+                            {text.closedBadge}
                           </span>
                         )}
                       </p>
@@ -213,6 +227,17 @@ export function NonVotingReasonsModal({
               placeholder={text.descriptionPlaceholder}
             />
           </Field>
+          <label className="flex min-h-11 items-center gap-2 text-sm font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={form.requiresFollowUp}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, requiresFollowUp: e.target.checked }))
+              }
+              className="size-4 accent-primary-600"
+            />
+            {text.requiresFollowUpLabel}
+          </label>
 
           <div className="flex gap-2">
             <Button className="flex-1" loading={busy} onClick={() => void handleSave()}>

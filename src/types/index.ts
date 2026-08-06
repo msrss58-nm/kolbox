@@ -127,6 +127,12 @@ export interface NonVotingReason {
   description: string;
   isActive: boolean;
   sortOrder: number;
+  /** דורש המשך טיפול - drives the coordinator worklist (see
+   * `features/election-day/followUpStatus.ts`): whether a not-yet-voted
+   * contact assigned this reason still needs a coordinator to keep trying
+   * (`true`, e.g. "לא עונה") or the case is closed (`false`, e.g. "נפטר").
+   * NEVER inferred from `name` at runtime - only this column drives it. */
+  requiresFollowUp: boolean;
 }
 
 /** נהג/אחראי הסעות - a fixed, pre-registered ride-coordinator contact that a

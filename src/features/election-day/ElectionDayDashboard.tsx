@@ -17,6 +17,8 @@ import { CHART_TOOLTIP_STYLE_COMPACT } from "../../constants/chart";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import type { NonVotingReasonReportRow } from "./nonVotingReasonReport";
+import { NonVotingReasonsReportCard } from "./NonVotingReasonsReportCard";
 import { RideCoordinationTable } from "./RideCoordinationTable";
 import type { CoordinatorBreakdown, ElectionDayStats } from "./useElectionDay";
 
@@ -174,6 +176,8 @@ export function ElectionDayDashboard({
   coordinatorBreakdown,
   rideCoordinationQueue,
   onToggleRideCompleted,
+  nonVotingReasonReport,
+  onOpenReasonReport,
   loaded,
   children,
 }: {
@@ -181,6 +185,8 @@ export function ElectionDayDashboard({
   coordinatorBreakdown: CoordinatorBreakdown[];
   rideCoordinationQueue: ElectionDayVoter[];
   onToggleRideCompleted: (contact: ElectionDayVoter, completed: boolean) => void;
+  nonVotingReasonReport: NonVotingReasonReportRow[];
+  onOpenReasonReport: (reasonId: string) => void;
   loaded: boolean;
   children: ReactNode;
 }) {
@@ -189,8 +195,8 @@ export function ElectionDayDashboard({
       <div className="mb-6 grid gap-4 lg:grid-cols-[3fr_1.2fr]">
         <div className="space-y-4">
           <Skeleton className="h-24 rounded-2xl" />
-          <div className="grid grid-cols-3 gap-3">
-            {[...Array(3)].map((_, i) => (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+            {[...Array(5)].map((_, i) => (
               <Skeleton key={i} className="h-20 rounded-2xl" />
             ))}
           </div>
@@ -209,7 +215,10 @@ export function ElectionDayDashboard({
     <div className="mb-6 grid gap-4 lg:grid-cols-[3fr_1.2fr]">
       <div className="space-y-4">
         <VotingProgressBar stats={stats} />
-        <div className="grid grid-cols-3 gap-3">
+        {/* 2 cols at the narrowest phones, growing to 5 across on
+            desktop - keeps every card readable rather than squeezing 5
+            into a row at 375px. */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
           <StatCard
             label={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoters}
             value={stats.total}
@@ -222,6 +231,14 @@ export function ElectionDayDashboard({
             label={ELECTION_DAY_TEXT.dashboard.votingProgress.votingPct}
             value={stats.votedPct}
             suffix="%"
+          />
+          <StatCard
+            label={ELECTION_DAY_TEXT.dashboard.worklist.closed}
+            value={stats.closed}
+          />
+          <StatCard
+            label={ELECTION_DAY_TEXT.dashboard.worklist.remaining}
+            value={stats.remaining}
           />
         </div>
         {children}
@@ -238,6 +255,12 @@ export function ElectionDayDashboard({
           <RideCoordinationTable
             contacts={rideCoordinationQueue}
             onToggleCompleted={onToggleRideCompleted}
+          />
+        </PermissionGuard>
+        <PermissionGuard permission="voter.viewVotedStatus">
+          <NonVotingReasonsReportCard
+            rows={nonVotingReasonReport}
+            onOpenReasonReport={onOpenReasonReport}
           />
         </PermissionGuard>
       </div>

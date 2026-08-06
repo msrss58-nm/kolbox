@@ -26,12 +26,22 @@ import {
   type ElectionDayImportResult,
 } from "./electionDayImport";
 import { addNoteTag, hasNoteTag, removeNoteTag } from "./notesTags";
+import { resolveFollowUpStatus, type FollowUpStatus } from "./followUpStatus";
+import { buildNonVotingReasonReport } from "./nonVotingReasonReport";
 import { formatReminderDisplay } from "./reminderDisplay";
 
 export interface ElectionDayStats {
   total: number;
   arranged: number;
+  /** Coordinator worklist's "still needs follow-up" count (see
+   * `followUpStatus.ts`) - NOT ride-arrangement remaining. This field
+   * existed before the worklist feature but had no consumer anywhere in the
+   * app, so its meaning is repurposed here rather than adding a
+   * same-shaped duplicate field. `total` above doubles as "assigned" for
+   * worklist purposes - no separate field needed for that. */
   remaining: number;
+  /** Coordinator worklist's "case closed, no further follow-up" count. */
+  closed: number;
   coveragePct: number;
   voted: number;
   notVoted: number;
@@ -142,6 +152,15 @@ export function useElectionDay(isBootstrap: boolean) {
     [contacts, sessionUser, catalogStatus, role],
   );
 
+  // Single source of truth for id -> NonVotingReason lookups - shared by
+  // `stats`, `filteredContacts`'s follow-up filter, and anything else below
+  // that needs to resolve a contact's `notVotingReasonId` without
+  // re-scanning the catalog array each time.
+  const reasonsById = useMemo(
+    () => new Map((nonVotingReasons ?? []).map((r) => [r.id, r])),
+    [nonVotingReasons],
+  );
+
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [coordinatorFilter, setCoordinatorFilter] = useState<string[]>([]);
@@ -149,6 +168,12 @@ export function useElectionDay(isBootstrap: boolean) {
   const [statusFilter, setStatusFilter] = useState<RideStatusFilterValue[]>([]);
   const [reasonFilter, setReasonFilter] = useState<string[]>([]);
   const [showUnvotedOnly, setShowUnvotedOnly] = useState(false);
+  // Coordinator worklist filter (additive - does not replace
+  // `showUnvotedOnly`, which stays exactly as-is). Defaults to "remaining"
+  // only, matching the worklist's default "what still needs attention" view.
+  // Typed as `FollowUpStatus[]` (not a loose `string[]`) - same pattern as
+  // `statusFilter`/`RideStatusFilterValue[]` above.
+  const [followUpFilter, setFollowUpFilter] = useState<FollowUpStatus[]>(["remaining"]);
   const hasActiveFilters =
     debouncedSearch.trim() !== "" ||
     coordinatorFilter.length > 0 ||
@@ -207,6 +232,10 @@ export function useElectionDay(isBootstrap: boolean) {
         (c) => c.notVotingReasonId && reasonFilter.includes(c.notVotingReasonId),
       );
     if (showUnvotedOnly) base = base.filter((c) => !c.voted);
+    if (followUpFilter.length > 0)
+      base = base.filter((c) =>
+        followUpFilter.includes(resolveFollowUpStatus(c, reasonsById)),
+      );
 
     if (!scopedContacts) return null;
 
@@ -228,6 +257,8 @@ export function useElectionDay(isBootstrap: boolean) {
     statusFilter,
     reasonFilter,
     showUnvotedOnly,
+    followUpFilter,
+    reasonsById,
     sortBy,
     sortDir,
   ]);
@@ -269,6 +300,7 @@ export function useElectionDay(isBootstrap: boolean) {
       RideStatusFilterValue[],
       string[],
       boolean,
+      FollowUpStatus[],
       ElectionDaySortKey | null,
       SortDir,
     ]
@@ -279,6 +311,7 @@ export function useElectionDay(isBootstrap: boolean) {
     statusFilter,
     reasonFilter,
     showUnvotedOnly,
+    followUpFilter,
     sortBy,
     sortDir,
   ]);
@@ -289,8 +322,9 @@ export function useElectionDay(isBootstrap: boolean) {
     trackedQuery[3] !== statusFilter ||
     trackedQuery[4] !== reasonFilter ||
     trackedQuery[5] !== showUnvotedOnly ||
-    trackedQuery[6] !== sortBy ||
-    trackedQuery[7] !== sortDir;
+    trackedQuery[6] !== followUpFilter ||
+    trackedQuery[7] !== sortBy ||
+    trackedQuery[8] !== sortDir;
   if (queryChanged) {
     setTrackedQuery([
       debouncedSearch,
@@ -299,6 +333,7 @@ export function useElectionDay(isBootstrap: boolean) {
       statusFilter,
       reasonFilter,
       showUnvotedOnly,
+      followUpFilter,
       sortBy,
       sortDir,
     ]);
@@ -313,16 +348,32 @@ export function useElectionDay(isBootstrap: boolean) {
     const total = scopedContacts?.length ?? 0;
     const arranged = (scopedContacts ?? []).filter((c) => c.rideArranged).length;
     const voted = (scopedContacts ?? []).filter((c) => c.voted).length;
+    let closed = 0;
+    let remaining = 0;
+    for (const c of scopedContacts ?? []) {
+      const status = resolveFollowUpStatus(c, reasonsById);
+      if (status === "closed") closed++;
+      else if (status === "remaining") remaining++;
+    }
     return {
       total,
       arranged,
-      remaining: total - arranged,
+      remaining,
+      closed,
       coveragePct: total ? Math.round((arranged / total) * 100) : 0,
       voted,
       notVoted: total - voted,
       votedPct: total ? Math.round((voted / total) * 100) : 0,
     };
-  }, [scopedContacts]);
+  }, [scopedContacts, reasonsById]);
+
+  // Reason -> coordinator -> voter drill-down for the dashboard's "סיבות
+  // אי-הצבעה" report card. Reads through `scopedContacts` (session scope),
+  // independent of the list's own filters/pagination.
+  const nonVotingReasonReport = useMemo(
+    () => buildNonVotingReasonReport(scopedContacts ?? [], nonVotingReasons ?? []),
+    [scopedContacts, nonVotingReasons],
+  );
 
   const coordinatorBreakdown = useMemo((): CoordinatorBreakdown[] => {
     const byCoordinator = new Map<string, CoordinatorBreakdown>();
@@ -947,8 +998,11 @@ export function useElectionDay(isBootstrap: boolean) {
     setReasonFilter,
     nonVotingReasons: nonVotingReasons ?? [],
     reloadNonVotingReasons,
+    nonVotingReasonReport,
     showUnvotedOnly,
     setShowUnvotedOnly,
+    followUpFilter,
+    setFollowUpFilter,
     sortBy,
     sortDir,
     toggleSort,

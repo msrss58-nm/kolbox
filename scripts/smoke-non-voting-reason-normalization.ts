@@ -7,8 +7,10 @@
  * proves every untrusted field fails safe independently: a non-boolean
  * `is_active` normalizes to `false` (never guessed at as "probably active"),
  * a non-finite/non-number `sort_order` sinks to the end of the display
- * order instead of crashing a sort, and id/name/description are safely
- * coerced rather than thrown on.
+ * order instead of crashing a sort, id/name/description are safely coerced
+ * rather than thrown on, and `requires_follow_up` (Coordinator Worklist)
+ * fails safe in the OPPOSITE direction from `is_active` on purpose - see the
+ * dedicated section below.
  *
  * Run via: npx esbuild scripts/smoke-non-voting-reason-normalization.ts --bundle --format=cjs --outfile=scripts/smoke-non-voting-reason-normalization.cjs && node scripts/smoke-non-voting-reason-normalization.cjs
  */
@@ -31,6 +33,7 @@ const wellFormedRow: RawNonVotingReasonRow = {
   description: "לא ענה לטלפון",
   is_active: true,
   sort_order: 2,
+  requires_follow_up: true,
 };
 const roundTripped = normalizeNonVotingReasonRecord(wellFormedRow);
 assert(roundTripped.id === "r-1", "a well-formed row's id round-trips exactly");
@@ -41,6 +44,10 @@ assert(
 );
 assert(roundTripped.isActive === true, "a well-formed row's is_active round-trips exactly");
 assert(roundTripped.sortOrder === 2, "a well-formed row's sort_order round-trips exactly");
+assert(
+  roundTripped.requiresFollowUp === true,
+  "a well-formed row's requires_follow_up=true round-trips exactly",
+);
 
 // ---- is_active: only a real boolean survives, everything else -> false --
 for (const badValue of [null, undefined, "true", 1, 0] as const) {
@@ -67,6 +74,45 @@ for (const badValue of [null, undefined, "2", NaN, Infinity] as const) {
   );
 }
 
+// ---- requires_follow_up: FAIL-SAFE-TOWARD-OPEN, the OPPOSITE direction --
+// from is_active on purpose. is_active fails CLOSED (anything not exactly
+// `true` -> `false`, "not active" is the safe default). requires_follow_up
+// fails OPEN (anything not exactly `false` -> `true`, "still needs
+// follow-up" is the safe default) - because silently dropping a voter who
+// still needs a call out of the active worklist is a worse failure than a
+// genuinely-closed case staying visible a bit longer. Only an explicit
+// `false` ever closes a case.
+assert(
+  normalizeNonVotingReasonRecord({ ...wellFormedRow, requires_follow_up: false })
+    .requiresFollowUp === false,
+  "requires_follow_up=false (the real, explicit closing value) normalizes to false",
+);
+assert(
+  normalizeNonVotingReasonRecord({ ...wellFormedRow, requires_follow_up: true })
+    .requiresFollowUp === true,
+  "requires_follow_up=true normalizes to true",
+);
+for (const failOpenValue of [undefined, null, "garbage", 0, 1, "false"] as const) {
+  const normalized = normalizeNonVotingReasonRecord({
+    ...wellFormedRow,
+    requires_follow_up: failOpenValue,
+  });
+  assert(
+    normalized.requiresFollowUp === true,
+    `requires_follow_up=${JSON.stringify(failOpenValue)} normalizes to true (fail-OPEN - the opposite direction from is_active, which would fail to false on the same input)`,
+  );
+}
+// missing entirely (key absent from the row, not just undefined-valued)
+{
+  const rowMissingKey = { ...wellFormedRow } as Partial<RawNonVotingReasonRow>;
+  delete rowMissingKey.requires_follow_up;
+  const normalized = normalizeNonVotingReasonRecord(rowMissingKey as RawNonVotingReasonRow);
+  assert(
+    normalized.requiresFollowUp === true,
+    "requires_follow_up missing entirely from the row normalizes to true (fail-open)",
+  );
+}
+
 // ---- id/name/description are safely coerced, never thrown on -----------
 const weirdShapeRow = {
   id: 12345, // not a string - should never happen per the RPC's uuid column, but never trusted blindly
@@ -74,6 +120,7 @@ const weirdShapeRow = {
   description: undefined,
   is_active: "yes",
   sort_order: "3",
+  requires_follow_up: "yes",
 };
 const normalizedWeird = normalizeNonVotingReasonRecord(weirdShapeRow as never);
 assert(
@@ -90,6 +137,10 @@ assert(
   normalizedWeird.sortOrder === Number.MAX_SAFE_INTEGER,
   "a non-number sort_order sinks to the end",
 );
+assert(
+  normalizedWeird.requiresFollowUp === true,
+  "a non-boolean requires_follow_up on an otherwise-malformed row fails safe to true (open) - opposite direction from isActive's false on the same row",
+);
 
 // ---- a completely empty row still yields a usable, safe record ---------
 const emptyRow = normalizeNonVotingReasonRecord({} as RawNonVotingReasonRow);
@@ -98,6 +149,10 @@ assert(emptyRow.isActive === false, "an empty row's is_active defaults to false"
 assert(
   emptyRow.sortOrder === Number.MAX_SAFE_INTEGER,
   "an empty row's sort_order sinks to the end",
+);
+assert(
+  emptyRow.requiresFollowUp === true,
+  "an empty row's requires_follow_up defaults to true (fail-open, opposite of isActive's fail-closed default on the same empty row)",
 );
 
 if (process.exitCode) {

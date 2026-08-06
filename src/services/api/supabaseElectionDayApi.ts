@@ -551,6 +551,7 @@ export class SupabaseElectionDayApi {
       supabase.rpc("election_day_create_non_voting_reason", {
         p_name: input.name,
         p_description: input.description,
+        p_requires_follow_up: input.requiresFollowUp,
       }),
     );
     return normalizeNonVotingReasonRecord(data[0]);
@@ -562,6 +563,7 @@ export class SupabaseElectionDayApi {
         p_id: input.id,
         p_name: input.name,
         p_description: input.description,
+        p_requires_follow_up: input.requiresFollowUp,
       }),
     );
     return normalizeNonVotingReasonRecord(data[0]);

@@ -772,6 +772,7 @@ export class MockApi implements ApiClient {
       description: input.description,
       isActive: true,
       sortOrder: this.nonVotingReasons.length,
+      requiresFollowUp: input.requiresFollowUp,
     };
     this.nonVotingReasons.push(reason);
     return reason;
@@ -785,6 +786,7 @@ export class MockApi implements ApiClient {
       ...existing,
       name: input.name,
       description: input.description,
+      requiresFollowUp: input.requiresFollowUp,
     };
     this.nonVotingReasons = this.nonVotingReasons.map((r) =>
       r.id === input.id ? updated : r,

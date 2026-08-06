@@ -112,6 +112,7 @@ export interface RoleUpdate extends NewRole {
 export interface NewNonVotingReason {
   name: string;
   description: string;
+  requiresFollowUp: boolean;
 }
 
 export interface NonVotingReasonUpdate extends NewNonVotingReason {

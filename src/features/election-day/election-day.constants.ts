@@ -156,6 +156,19 @@ export const ELECTION_DAY_TEXT = {
     all: "כל הסיבות",
   },
 
+  /** Coordinator worklist filter ("מצב טיפול") - built on top of
+   * `followUpStatus.ts`'s `FollowUpStatus`. Additive to the existing
+   * `showUnvotedOnly` toggle, not a replacement for it. */
+  followUpFilter: {
+    label: "מצב טיפול",
+    all: "כל המצבים",
+    options: {
+      remaining: "נותרו לטיפול",
+      closed: "נסגרו",
+      voted: "הצביעו",
+    },
+  },
+
   dashboard: {
     totalContacts: 'סה"כ אנשי קשר',
     arranged: "הסעות תואמו",
@@ -163,6 +176,14 @@ export const ELECTION_DAY_TEXT = {
     coveragePct: "אחוז השלמה",
     byCoordinator: "התקדמות לפי אחראי",
     byCoordinatorEmpty: "אין נתונים עדיין",
+    /** Coordinator worklist stat cards (see `ElectionDayStats.remaining`/
+     * `.closed`) - `assigned` reuses the existing `stats.total`, no new
+     * field needed for it. */
+    worklist: {
+      assigned: "הוקצו",
+      closed: "נסגרו",
+      remaining: "נותרו לטיפול",
+    },
     recentActivity: {
       title: "פעילות אחרונה",
       empty: "אין עדיין הסעות שתואמו",
@@ -407,10 +428,17 @@ export const ELECTION_DAY_TEXT = {
     namePlaceholder: "לדוגמה: לא עונה",
     descriptionLabel: "תיאור",
     descriptionPlaceholder: "תיאור קצר (אופציונלי)",
+    /** The "דורש המשך טיפול" toggle in the create/edit form - drives the
+     * coordinator worklist (see `followUpStatus.ts`). */
+    requiresFollowUpLabel: "דורש המשך טיפול",
     saveButton: "שמירה",
     cancelButton: "ביטול",
     activeLabel: "פעילה",
     inactiveBadge: "מושבתת",
+    /** Shown next to a reason whose `requiresFollowUp === false` - mirrors
+     * `inactiveBadge`'s placement/style, distinct concept (an inactive
+     * reason can still require follow-up, and vice versa). */
+    closedBadge: "לא דורש טיפול",
     moveUpAriaLabel: "הזזה למעלה",
     moveDownAriaLabel: "הזזה למטה",
     editAriaLabel: "עריכת סיבה",
@@ -431,6 +459,20 @@ export const ELECTION_DAY_TEXT = {
       reordered: "הסדר נשמר",
       invalid: "יש להזין שם לסיבה",
     },
+  },
+
+  /** Dashboard report card + drill-down: "סיבות אי-הצבעה" - groups
+   * non-voting contacts by reason, then by coordinator (see
+   * `nonVotingReasonReport.ts`). */
+  nonVotingReasonsReport: {
+    cardTitle: "סיבות אי-הצבעה",
+    empty: "אין עדיין סיבות אי-הצבעה בשימוש",
+    rowCount: (n: number) => `${n} בוחרים`,
+    drillDownTitle: (reasonName: string) => `${reasonName} - פירוט`,
+    byCoordinatorTitle: "לפי אחראי",
+    noCoordinator: "ללא אחראי",
+    backToAllCoordinators: "חזרה לכל האחראים",
+    voterListEmpty: "אין בוחרים להצגה",
   },
 
   /** Local, non-server login gate for this screen only - checks against the
