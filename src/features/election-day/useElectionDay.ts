@@ -26,6 +26,7 @@ import {
   type ElectionDayImportResult,
 } from "./electionDayImport";
 import { addNoteTag, hasNoteTag, removeNoteTag } from "./notesTags";
+import { formatReminderDisplay } from "./reminderDisplay";
 
 export interface ElectionDayStats {
   total: number;
@@ -545,6 +546,31 @@ export function useElectionDay(isBootstrap: boolean) {
     "setReminder",
   );
 
+  // The "קביעת שעה" custom-time counterpart to `setReminder` - `at` is a
+  // full ISO timestamp (never a minutes-offset), written to `reminderAt`
+  // as-is. Same permission/guard/state-update shape as `setReminder`.
+  const { run: runSetReminderAt } = useAsyncAction(
+    (id: string, at: string) => api.setReminderAt(id, at),
+    {
+      successMessage: (_contact, _id, at: string) =>
+        ELECTION_DAY_TEXT.reminder.toast.setAt(formatReminderDisplay(at)),
+    },
+  );
+
+  const setReminderAtRaw = useCallback(
+    async (id: string, at: string) => {
+      const updated = await runSetReminderAt(id, at);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runSetReminderAt, applyContactUpdate],
+  );
+  const setReminderAt = guardedAction(
+    "voter.manageReminder",
+    setReminderAtRaw,
+    "setReminderAt",
+  );
+
   const { run: runSetVoted } = useAsyncAction(
     (id: string, voted: boolean) => api.setVoted(id, voted),
     {
@@ -894,6 +920,7 @@ export function useElectionDay(isBootstrap: boolean) {
     setElectionDayDeadline,
     setRideArranged,
     setReminder,
+    setReminderAt,
     setVoted,
     setRideCompleted,
     setNotes,

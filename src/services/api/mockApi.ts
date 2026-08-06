@@ -560,6 +560,15 @@ export class MockApi implements ApiClient {
     return contact;
   }
 
+  async setReminderAt(id: string, at: string): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    contact.reminderAt = at;
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
   async setVoted(id: string, voted: boolean): Promise<ElectionDayVoter> {
     await latency();
     const contact = this.electionDayVoters.find((v) => v.id === id);

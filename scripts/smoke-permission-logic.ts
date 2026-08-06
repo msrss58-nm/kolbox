@@ -38,6 +38,7 @@ const NO_SESSION: string | null = null;
 const MUTATION_PERMISSIONS: Record<string, Permission> = {
   setVoted: "voter.markVoted",
   setReminder: "voter.manageReminder",
+  setReminderAt: "voter.manageReminder",
   setRideArranged: "voter.manageRide",
   toggleRideRequested: "voter.manageRide",
   sendRideRequestToDriver: "voter.manageRide",
@@ -64,6 +65,7 @@ for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
 // admin mutations (import/clear/export/settings/manageUsers/manageRideCoordinators) denied
 const OPERATIONS_ALLOWED = new Set([
   "setReminder",
+  "setReminderAt",
   "setRideArranged",
   "toggleRideRequested",
   "sendRideRequestToDriver",

@@ -59,6 +59,7 @@ export const api: ApiClient = {
   getElectionDayDeadline: (...args) => electionDayApi.getElectionDayDeadline(...args),
   setElectionDayDeadline: (...args) => electionDayApi.setElectionDayDeadline(...args),
   setReminder: (...args) => electionDayApi.setReminder(...args),
+  setReminderAt: (...args) => electionDayApi.setReminderAt(...args),
   setVoted: (...args) => electionDayApi.setVoted(...args),
   setElectionDayNotes: (...args) => electionDayApi.setElectionDayNotes(...args),
   setPhone: (...args) => electionDayApi.setPhone(...args),

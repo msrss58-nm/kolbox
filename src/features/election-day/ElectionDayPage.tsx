@@ -271,6 +271,9 @@ export function ElectionDayPage() {
         onSetReminder={(contact, minutes) =>
           void electionDay.setReminder(contact.id, minutes)
         }
+        onSetReminderAt={(contact, at) =>
+          void electionDay.setReminderAt(contact.id, at.toISOString())
+        }
         onCancelReminder={(contact) => void electionDay.setReminder(contact.id, null)}
         onToggleVoted={(contact, voted) => void electionDay.setVoted(contact.id, voted)}
         onSetNotes={(id, notes) => void electionDay.setNotes(id, notes)}

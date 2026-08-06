@@ -232,7 +232,13 @@ export const ELECTION_DAY_TEXT = {
     badge: "תזכורת",
     button: "תזכורת",
     cancelButton: "ביטול תזכורת",
-    activeLabel: (time: string) => `תזכורת בשעה ${time}`,
+    /** Opens the same shared `DateTimePicker` used elsewhere in the app for
+     * an arbitrary date+time - see `ReminderMenu.tsx`. */
+    customOption: "קביעת שעה",
+    customConfirm: "אישור",
+    /** `formatted` is `formatReminderDisplay(reminderAt)`'s output (e.g.
+     * "בשעה 22:00" or "ב-17/08/2026 בשעה 22:00"). */
+    activeLabel: (formatted: string) => `תזכורת ${formatted}`,
     options: {
       15: "15 דקות",
       30: "30 דקות",
@@ -240,6 +246,9 @@ export const ELECTION_DAY_TEXT = {
     },
     toast: {
       set: (label: string) => `התזכורת נקבעה - בעוד ${label}`,
+      /** For the custom-time path - `formatted` is the same
+       * `formatReminderDisplay` output `activeLabel` uses. */
+      setAt: (formatted: string) => `התזכורת נקבעה ${formatted}`,
       cancelled: "התזכורת בוטלה",
       due: (name: string, coordinator: string) =>
         `תזכורת: זמן ליצור קשר עם ${name} (${coordinator})`,

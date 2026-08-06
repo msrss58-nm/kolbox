@@ -12,6 +12,7 @@ import { usePermissions } from "../../permissions/usePermissions";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { PhoneEditDialog } from "./PhoneEditDialog";
+import { formatReminderDisplay } from "./reminderDisplay";
 import { isReminderActive } from "./reminderStatus";
 import { ReminderMenu } from "./ReminderMenu";
 
@@ -79,6 +80,7 @@ export function ElectionDayContactModal({
   onSendToDriver,
   onCancelRideCoordination,
   onSetReminder,
+  onSetReminderAt,
   onCancelReminder,
   onToggleVoted,
   onSetNotes,
@@ -91,6 +93,7 @@ export function ElectionDayContactModal({
   onSendToDriver: (contact: ElectionDayVoter) => void;
   onCancelRideCoordination: (contact: ElectionDayVoter) => void;
   onSetReminder: (contact: ElectionDayVoter, minutes: number) => void;
+  onSetReminderAt: (contact: ElectionDayVoter, at: Date) => void;
   onCancelReminder: (contact: ElectionDayVoter) => void;
   onToggleVoted: (contact: ElectionDayVoter, voted: boolean) => void;
   onSetNotes: (id: string, notes: string) => void;
@@ -220,7 +223,11 @@ export function ElectionDayContactModal({
 
           <PermissionGuard permission="voter.manageReminder">
             <div className="grid grid-cols-2 gap-2.5">
-              <ReminderMenu onSelect={(minutes) => onSetReminder(contact, minutes)} />
+              <ReminderMenu
+                reminderAt={contact.reminderAt}
+                onSelect={(minutes) => onSetReminder(contact, minutes)}
+                onSelectCustom={(at) => onSetReminderAt(contact, at)}
+              />
               <Button
                 variant="danger"
                 disabled={!reminderActive}
@@ -235,10 +242,7 @@ export function ElectionDayContactModal({
               <p className="-mt-3 text-sm font-bold text-amber-500">
                 ⏰{" "}
                 {ELECTION_DAY_TEXT.reminder.activeLabel(
-                  new Date(contact.reminderAt).toLocaleTimeString("he-IL", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  }),
+                  formatReminderDisplay(contact.reminderAt),
                 )}
               </p>
             )}

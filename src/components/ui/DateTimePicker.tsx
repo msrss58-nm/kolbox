@@ -33,11 +33,16 @@ export function DateTimePicker({
   onChange,
   placeholder,
   className,
+  minDate,
 }: {
   value: Date | null;
   onChange: (date: Date | null) => void;
   placeholder?: string;
   className?: string;
+  /** Optional earliest selectable date (e.g. "today" for a reminder picker,
+   * so a past date can't be picked). Omitted = no constraint, unchanged
+   * behavior for every existing caller. */
+  minDate?: Date;
 }) {
   return (
     <DatePicker
@@ -51,6 +56,7 @@ export function DateTimePicker({
       locale="he"
       placeholderText={placeholder}
       shouldCloseOnSelect={false}
+      minDate={minDate}
       customInput={<DateTimePickerInput className={className} />}
       calendarClassName="kb-datepicker"
       popperClassName="kb-datepicker-popper"

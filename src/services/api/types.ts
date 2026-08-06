@@ -176,6 +176,11 @@ export interface ApiClient {
   setElectionDayDeadline(deadline: string | null): Promise<string | null>;
   /** `minutesFromNow: null` cancels an existing reminder. */
   setReminder(id: string, minutesFromNow: number | null): Promise<ElectionDayVoter>;
+  /** Sets a reminder for an arbitrary absolute time (the "קביעת שעה" custom
+   * picker) - `at` is a full ISO timestamp, written to `reminderAt` as-is,
+   * never derived via a minutes-offset from `Date.now()`. Cancelling a
+   * reminder (of either kind) still goes through `setReminder(id, null)`. */
+  setReminderAt(id: string, at: string): Promise<ElectionDayVoter>;
   setVoted(id: string, voted: boolean): Promise<ElectionDayVoter>;
   setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter>;
   /** Updates only the `phone` field, by internal id - never sends or

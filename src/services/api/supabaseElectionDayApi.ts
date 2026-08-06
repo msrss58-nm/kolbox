@@ -338,6 +338,10 @@ export class SupabaseElectionDayApi {
     return this.updateVoter(id, { reminder_at: reminderAt });
   }
 
+  async setReminderAt(id: string, at: string): Promise<ElectionDayVoter> {
+    return this.updateVoter(id, { reminder_at: at });
+  }
+
   async setVoted(id: string, voted: boolean): Promise<ElectionDayVoter> {
     return this.updateVoter(id, {
       voted,
