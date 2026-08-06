@@ -33,22 +33,26 @@ const MANAGER = roleFor("manager");
 const OPERATIONS = roleFor("user"); // legacy "user" -> the "משתמש"/operations role
 const VOTING = roleFor("voting");
 
-// ---- resolveSessionRole --------------------------------------------------
+// ---- resolveSessionRole (Phase 2: matches by roleId, not legacy text) ----
 assert(
-  resolveSessionRole("manager", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "manager",
-  "resolveSessionRole(manager) resolves to the manager row",
+  resolveSessionRole("seed-manager", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "manager",
+  "resolveSessionRole(seed-manager) resolves to the manager row",
 );
 assert(
-  resolveSessionRole("user", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "user",
-  "resolveSessionRole(user) resolves to the legacy 'user' row",
+  resolveSessionRole("seed-user", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "user",
+  "resolveSessionRole(seed-user) resolves to the legacy 'user' row",
 );
 assert(
-  resolveSessionRole("voting", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "voting",
-  "resolveSessionRole(voting) resolves to the voting row",
+  resolveSessionRole("seed-voting", BUILT_IN_ROLE_SEED)?.legacyRoleKey === "voting",
+  "resolveSessionRole(seed-voting) resolves to the voting row",
 );
 assert(
-  resolveSessionRole("manager", []) === null,
+  resolveSessionRole("seed-manager", []) === null,
   "resolveSessionRole against an empty catalog resolves to null (fail-closed, not a guess)",
+);
+assert(
+  resolveSessionRole("some-other-role-id", BUILT_IN_ROLE_SEED) === null,
+  "resolveSessionRole against an unmatched roleId resolves to null, never a coincidental match",
 );
 
 // ---- no missing/extra permissions per role -----------------------------
@@ -157,30 +161,30 @@ assert(
 );
 
 // ---- computePermissions composes resolveSessionRole + hasPermission -----
-// correctly for a real, loaded session
+// correctly for a real, loaded session (Phase 2: keyed by roleId)
 assert(
-  computePermissions("manager", "loaded", BUILT_IN_ROLE_SEED).role?.legacyRoleKey === "manager",
-  'computePermissions("manager", "loaded", seed).role.legacyRoleKey is "manager"',
+  computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).role?.legacyRoleKey === "manager",
+  'computePermissions("seed-manager", "loaded", seed).role.legacyRoleKey is "manager"',
 );
 assert(
-  computePermissions("user", "loaded", BUILT_IN_ROLE_SEED).role?.legacyRoleKey === "user",
-  'computePermissions("user", "loaded", seed).role.legacyRoleKey is "user" (legacy mapping preserved)',
+  computePermissions("seed-user", "loaded", BUILT_IN_ROLE_SEED).role?.legacyRoleKey === "user",
+  'computePermissions("seed-user", "loaded", seed).role.legacyRoleKey is "user" (legacy mapping preserved)',
 );
 assert(
-  computePermissions("manager", "loaded", BUILT_IN_ROLE_SEED).can("electionDay.manageUsers"),
-  'computePermissions("manager", "loaded", seed).can("electionDay.manageUsers") is true',
+  computePermissions("seed-manager", "loaded", BUILT_IN_ROLE_SEED).can("electionDay.manageUsers"),
+  'computePermissions("seed-manager", "loaded", seed).can("electionDay.manageUsers") is true',
 );
 assert(
-  !computePermissions("user", "loaded", BUILT_IN_ROLE_SEED).can("electionDay.manageUsers"),
-  'computePermissions("user", "loaded", seed).can("electionDay.manageUsers") is false (operations)',
+  !computePermissions("seed-user", "loaded", BUILT_IN_ROLE_SEED).can("electionDay.manageUsers"),
+  'computePermissions("seed-user", "loaded", seed).can("electionDay.manageUsers") is false (operations)',
 );
 assert(
-  computePermissions("voting", "loaded", BUILT_IN_ROLE_SEED).can("voter.markVoted"),
-  'computePermissions("voting", "loaded", seed).can("voter.markVoted") is true',
+  computePermissions("seed-voting", "loaded", BUILT_IN_ROLE_SEED).can("voter.markVoted"),
+  'computePermissions("seed-voting", "loaded", seed).can("voter.markVoted") is true',
 );
 assert(
-  !computePermissions("voting", "loaded", BUILT_IN_ROLE_SEED).can("voter.editPhone"),
-  'computePermissions("voting", "loaded", seed).can("voter.editPhone") is false',
+  !computePermissions("seed-voting", "loaded", BUILT_IN_ROLE_SEED).can("voter.editPhone"),
+  'computePermissions("seed-voting", "loaded", seed).can("voter.editPhone") is false',
 );
 
 // ---- no session: no effective role, no permissions --------------------
@@ -194,7 +198,7 @@ for (const p of ALL_PERMISSIONS) {
 // catalog not "loaded" (idle/loading/error) -> role null, every permission
 // denied, regardless of an otherwise-valid session role.
 for (const status of ["idle", "loading", "error"] as const) {
-  const result = computePermissions("manager", status, BUILT_IN_ROLE_SEED);
+  const result = computePermissions("seed-manager", status, BUILT_IN_ROLE_SEED);
   assert(
     result.role === null,
     `catalogStatus="${status}" -> role is null even for a real "manager" session (fail-closed)`,
@@ -207,14 +211,14 @@ for (const status of ["idle", "loading", "error"] as const) {
   }
 }
 
-// unmatched legacy role text against a loaded-but-unrelated catalog -> null
+// unmatched roleId against a loaded-but-unrelated catalog -> null
 assert(
-  computePermissions("manager", "loaded", []).role === null,
-  "loaded but empty catalog -> unmatched role resolves to null (fail-closed, not a guess)",
+  computePermissions("seed-manager", "loaded", []).role === null,
+  "loaded but empty catalog -> unmatched roleId resolves to null (fail-closed, not a guess)",
 );
 for (const p of ALL_PERMISSIONS) {
   assert(
-    !computePermissions("manager", "loaded", []).can(p),
+    !computePermissions("seed-manager", "loaded", []).can(p),
     `loaded-but-empty catalog -> can("${p}") is false for "manager"`,
   );
 }

@@ -78,6 +78,14 @@ export const api: ApiClient = {
   // election day - dynamic role catalog (Phase 1, Supabase-backed, RPC-only)
   listElectionDayRoles: (...args) => electionDayApi.listElectionDayRoles(...args),
 
+  // election day - role management (Phase 2, Supabase-backed, RPC-only)
+  createRole: (...args) => electionDayApi.createRole(...args),
+  updateRole: (...args) => electionDayApi.updateRole(...args),
+  deleteRole: (...args) => electionDayApi.deleteRole(...args),
+  cloneRole: (...args) => electionDayApi.cloneRole(...args),
+  createPermissionUserForRole: (...args) =>
+    electionDayApi.createPermissionUserForRole(...args),
+
   // election day - live cross-device sync (Supabase Realtime)
   subscribeToElectionDayChanges: (...args) =>
     electionDayApi.subscribeToElectionDayChanges(...args),

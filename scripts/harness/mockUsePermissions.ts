@@ -13,5 +13,5 @@ import { BUILT_IN_ROLE_SEED } from "../fixtures/electionDayRoles";
  * catalog) - this is not a second, hand-maintained permission list.
  */
 export function usePermissions() {
-  return computePermissions("voting", "loaded", BUILT_IN_ROLE_SEED);
+  return computePermissions("seed-voting", "loaded", BUILT_IN_ROLE_SEED);
 }

@@ -44,7 +44,7 @@ export function usePermissions(): UsePermissionsResult {
   }, [sessionUser, catalogStatus, ensureLoaded]);
 
   return useMemo(
-    () => computePermissions(sessionUser?.role ?? null, catalogStatus, roles),
+    () => computePermissions(sessionUser?.roleId ?? null, catalogStatus, roles),
     [sessionUser, catalogStatus, roles],
   );
 }

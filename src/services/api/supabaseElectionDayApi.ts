@@ -8,7 +8,14 @@ import type {
   RideCoordinator,
   RideStatusEvent,
 } from "../../types";
-import type { NewElectionDayVoter, NewPermissionUser, NewRideCoordinator } from "./types";
+import type {
+  NewElectionDayVoter,
+  NewPermissionUser,
+  NewPermissionUserForRole,
+  NewRideCoordinator,
+  NewRole,
+  RoleUpdate,
+} from "./types";
 
 /** A UUID that `gen_random_uuid()` will never produce - the standard
  * Supabase-community idiom for an unconditional "delete every row" via the
@@ -111,10 +118,57 @@ function toRideStatusEvent(row: RideStatusEventRow): RideStatusEvent {
   };
 }
 
-type PermissionUserRpcRow = { id: string; name: string; role: string };
+type PermissionUserRpcRow = {
+  id: string;
+  name: string;
+  role: string | null;
+  role_id: string;
+};
 
 function toPermissionUser(row: PermissionUserRpcRow): PermissionUser {
-  return { id: row.id, name: row.name, role: row.role as PermissionRole };
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role as PermissionRole | null,
+    roleId: row.role_id,
+  };
+}
+
+/** Dynamic Roles & Permissions Phase 2: the 4 role-management RPCs
+ * (create/update/delete/clone) raise a small set of stable, English error
+ * codes (`ROLE_HAS_ASSIGNED_USERS`, `CANNOT_REMOVE_LAST_PERMISSION_HOLDER`,
+ * `ROLE_NAME_REQUIRED`, the `election_day_roles_name_key` unique-violation
+ * message) rather than a Hebrew string themselves - translated here, once,
+ * before the error ever reaches `useAsyncAction`'s generic toast, so a real
+ * business rejection reads clearly instead of leaking raw Postgres text. */
+function mapRoleRpcErrorMessage(message: string): string {
+  if (message.includes("ROLE_HAS_ASSIGNED_USERS")) {
+    return "לא ניתן למחוק תפקיד שיש לו משתמשים משויכים";
+  }
+  if (message.includes("CANNOT_REMOVE_LAST_PERMISSION_HOLDER")) {
+    return "חייב להישאר לפחות משתמש אחד עם הרשאת ניהול תפקידים והרשאות";
+  }
+  if (message.includes("ROLE_NAME_REQUIRED")) {
+    return "יש להזין שם לתפקיד";
+  }
+  if (message.includes("ROLE_NOT_FOUND")) {
+    return "התפקיד לא נמצא - ייתכן שנמחק על ידי משתמש אחר";
+  }
+  if (
+    message.includes("election_day_roles_name_key") ||
+    message.includes("duplicate key")
+  ) {
+    return "כבר קיים תפקיד בשם זה";
+  }
+  return message;
+}
+
+async function callRoleRpc<T>(
+  promise: PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<T> {
+  const result = await promise;
+  if (result.error) throw new Error(mapRoleRpcErrorMessage(result.error.message));
+  return result.data as T;
 }
 
 /**
@@ -372,6 +426,58 @@ export class SupabaseElectionDayApi {
   async listElectionDayRoles(): Promise<RoleRecord[]> {
     const data = unwrapArray<RawRoleRow[]>(await supabase.rpc("election_day_list_roles"));
     return data.map(normalizeRoleRecord);
+  }
+
+  /** Dynamic Roles & Permissions Phase 2: real role management. See
+   * `mapRoleRpcErrorMessage` for how the DB's business-error codes become
+   * Hebrew toast text. */
+  async createRole(input: NewRole): Promise<RoleRecord> {
+    const data = await callRoleRpc<RawRoleRow[]>(
+      supabase.rpc("election_day_create_role", {
+        p_name: input.name,
+        p_description: input.description,
+        p_permissions: input.permissions,
+        p_scope_type: input.scopeType,
+      }),
+    );
+    return normalizeRoleRecord(data[0]);
+  }
+
+  async updateRole(input: RoleUpdate): Promise<RoleRecord> {
+    const data = await callRoleRpc<RawRoleRow[]>(
+      supabase.rpc("election_day_update_role", {
+        p_role_id: input.id,
+        p_name: input.name,
+        p_description: input.description,
+        p_permissions: input.permissions,
+        p_scope_type: input.scopeType,
+      }),
+    );
+    return normalizeRoleRecord(data[0]);
+  }
+
+  async deleteRole(id: string): Promise<void> {
+    await callRoleRpc<null>(supabase.rpc("election_day_delete_role", { p_role_id: id }));
+  }
+
+  async cloneRole(id: string, newName: string): Promise<RoleRecord> {
+    const data = await callRoleRpc<RawRoleRow[]>(
+      supabase.rpc("election_day_clone_role", { p_role_id: id, p_new_name: newName }),
+    );
+    return normalizeRoleRecord(data[0]);
+  }
+
+  async createPermissionUserForRole(
+    input: NewPermissionUserForRole,
+  ): Promise<PermissionUser> {
+    const data = await callRoleRpc<PermissionUserRpcRow[]>(
+      supabase.rpc("election_day_create_permission_user_for_role", {
+        p_name: input.name,
+        p_password: input.password,
+        p_role_id: input.roleId,
+      }),
+    );
+    return toPermissionUser(data[0]);
   }
 
   /** Live cross-device sync for the two Realtime-enabled tables (see the

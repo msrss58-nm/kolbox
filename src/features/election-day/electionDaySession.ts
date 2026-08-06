@@ -10,7 +10,13 @@ const SESSION_KEY = "election-day-session-v1";
 export interface ElectionDaySessionUser {
   id: string;
   name: string;
-  role: PermissionRole;
+  /** `null` for a user created against an arbitrary dynamic role (Phase 2) -
+   * never used to resolve permissions, see `roleId`. */
+  role: PermissionRole | null;
+  /** Always present (NOT NULL in the DB since Phase 0) - the permission
+   * engine resolves this session's `RoleRecord` by this id
+   * (`resolveSessionRole`), not by `role`. */
+  roleId: string;
 }
 
 interface ElectionDaySessionState {
@@ -38,6 +44,7 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set) => ({
       id: match.id,
       name: match.name,
       role: match.role,
+      roleId: match.roleId,
     };
     saveJson(SESSION_KEY, sessionUser);
     set({ user: sessionUser });

@@ -25,9 +25,12 @@ import type {
   NewActivist,
   NewElectionDayVoter,
   NewPermissionUser,
+  NewPermissionUserForRole,
   NewRideCoordinator,
+  NewRole,
   NewVoter,
   Paged,
+  RoleUpdate,
   VoterQuery,
 } from "./types";
 
@@ -41,7 +44,7 @@ interface StoredPermissionUser extends PermissionUser {
 }
 
 function toPublicPermissionUser(u: StoredPermissionUser): PermissionUser {
-  return { id: u.id, name: u.name, role: u.role };
+  return { id: u.id, name: u.name, role: u.role, roleId: u.roleId };
 }
 
 const STORE_KEY = "dataset-v1";
@@ -68,6 +71,9 @@ export class MockApi implements ApiClient {
   private rideStatusEvents: RideStatusEvent[];
   private rideCoordinators: RideCoordinator[];
   private permissionUsers: StoredPermissionUser[];
+  /** Interface compliance only (see `listElectionDayRoles`'s comment) - not
+   * persisted, reset on every reload. */
+  private roles: RoleRecord[];
 
   constructor() {
     this.data = loadJson<Dataset>(STORE_KEY) ?? generateDataset();
@@ -76,6 +82,7 @@ export class MockApi implements ApiClient {
     this.rideStatusEvents = loadJson<RideStatusEvent[]>(ELECTION_DAY_EVENTS_KEY) ?? [];
     this.rideCoordinators = loadJson<RideCoordinator[]>(RIDE_COORDINATORS_KEY) ?? [];
     this.permissionUsers = loadJson<StoredPermissionUser[]>(PERMISSION_USERS_KEY) ?? [];
+    this.roles = [...BUILT_IN_ROLE_SEED];
   }
 
   /** Debounced persistence - mutations land in localStorage at most every `persistDebounceMs`. */
@@ -623,8 +630,12 @@ export class MockApi implements ApiClient {
 
   async addPermissionUser(input: NewPermissionUser): Promise<PermissionUser> {
     await latency();
+    const roleId =
+      this.roles.find((r) => r.legacyRoleKey === input.role)?.id ??
+      `legacy-${input.role}`;
     const user: StoredPermissionUser = {
       id: `pu-${crypto.randomUUID().slice(0, 8)}`,
+      roleId,
       ...input,
     };
     this.permissionUsers.push(user);
@@ -656,6 +667,77 @@ export class MockApi implements ApiClient {
    * directly. */
   async listElectionDayRoles(): Promise<RoleRecord[]> {
     await latency();
-    return [...BUILT_IN_ROLE_SEED];
+    return [...this.roles];
+  }
+
+  /** Interface compliance only (see `listElectionDayRoles`'s comment) - a
+   * minimal, non-persisted mirror of the real RPCs' shape, not their full
+   * validation/guard behavior. */
+  async createRole(input: NewRole): Promise<RoleRecord> {
+    await latency();
+    const role: RoleRecord = {
+      id: `role-${crypto.randomUUID().slice(0, 8)}`,
+      name: input.name,
+      description: input.description,
+      permissions: input.permissions,
+      scopeType: input.scopeType,
+      scopeValue: null,
+      legacyRoleKey: null,
+    };
+    this.roles.push(role);
+    return role;
+  }
+
+  async updateRole(input: RoleUpdate): Promise<RoleRecord> {
+    await latency();
+    const existing = this.roles.find((r) => r.id === input.id);
+    if (!existing) throw new Error("התפקיד לא נמצא");
+    const updated: RoleRecord = {
+      ...existing,
+      name: input.name,
+      description: input.description,
+      permissions: input.permissions,
+      scopeType: input.scopeType,
+    };
+    this.roles = this.roles.map((r) => (r.id === input.id ? updated : r));
+    return updated;
+  }
+
+  async deleteRole(id: string): Promise<void> {
+    await latency();
+    if (this.permissionUsers.some((u) => u.roleId === id)) {
+      throw new Error("לא ניתן למחוק תפקיד שיש לו משתמשים משויכים");
+    }
+    this.roles = this.roles.filter((r) => r.id !== id);
+  }
+
+  async cloneRole(id: string, newName: string): Promise<RoleRecord> {
+    await latency();
+    const source = this.roles.find((r) => r.id === id);
+    if (!source) throw new Error("התפקיד לא נמצא");
+    const clone: RoleRecord = {
+      ...source,
+      id: `role-${crypto.randomUUID().slice(0, 8)}`,
+      name: newName,
+      legacyRoleKey: null,
+    };
+    this.roles.push(clone);
+    return clone;
+  }
+
+  async createPermissionUserForRole(
+    input: NewPermissionUserForRole,
+  ): Promise<PermissionUser> {
+    await latency();
+    const user: StoredPermissionUser = {
+      id: `pu-${crypto.randomUUID().slice(0, 8)}`,
+      name: input.name,
+      password: input.password,
+      role: null,
+      roleId: input.roleId,
+    };
+    this.permissionUsers.push(user);
+    saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
+    return toPublicPermissionUser(user);
   }
 }

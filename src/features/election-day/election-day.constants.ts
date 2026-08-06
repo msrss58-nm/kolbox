@@ -1,5 +1,42 @@
+import type { Permission, RoleScopeType } from "../../permissions/types";
+
 export const REMINDER_MINUTES_OPTIONS = [15, 30, 60] as const;
 export type ReminderMinutes = (typeof REMINDER_MINUTES_OPTIONS)[number];
+
+/** Dynamic Roles & Permissions Phase 2: Hebrew label for every entry in
+ * `ALL_PERMISSIONS` (src/permissions/permissionsMap.ts) - the role editor's
+ * permission checkbox list reads through this so a new permission added to
+ * the code catalog fails to compile here (an exhaustive `Record`) rather
+ * than silently rendering as a raw camelCase key. */
+export const PERMISSION_LABELS: Record<Permission, string> = {
+  "voter.markVoted": "סימון הצבעה",
+  "voter.manageReminder": "ניהול תזכורות",
+  "voter.manageRide": "ניהול הסעות",
+  "voter.editPhone": "עריכת טלפון",
+  "voter.editNotes": "עריכת הערות",
+  "electionDay.import": "ייבוא קובץ בוחרים",
+  "electionDay.clearData": "מחיקת נתונים",
+  "electionDay.export": "ייצוא דוחות",
+  "electionDay.manageSettings": "ניהול הגדרות (יעד זמן)",
+  "electionDay.manageUsers": "ניהול הרשאות משתמשים",
+  "electionDay.manageRideCoordinators": "ניהול אחראי הסעות",
+  "electionDay.manageRolesAndPermissions": "ניהול תפקידים והרשאות",
+  "app.accessFullNavigation": "גישה לתפריט הראשי המלא",
+  "voter.viewName": "צפייה בשם",
+  "voter.viewAddress": "צפייה בכתובת",
+  "voter.viewPhone": "צפייה בטלפון",
+  "voter.viewMasad": "צפייה במסד",
+  "voter.viewCoordinator": "צפייה באחראי",
+  "voter.viewNotes": "צפייה בהערות",
+  "voter.viewReminderStatus": "צפייה בסטטוס תזכורת",
+  "voter.viewRideStatus": "צפייה בסטטוס הסעה",
+  "voter.viewVotedStatus": "צפייה בסטטוס הצבעה",
+};
+
+export const ROLE_SCOPE_LABELS: Record<RoleScopeType, string> = {
+  all: "כל אנשי הקשר",
+  assigned_to_me: "רק המוקצים לי",
+};
 
 export const ELECTION_DAY_TEXT = {
   title: '📊 חמ"ל בחירות - מערכת שליטה',
@@ -289,6 +326,10 @@ export const ELECTION_DAY_TEXT = {
       manager: "מנהל",
       voting: "נציג קלפי",
     },
+    /** Dynamic Roles & Permissions Phase 2: shown when a user's role can't be
+     * resolved from the live catalog (should not normally happen given the
+     * DB's FK guarantee). */
+    unknownRole: "תפקיד לא ידוע",
     addButton: "הוספה",
     columns: {
       name: "שם",
@@ -300,6 +341,41 @@ export const ELECTION_DAY_TEXT = {
       added: "המשתמש נוסף",
       deleted: "המשתמש הוסר",
       invalid: "יש להזין שם וסיסמה",
+    },
+  },
+
+  /** Dynamic Roles & Permissions Phase 2: real role management ("תפקידים"). */
+  rolesManager: {
+    button: "ניהול תפקידים והרשאות",
+    modalTitle: "ניהול תפקידים",
+    newRoleButton: "תפקיד חדש",
+    editTitle: "עריכת תפקיד",
+    createTitle: "תפקיד חדש",
+    nameLabel: "שם התפקיד",
+    namePlaceholder: "לדוגמה: רכז אזור",
+    descriptionLabel: "תיאור",
+    descriptionPlaceholder: "תיאור קצר של התפקיד",
+    scopeLabel: "תחום עבודה",
+    permissionsLabel: "הרשאות",
+    saveButton: "שמירה",
+    cancelButton: "ביטול",
+    cloneButton: "שכפול",
+    cloneSuffix: (name: string) => `${name} (עותק)`,
+    deleteAriaLabel: "מחיקת תפקיד",
+    editAriaLabel: "עריכת תפקיד",
+    legacyBadge: "תפקיד מובנה",
+    usersCount: (n: number) => `${n} משתמשים`,
+    empty: "לא נוספו תפקידים עדיין",
+    confirmDeleteTitle: "מחיקת תפקיד",
+    confirmDeleteMessage:
+      "פעולה זו אינה הפיכה. תפקידים עם משתמשים משויכים לא ניתנים למחיקה.",
+    confirmDeleteButton: "מחיקת התפקיד",
+    toast: {
+      created: "התפקיד נוצר",
+      updated: "התפקיד עודכן",
+      deleted: "התפקיד נמחק",
+      cloned: "התפקיד שוכפל",
+      invalid: "יש להזין שם לתפקיד",
     },
   },
 

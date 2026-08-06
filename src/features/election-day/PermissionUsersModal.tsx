@@ -2,11 +2,14 @@ import { useState } from "react";
 import { Eye, EyeOff, Users } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { Field, Input } from "../../components/ui/Field";
+import { Field, Input, Select } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { toast } from "../../components/ui/Toast";
+import type { RoleRecord } from "../../permissions/types";
+import type { NewPermissionUserForRole } from "../../services/api";
 import type { PermissionRole, PermissionUser } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { roleDisplayName } from "./roleDisplayName";
 
 const text = ELECTION_DAY_TEXT.permissionsManager;
 
@@ -14,24 +17,33 @@ export function PermissionUsersModal({
   open,
   onClose,
   users,
+  roles,
   onAdd,
+  onAddForRole,
   onDelete,
 }: {
   open: boolean;
   onClose: () => void;
   users: PermissionUser[];
+  /** Dynamic Roles & Permissions Phase 2: the live catalog - built-in
+   * legacy-anchored roles (manager/user/voting) and any dynamic role alike,
+   * offered together as one picker. */
+  roles: readonly RoleRecord[];
   onAdd: (input: {
     name: string;
     password: string;
     role: PermissionRole;
   }) => Promise<unknown>;
+  onAddForRole: (input: NewPermissionUserForRole) => Promise<unknown>;
   onDelete: (id: string) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState<PermissionRole>("user");
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const effectiveRoleId = selectedRoleId ?? roles[0]?.id ?? null;
 
   // Managers always sort above everyone else, insertion order preserved within each group.
   const sortedUsers = [...users].sort((a, b) => {
@@ -42,20 +54,38 @@ export function PermissionUsersModal({
   });
 
   const handleAdd = async () => {
-    if (!name.trim() || !password.trim()) {
+    if (!name.trim() || !password.trim() || !effectiveRoleId) {
+      toast.error(text.toast.invalid);
+      return;
+    }
+    const selectedRole = roles.find((r) => r.id === effectiveRoleId);
+    if (!selectedRole) {
       toast.error(text.toast.invalid);
       return;
     }
     setBusy(true);
     try {
       // A blocked (no permission) or failed add resolves to `undefined` -
-      // only clear the form once the account was actually created.
-      const result = await onAdd({ name: name.trim(), password: password.trim(), role });
+      // only clear the form once the account was actually created. A role
+      // with a legacyRoleKey uses the legacy 3-checkbox RPC (byte-for-byte
+      // the pre-Phase-2 path); any other (dynamic) role goes through the
+      // Phase 2 arbitrary-role_id RPC.
+      const result = selectedRole.legacyRoleKey
+        ? await onAdd({
+            name: name.trim(),
+            password: password.trim(),
+            role: selectedRole.legacyRoleKey,
+          })
+        : await onAddForRole({
+            name: name.trim(),
+            password: password.trim(),
+            roleId: selectedRole.id,
+          });
       if (result !== undefined) {
         setName("");
         setPassword("");
         setShowPassword(false);
-        setRole("user");
+        setSelectedRoleId(null);
       }
     } finally {
       setBusy(false);
@@ -102,40 +132,18 @@ export function PermissionUsersModal({
           </Field>
         </div>
 
-        <div>
-          <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-            {text.roleLabel}
-          </span>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={role === "user"}
-                onChange={() => setRole("user")}
-                className="size-4 accent-primary-600"
-              />
-              {text.roleOptions.user}
-            </label>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={role === "manager"}
-                onChange={() => setRole("manager")}
-                className="size-4 accent-primary-600"
-              />
-              {text.roleOptions.manager}
-            </label>
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={role === "voting"}
-                onChange={() => setRole("voting")}
-                className="size-4 accent-primary-600"
-              />
-              {text.roleOptions.voting}
-            </label>
-          </div>
-        </div>
+        <Field label={text.roleLabel}>
+          <Select
+            value={effectiveRoleId ?? ""}
+            onChange={(e) => setSelectedRoleId(e.target.value)}
+          >
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
 
         <Button className="w-full" loading={busy} onClick={() => void handleAdd()}>
           ➕ {text.addButton}
@@ -160,7 +168,7 @@ export function PermissionUsersModal({
                   </span>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm text-slate-600">
-                      {text.roleOptions[u.role]}
+                      {roleDisplayName(u.roleId, roles)}
                     </span>
                     <button
                       type="button"

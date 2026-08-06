@@ -1,4 +1,4 @@
-import type { RoleRecord } from "../../permissions/types";
+import type { Permission, RoleRecord, RoleScopeType } from "../../permissions/types";
 import type {
   Activist,
   CampaignStats,
@@ -88,6 +88,30 @@ export interface NewPermissionUser {
   name: string;
   password: string;
   role: "user" | "manager" | "voting";
+}
+
+/** Dynamic Roles & Permissions Phase 2: creates a `PermissionUser` against
+ * an arbitrary role - the counterpart to `NewPermissionUser`'s legacy
+ * 3-checkbox shape. `role` on the resulting `PermissionUser` is always
+ * `null` (no legacy text equivalent). */
+export interface NewPermissionUserForRole {
+  name: string;
+  password: string;
+  roleId: string;
+}
+
+/** Dynamic Roles & Permissions Phase 2: role create/update input. `scopeType`
+ * is required (no implicit default) - the caller always states the work
+ * domain explicitly. */
+export interface NewRole {
+  name: string;
+  description: string;
+  permissions: Permission[];
+  scopeType: RoleScopeType;
+}
+
+export interface RoleUpdate extends NewRole {
+  id: string;
 }
 
 /**
@@ -182,10 +206,25 @@ export interface ApiClient {
   ): Promise<PermissionUser | null>;
 
   /** Dynamic Roles & Permissions, Phase 1: lists the full `election_day_roles`
-   * catalog the permission engine resolves a session's legacy role text
-   * against. Every row is validated/normalized (never a blind cast) before
-   * being returned - see `permissions/roleRecordMapper.ts`. */
+   * catalog the permission engine resolves a session's `roleId` against.
+   * Every row is validated/normalized (never a blind cast) before being
+   * returned - see `permissions/roleRecordMapper.ts`. */
   listElectionDayRoles(): Promise<RoleRecord[]>;
+
+  /** Dynamic Roles & Permissions, Phase 2: real role management. `createRole`
+   * carries no capability-guard restriction (adding a role can never reduce
+   * anyone's access); `updateRole`/`deleteRole` reject an operation that
+   * would remove `electionDay.manageRolesAndPermissions` from every
+   * actually-assigned user (enforced DB-side, in the same transaction as the
+   * write - see the `election_day_dynamic_roles_phase2` migration).
+   * `deleteRole` also rejects a role with any assigned user. */
+  createRole(input: NewRole): Promise<RoleRecord>;
+  updateRole(input: RoleUpdate): Promise<RoleRecord>;
+  deleteRole(id: string): Promise<void>;
+  cloneRole(id: string, newName: string): Promise<RoleRecord>;
+  /** Creates a `PermissionUser` against an arbitrary role_id - the
+   * counterpart to `addPermissionUser`'s legacy 3-checkbox path. */
+  createPermissionUserForRole(input: NewPermissionUserForRole): Promise<PermissionUser>;
 
   /**
    * Optional live cross-device sync for Election Day's ride-coordination

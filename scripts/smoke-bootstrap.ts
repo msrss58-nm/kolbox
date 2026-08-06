@@ -11,7 +11,7 @@
  */
 import { ALL_PERMISSIONS } from "../src/permissions/permissionsMap";
 import { computePermissions } from "../src/permissions/computePermissions";
-import type { DatabaseRole, Permission } from "../src/permissions/types";
+import type { Permission } from "../src/permissions/types";
 import { BUILT_IN_ROLE_SEED } from "./fixtures/electionDayRoles";
 
 const assert = (cond: boolean, msg: string) => {
@@ -28,11 +28,12 @@ function computeIsBootstrap(rosterLength: number, hasUser: boolean): boolean {
 }
 
 // ElectionDayPage.tsx: const showManageUsers = can("electionDay.manageUsers") || isBootstrap;
-function can(sessionRole: DatabaseRole | null, permission: Permission): boolean {
-  return computePermissions(sessionRole, "loaded", BUILT_IN_ROLE_SEED).can(permission);
+// Phase 2: computePermissions resolves by roleId, not legacy role text.
+function can(sessionRoleId: string | null, permission: Permission): boolean {
+  return computePermissions(sessionRoleId, "loaded", BUILT_IN_ROLE_SEED).can(permission);
 }
-function computeShowManageUsers(sessionRole: DatabaseRole | null, isBootstrap: boolean): boolean {
-  return can(sessionRole, "electionDay.manageUsers") || isBootstrap;
+function computeShowManageUsers(sessionRoleId: string | null, isBootstrap: boolean): boolean {
+  return can(sessionRoleId, "electionDay.manageUsers") || isBootstrap;
 }
 
 // ---- scenario 1/2: isBootstrap formula matrix ---------------------------
@@ -54,9 +55,9 @@ assert(
 );
 
 // ---- scenario 3/4: showManageUsers per role x isBootstrap ---------------
-const MANAGER: DatabaseRole = "manager";
-const OPERATIONS: DatabaseRole = "user"; // legacy "user" -> operations
-const VOTING: DatabaseRole = "voting";
+const MANAGER = "seed-manager";
+const OPERATIONS = "seed-user"; // legacy "user" -> operations
+const VOTING = "seed-voting";
 
 assert(
   computeShowManageUsers(null, true) === true,

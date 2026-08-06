@@ -9,7 +9,11 @@ import { reportPermissionDenied } from "../../permissions/permissionAudit";
 import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
 import { api } from "../../services/api";
-import type { NewPermissionUser, NewRideCoordinator } from "../../services/api";
+import type {
+  NewPermissionUser,
+  NewPermissionUserForRole,
+  NewRideCoordinator,
+} from "../../services/api";
 import {
   exportElectionDayVotersToExcel,
   parseSpreadsheet,
@@ -65,7 +69,7 @@ function ridePipelineStage(c: ElectionDayVoter): number {
  * exclusively to allow `addPermissionUser` (create the first account) - see
  * that function below. Not a role, not passed to anything else. */
 export function useElectionDay(isBootstrap: boolean) {
-  const { can, role, catalogStatus } = usePermissions();
+  const { can, role, catalogStatus, roles } = usePermissions();
 
   /** Every mutation exposed by this hook goes through this - checks
    * `permission` before calling `action` at all: on denial, 0 API calls,
@@ -729,6 +733,41 @@ export function useElectionDay(isBootstrap: boolean) {
     [can, role, isBootstrap, rosterStillEmpty, addPermissionUserRaw],
   );
 
+  const { run: runAddPermissionUserForRole } = useAsyncAction(
+    (input: NewPermissionUserForRole) => api.createPermissionUserForRole(input),
+    { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.added },
+  );
+
+  const addPermissionUserForRoleRaw = useCallback(
+    async (input: NewPermissionUserForRole) => {
+      const result = await runAddPermissionUserForRole(input);
+      if (result) reloadPermissionUsers();
+      return result;
+    },
+    [runAddPermissionUserForRole, reloadPermissionUsers],
+  );
+  // Dynamic Roles & Permissions Phase 2: the counterpart to
+  // `addPermissionUser` for an arbitrary role_id - carries the exact same
+  // bootstrap exception (creating the very first account, whichever role
+  // is picked in the now-unified role dropdown, while the roster is still
+  // empty and no session exists yet).
+  const addPermissionUserForRole = useCallback(
+    async (input: NewPermissionUserForRole) => {
+      const allowed = can("electionDay.manageUsers") || (isBootstrap && rosterStillEmpty);
+      if (!allowed) {
+        reportPermissionDenied({
+          role,
+          permission: "electionDay.manageUsers",
+          context: "addPermissionUserForRole",
+        });
+        toast.error(ELECTION_DAY_TEXT.permissionDenied);
+        return undefined;
+      }
+      return addPermissionUserForRoleRaw(input);
+    },
+    [can, role, isBootstrap, rosterStillEmpty, addPermissionUserForRoleRaw],
+  );
+
   const { run: runDeletePermissionUser } = useAsyncAction(
     (id: string) => api.deletePermissionUser(id),
     { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.deleted },
@@ -907,7 +946,9 @@ export function useElectionDay(isBootstrap: boolean) {
     sendRideRequestToDriver,
     permissionUsers: permissionUsers ?? [],
     addPermissionUser,
+    addPermissionUserForRole,
     deletePermissionUser,
+    roles,
   };
 }
 

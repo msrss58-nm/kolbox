@@ -14,7 +14,7 @@
  * wrong - either way worth catching.
  */
 import { computePermissions, type PermissionsResult } from "../src/permissions/computePermissions";
-import type { DatabaseRole, Permission } from "../src/permissions/types";
+import type { Permission } from "../src/permissions/types";
 import { BUILT_IN_ROLE_SEED } from "./fixtures/electionDayRoles";
 
 const assert = (cond: boolean, msg: string) => {
@@ -24,14 +24,15 @@ const assert = (cond: boolean, msg: string) => {
   } else console.log("ok:", msg);
 };
 
-function can(sessionRole: DatabaseRole | null, permission: Permission): boolean {
-  return computePermissions(sessionRole, "loaded", BUILT_IN_ROLE_SEED).can(permission);
+// Phase 2: computePermissions resolves by roleId, not legacy role text.
+function can(sessionRoleId: string | null, permission: Permission): boolean {
+  return computePermissions(sessionRoleId, "loaded", BUILT_IN_ROLE_SEED).can(permission);
 }
 
-const MANAGER: DatabaseRole = "manager";
-const OPERATIONS: DatabaseRole = "user"; // legacy "user" -> operations
-const VOTING: DatabaseRole = "voting";
-const NO_SESSION: DatabaseRole | null = null;
+const MANAGER = "seed-manager";
+const OPERATIONS = "seed-user"; // legacy "user" -> operations
+const VOTING = "seed-voting";
+const NO_SESSION: string | null = null;
 
 // ---- the exact mutation -> permission map as wired in useElectionDay.ts ----
 const MUTATION_PERMISSIONS: Record<string, Permission> = {
@@ -114,11 +115,11 @@ for (const status of ["idle", "loading", "error"] as const) {
 // ---- addPermissionUser: bespoke bootstrap-aware guard ---------------------
 // allowed = can("electionDay.manageUsers") || (isBootstrap && rosterStillEmpty)
 function addPermissionUserAllowed(
-  role: DatabaseRole | null,
+  roleId: string | null,
   isBootstrap: boolean,
   rosterStillEmpty: boolean,
 ): boolean {
-  return can(role, "electionDay.manageUsers") || (isBootstrap && rosterStillEmpty);
+  return can(roleId, "electionDay.manageUsers") || (isBootstrap && rosterStillEmpty);
 }
 
 assert(

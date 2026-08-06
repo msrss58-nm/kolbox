@@ -9,6 +9,9 @@ import {
 interface RoleCatalogStore extends RoleCatalogState {
   ensureLoaded: () => Promise<void>;
   retry: () => Promise<void>;
+  /** Always refetches, even while already `"loaded"` - see
+   * `roleCatalogController.ts`'s `reload` for why (Phase 2 role mutations). */
+  reload: () => Promise<void>;
 }
 
 /**
@@ -36,5 +39,6 @@ export const useRoleCatalogStore = create<RoleCatalogStore>((set, get) => {
     ...INITIAL_ROLE_CATALOG_STATE,
     ensureLoaded: controller.ensureLoaded,
     retry: controller.retry,
+    reload: controller.reload,
   };
 });

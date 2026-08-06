@@ -123,11 +123,21 @@ export type PermissionRole = "user" | "manager" | "voting";
 
 /** Never carries a password/hash - creation-only input types (see
  * `NewPermissionUser` in services/api/types.ts) accept a plaintext password,
- * but nothing that returns a stored user ever echoes it back. */
+ * but nothing that returns a stored user ever echoes it back.
+ *
+ * Dynamic Roles & Permissions Phase 2: `role` is `null` for a user created
+ * against an arbitrary dynamic role (no legacy text equivalent) - `roleId`
+ * is always present (NOT NULL in the DB since Phase 0, for legacy and
+ * dynamic accounts alike) and is what the permission engine actually
+ * resolves against (`resolveSessionRole`). Never derive display text or a
+ * permission decision from `role` except on the legacy-checkbox creation
+ * form itself - always go through the live `RoleRecord` looked up by
+ * `roleId`. */
 export interface PermissionUser {
   id: string;
   name: string;
-  role: PermissionRole;
+  role: PermissionRole | null;
+  roleId: string;
 }
 
 /** A single ride-status change on an `ElectionDayVoter` - powers the recent

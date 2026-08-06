@@ -166,14 +166,16 @@ export interface Database {
           id: string;
           name: string;
           password_hash: string;
-          role: string;
+          role: string | null;
+          role_id: string;
           created_at: string;
         };
         Insert: {
           id?: string;
           name: string;
           password_hash: string;
-          role: string;
+          role?: string | null;
+          role_id: string;
           created_at?: string;
         };
         Update: Partial<
@@ -215,19 +217,89 @@ export interface Database {
     Functions: {
       election_day_login: {
         Args: { p_name: string; p_password: string };
-        Returns: { id: string; name: string; role: string }[];
+        Returns: { id: string; name: string; role: string | null; role_id: string }[];
       };
       election_day_create_permission_user: {
         Args: { p_name: string; p_password: string; p_role: string };
-        Returns: { id: string; name: string; role: string }[];
+        Returns: { id: string; name: string; role: string | null; role_id: string }[];
       };
       election_day_list_permission_users: {
         Args: Record<string, never>;
-        Returns: { id: string; name: string; role: string }[];
+        Returns: { id: string; name: string; role: string | null; role_id: string }[];
       };
       election_day_delete_permission_user: {
         Args: { p_id: string };
         Returns: undefined;
+      };
+      /** Dynamic Roles & Permissions, Phase 2. Unlike Phase 0's migration-only
+       * seed insert, this RPC accepts arbitrary caller-supplied permission
+       * arrays - validated DB-side by `election_day_is_valid_permission`
+       * (mirrors `ALL_PERMISSIONS`), rejecting (not silently dropping) an
+       * unrecognized permission string. */
+      election_day_create_role: {
+        Args: {
+          p_name: string;
+          p_description: string | null;
+          p_permissions: string[];
+          p_scope_type: string;
+        };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          permissions: string[];
+          scope_type: string;
+          scope_value: Json | null;
+          legacy_role_key: string | null;
+        }[];
+      };
+      /** Dynamic Roles & Permissions, Phase 2. Raises `CANNOT_REMOVE_LAST_PERMISSION_HOLDER`
+       * if removing `electionDay.manageRolesAndPermissions` from this role
+       * would leave zero actually-assigned users anywhere holding it. */
+      election_day_update_role: {
+        Args: {
+          p_role_id: string;
+          p_name: string;
+          p_description: string | null;
+          p_permissions: string[];
+          p_scope_type: string;
+        };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          permissions: string[];
+          scope_type: string;
+          scope_value: Json | null;
+          legacy_role_key: string | null;
+        }[];
+      };
+      /** Dynamic Roles & Permissions, Phase 2. Raises `ROLE_HAS_ASSIGNED_USERS`
+       * if any user is currently assigned to this role, or
+       * `CANNOT_REMOVE_LAST_PERMISSION_HOLDER` per the same guard as
+       * `election_day_update_role`. */
+      election_day_delete_role: {
+        Args: { p_role_id: string };
+        Returns: undefined;
+      };
+      election_day_clone_role: {
+        Args: { p_role_id: string; p_new_name: string };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          permissions: string[];
+          scope_type: string;
+          scope_value: Json | null;
+          legacy_role_key: string | null;
+        }[];
+      };
+      /** Dynamic Roles & Permissions, Phase 2: creates a PermissionUser
+       * against an arbitrary role_id - `role` is always null in the result
+       * (no legacy text equivalent for a dynamic role). */
+      election_day_create_permission_user_for_role: {
+        Args: { p_name: string; p_password: string; p_role_id: string };
+        Returns: { id: string; name: string; role: string | null; role_id: string }[];
       };
       /** Dynamic Roles & Permissions, Phase 1. Returns raw, untrusted rows -
        * `SupabaseElectionDayApi.listElectionDayRoles()` runs every row

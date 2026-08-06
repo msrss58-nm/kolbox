@@ -74,5 +74,17 @@ export function createRoleCatalogController(
       if (status === "loading") return;
       await run();
     },
+    /** Always refetches regardless of current status - unlike
+     * `ensureLoaded`, never a no-op while already `"loaded"`. Dynamic Roles
+     * & Permissions Phase 2: called after a role create/update/delete/clone
+     * mutation so the live permission engine picks up the change
+     * immediately (including a possible change to the caller's own
+     * effective permissions) instead of serving a stale cached catalog
+     * until some future remount. Shares the same in-flight guard as
+     * `ensureLoaded`/`retry`, so a mutation followed immediately by another
+     * read collapses into one fetch. */
+    reload: async (): Promise<void> => {
+      await run();
+    },
   };
 }

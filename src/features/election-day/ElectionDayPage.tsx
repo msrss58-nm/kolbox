@@ -18,9 +18,12 @@ import { ElectionDayList } from "./ElectionDayList";
 import { useElectionDaySession } from "./electionDaySession";
 import { PermissionUsersModal } from "./PermissionUsersModal";
 import { RideCoordinatorsModal } from "./RideCoordinatorsModal";
+import { RoleManagementModal } from "./RoleManagementModal";
+import { roleDisplayName } from "./roleDisplayName";
 import { usePermissions } from "../../permissions/usePermissions";
 import { useCountdown } from "./useCountdown";
 import { useElectionDay } from "./useElectionDay";
+import { useRoleManagement } from "./useRoleManagement";
 
 export function ElectionDayPage() {
   const { isBootstrap } = useOutletContext<ElectionDayOutletContext>();
@@ -31,6 +34,8 @@ export function ElectionDayPage() {
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [coordinatorsModalOpen, setCoordinatorsModalOpen] = useState(false);
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
+  const [rolesModalOpen, setRolesModalOpen] = useState(false);
+  const roleManagement = useRoleManagement();
 
   const sessionUser = useElectionDaySession((s) => s.user);
   const logout = useElectionDaySession((s) => s.logout);
@@ -44,9 +49,14 @@ export function ElectionDayPage() {
   // matching business-logic exception, so this button being visible and the
   // action it triggers actually being allowed stay in sync.
   const showManageUsers = can("electionDay.manageUsers") || isBootstrap;
+  const showManageRoles = can("electionDay.manageRolesAndPermissions");
   const showExport = can("electionDay.export");
   const showControlPanelLeft =
-    showImport || showClearData || showManageRideCoordinators || showManageUsers;
+    showImport ||
+    showClearData ||
+    showManageRideCoordinators ||
+    showManageUsers ||
+    showManageRoles;
   const showControlPanel = showControlPanelLeft || showExport;
 
   const openContact = electionDay.contacts?.find((c) => c.id === openContactId) ?? null;
@@ -97,6 +107,11 @@ export function ElectionDayPage() {
                     🔑 {ELECTION_DAY_TEXT.permissionsManager.button}
                   </Button>
                 )}
+                {showManageRoles && (
+                  <Button variant="secondary" onClick={() => setRolesModalOpen(true)}>
+                    🛡️ {ELECTION_DAY_TEXT.rolesManager.button}
+                  </Button>
+                )}
               </div>
             )}
             {showExport && (
@@ -124,7 +139,7 @@ export function ElectionDayPage() {
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <span>
               {sessionUser.name} ·{" "}
-              {ELECTION_DAY_TEXT.permissionsManager.roleOptions[sessionUser.role]}
+              {roleDisplayName(sessionUser.roleId, electionDay.roles)}
             </span>
             <button
               type="button"
@@ -275,8 +290,17 @@ export function ElectionDayPage() {
         open={permissionsModalOpen}
         onClose={() => setPermissionsModalOpen(false)}
         users={electionDay.permissionUsers}
+        roles={electionDay.roles}
         onAdd={electionDay.addPermissionUser}
+        onAddForRole={electionDay.addPermissionUserForRole}
         onDelete={electionDay.deletePermissionUser}
+      />
+
+      <RoleManagementModal
+        open={rolesModalOpen}
+        onClose={() => setRolesModalOpen(false)}
+        permissionUsers={electionDay.permissionUsers}
+        roleManagement={roleManagement}
       />
 
       <ConfirmDialog
