@@ -45,6 +45,18 @@ export const ELECTION_DAY_TEXT = {
   subtitle: "ניהול, סינון וחיוג ישיר לבוחרים בלחיצת כפתור",
   loadingSubtitle: "טוען…",
 
+  /** Election Day Navigation Redesign: the action-area accordion's 5
+   * top-level categories. Every sub-action inside them keeps its own
+   * existing label (exportReport/snapshotReport/coordinatorsManager/etc.
+   * below) unchanged - only these category headers are new. */
+  nav: {
+    files: { icon: "📁", label: "ניהול קבצים" },
+    permissions: { icon: "👥", label: "ניהול הרשאות ומשתמשים" },
+    rides: { icon: "🚗", label: "ניהול אחראי הסעות" },
+    reasons: { icon: "📋", label: "סיבות אי הצבעה" },
+    reports: { icon: "📑", label: "דוחות" },
+  },
+
   searchPlaceholder: "🔍 חיפוש לפי שם או טלפון…",
   searchAriaLabel: "חיפוש אנשי קשר",
   clearSearchAriaLabel: "ניקוי חיפוש",
@@ -514,6 +526,23 @@ export const ELECTION_DAY_TEXT = {
     noCoordinator: "ללא אחראי",
     backToAllCoordinators: "חזרה לכל האחראים",
     voterListEmpty: "אין בוחרים להצגה",
+    /** Election Day Navigation Redesign: the same report card, reachable a
+     * second way - from the "סיבות אי הצבעה" nav category, opened inside
+     * `NonVotingReasonsReportModal` (a thin wrapper around the identical
+     * `NonVotingReasonsReportCard`, not a second implementation). The
+     * dashboard's own inline copy (`cardTitle` above) is unchanged. */
+    navButton: "דוח סיבות אי-הצבעה",
+    modalTitle: "דוח סיבות אי-הצבעה",
+  },
+
+  /** Election Day Navigation Redesign: the existing `RideCoordinationTable`
+   * (today inline-only on the dashboard), reachable a second way - from the
+   * "ניהול אחראי הסעות" nav category, opened inside `RideTableModal` (a thin
+   * wrapper around the identical table component). The dashboard's own
+   * inline copy is unchanged. */
+  rideTableModal: {
+    navButton: "טבלת ההיסעים",
+    modalTitle: "טבלת ההיסעים",
   },
 
   /** Local, non-server login gate for this screen only - checks against the

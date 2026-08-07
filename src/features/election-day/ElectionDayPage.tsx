@@ -13,13 +13,15 @@ import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayDashboard } from "./ElectionDayDashboard";
 import { ElectionDayFilters } from "./ElectionDayFilters";
 import type { ElectionDayOutletContext } from "./ElectionDayGuard";
-import { ElectionDayImportButton } from "./ElectionDayImportButton";
 import { ElectionDayList } from "./ElectionDayList";
+import { ElectionDayNav } from "./ElectionDayNav";
 import { useElectionDaySession } from "./electionDaySession";
 import { NonVotingReasonDrillDownModal } from "./NonVotingReasonDrillDownModal";
 import { NonVotingReasonsModal } from "./NonVotingReasonsModal";
+import { NonVotingReasonsReportModal } from "./NonVotingReasonsReportModal";
 import { PermissionUsersModal } from "./PermissionUsersModal";
 import { RideCoordinatorsModal } from "./RideCoordinatorsModal";
+import { RideTableModal } from "./RideTableModal";
 import { RoleManagementModal } from "./RoleManagementModal";
 import { roleDisplayName } from "./roleDisplayName";
 import { usePermissions } from "../../permissions/usePermissions";
@@ -39,6 +41,8 @@ export function ElectionDayPage() {
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [reasonsModalOpen, setReasonsModalOpen] = useState(false);
+  const [reasonsReportModalOpen, setReasonsReportModalOpen] = useState(false);
+  const [rideTableModalOpen, setRideTableModalOpen] = useState(false);
   // Which non-voting reason's drill-down is open (see
   // NonVotingReasonsReportCard / NonVotingReasonDrillDownModal) - `null` =
   // closed. Opening a voter from inside the drill-down closes this first
@@ -65,6 +69,11 @@ export function ElectionDayPage() {
   const showManageUsers = can("electionDay.manageUsers") || isBootstrap;
   const showManageRoles = can("electionDay.manageRolesAndPermissions");
   const showManageReasons = can("electionDay.manageNonVotingReasons");
+  // Same gate as the dashboard's own inline report card
+  // (`ElectionDayDashboard.tsx`'s `PermissionGuard permission="voter.viewVotedStatus"`)
+  // - the nav's report shortcut must stay visible to anyone who can already
+  // see the report today, independent of catalog-management access.
+  const showReasonsReport = can("voter.viewVotedStatus");
   const showExport = can("electionDay.export");
   const showControlPanelLeft =
     showImport ||
@@ -72,7 +81,8 @@ export function ElectionDayPage() {
     showManageRideCoordinators ||
     showManageUsers ||
     showManageRoles ||
-    showManageReasons;
+    showManageReasons ||
+    showReasonsReport;
   const showControlPanel = showControlPanelLeft || showExport;
 
   // Looks up against `allContacts` (the full, unfiltered/unpaginated fetched
@@ -93,75 +103,35 @@ export function ElectionDayPage() {
         onSetDeadline={(iso) => void electionDay.setElectionDayDeadline(iso)}
       />
 
-      <Card className="mb-6 flex flex-col gap-4">
-        {showControlPanel && (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {showControlPanelLeft && (
-              <div className="flex flex-wrap items-center gap-2">
-                {showImport && (
-                  <ElectionDayImportButton
-                    onFileSelected={(file) => setPendingImportFile(file)}
-                    busy={electionDay.importing}
-                  />
-                )}
-                {showClearData && (
-                  <Button
-                    variant="danger"
-                    disabled={!electionDay.total}
-                    onClick={() => setConfirmClearOpen(true)}
-                  >
-                    🗑️ {ELECTION_DAY_TEXT.clearAll.button}
-                  </Button>
-                )}
-                {showManageRideCoordinators && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => setCoordinatorsModalOpen(true)}
-                  >
-                    👨‍💼 {ELECTION_DAY_TEXT.coordinatorsManager.button}
-                  </Button>
-                )}
-                {showManageUsers && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => setPermissionsModalOpen(true)}
-                  >
-                    🔑 {ELECTION_DAY_TEXT.permissionsManager.button}
-                  </Button>
-                )}
-                {showManageRoles && (
-                  <Button variant="secondary" onClick={() => setRolesModalOpen(true)}>
-                    🛡️ {ELECTION_DAY_TEXT.rolesManager.button}
-                  </Button>
-                )}
-                {showManageReasons && (
-                  <Button variant="secondary" onClick={() => setReasonsModalOpen(true)}>
-                    🗳️ {ELECTION_DAY_TEXT.nonVotingReasonsManager.button}
-                  </Button>
-                )}
-              </div>
-            )}
-            {showExport && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
-                  disabled={!electionDay.total}
-                  onClick={electionDay.sendSnapshotReport}
-                >
-                  📲 {ELECTION_DAY_TEXT.snapshotReport.button}
-                </Button>
-                <Button
-                  className="bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
-                  disabled={!electionDay.total}
-                  onClick={electionDay.exportReport}
-                >
-                  ⬇️ {ELECTION_DAY_TEXT.exportReport.button}
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
+      {showControlPanel && (
+        <div className="mb-6">
+          <ElectionDayNav
+            showImport={showImport}
+            showClearData={showClearData}
+            showManageRideCoordinators={showManageRideCoordinators}
+            showManageUsers={showManageUsers}
+            showManageRoles={showManageRoles}
+            showManageReasons={showManageReasons}
+            showReasonsReport={showReasonsReport}
+            showExport={showExport}
+            onFileSelected={(file) => setPendingImportFile(file)}
+            importBusy={electionDay.importing}
+            onClearData={() => setConfirmClearOpen(true)}
+            clearDisabled={!electionDay.total}
+            onOpenCoordinators={() => setCoordinatorsModalOpen(true)}
+            onOpenRideTable={() => setRideTableModalOpen(true)}
+            onOpenPermissions={() => setPermissionsModalOpen(true)}
+            onOpenRoles={() => setRolesModalOpen(true)}
+            onOpenReasonsReport={() => setReasonsReportModalOpen(true)}
+            onOpenReasonsCatalog={() => setReasonsModalOpen(true)}
+            onSendSnapshotReport={electionDay.sendSnapshotReport}
+            onExportReport={electionDay.exportReport}
+            exportDisabled={!electionDay.total}
+          />
+        </div>
+      )}
 
+      <Card className="mb-6 flex flex-col gap-4">
         {sessionUser && (
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <span>
@@ -330,6 +300,15 @@ export function ElectionDayPage() {
         onDelete={electionDay.deleteRideCoordinator}
       />
 
+      <RideTableModal
+        open={rideTableModalOpen}
+        onClose={() => setRideTableModalOpen(false)}
+        contacts={electionDay.rideCoordinationQueue}
+        onToggleCompleted={(contact, completed) =>
+          void electionDay.setRideCompleted(contact.id, completed)
+        }
+      />
+
       <PermissionUsersModal
         open={permissionsModalOpen}
         onClose={() => setPermissionsModalOpen(false)}
@@ -352,6 +331,16 @@ export function ElectionDayPage() {
         onClose={() => setReasonsModalOpen(false)}
         contacts={electionDay.allContacts}
         reasonsManagement={reasonsManagement}
+      />
+
+      <NonVotingReasonsReportModal
+        open={reasonsReportModalOpen}
+        onClose={() => setReasonsReportModalOpen(false)}
+        rows={electionDay.nonVotingReasonReport}
+        onOpenReasonReport={(reasonId) => {
+          setReasonsReportModalOpen(false);
+          setReportReasonId(reasonId);
+        }}
       />
 
       <NonVotingReasonDrillDownModal
