@@ -57,9 +57,28 @@ export const ELECTION_DAY_TEXT = {
     reports: { icon: "📑", label: "דוחות" },
   },
 
+  /** Navigation Refactor: tab labels for the two-tab pages the old
+   * accordion's "permissions"/"rides" categories became - the content
+   * itself is unchanged (`PermissionUsersPanel`/`RoleManagementPanel`,
+   * `RideCoordinatorsPanel`/`RideCoordinationTable`), only the container. */
+  permissionsPage: {
+    usersTab: "משתמשים",
+    rolesTab: "תפקידים",
+  },
+  ridesPage: {
+    coordinatorsTab: "אחראי הסעות",
+    tableTab: "טבלת ההיסעים",
+  },
+
   searchPlaceholder: "🔍 חיפוש לפי שם או טלפון…",
   searchAriaLabel: "חיפוש אנשי קשר",
   clearSearchAriaLabel: "ניקוי חיפוש",
+
+  /** Voters screen's collapsible filter area (Shell navigation refactor) -
+   * collapsed by default, see `ElectionDayVotersPage.tsx`. */
+  filters: {
+    sectionLabel: "סינון",
+  },
 
   permissionDenied: "אין לך הרשאה לבצע פעולה זו",
 

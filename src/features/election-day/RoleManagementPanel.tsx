@@ -4,7 +4,6 @@ import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Input } from "../../components/ui/Field";
-import { Modal } from "../../components/ui/Modal";
 import { toast } from "../../components/ui/Toast";
 import { ALL_PERMISSIONS } from "../../permissions/permissionsMap";
 import type { Permission, RoleRecord, RoleScopeType } from "../../permissions/types";
@@ -44,14 +43,14 @@ function formFromRole(role: RoleRecord): RoleFormState {
   };
 }
 
-export function RoleManagementModal({
-  open,
-  onClose,
+/** Navigation Refactor: extracted from the old `RoleManagementModal` - same
+ * content, no `Modal` wrapper, now rendered as a tab on `/election-day/permissions`
+ * instead of a dialog. The nested create/edit form and `ConfirmDialog` below
+ * are unchanged - the extraction only un-modal-ifies the outermost container. */
+export function RoleManagementPanel({
   permissionUsers,
   roleManagement,
 }: {
-  open: boolean;
-  onClose: () => void;
   permissionUsers: PermissionUser[];
   roleManagement: RoleManagementHook;
 }) {
@@ -118,21 +117,7 @@ export function RoleManagementModal({
   const busy = creatingRole || updatingRole;
 
   return (
-    <Modal
-      open={open}
-      onClose={() => {
-        closeEditor();
-        onClose();
-      }}
-      title={
-        editing === null
-          ? text.modalTitle
-          : editing === "new"
-            ? text.createTitle
-            : text.editTitle
-      }
-      wide
-    >
+    <>
       {editing === null ? (
         <div className="space-y-4">
           <Button className="w-full" onClick={openCreate}>
@@ -285,6 +270,6 @@ export function RoleManagementModal({
         }}
         onCancel={() => setPendingDeleteId(null)}
       />
-    </Modal>
+    </>
   );
 }

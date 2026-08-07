@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import {
   Bar,
   BarChart,
@@ -180,7 +179,6 @@ export function ElectionDayDashboard({
   nonVotingReasonReport,
   onOpenReasonReport,
   loaded,
-  children,
 }: {
   stats: ElectionDayStats;
   coordinatorBreakdown: CoordinatorBreakdown[];
@@ -189,21 +187,18 @@ export function ElectionDayDashboard({
   nonVotingReasonReport: NonVotingReasonReportRow[];
   onOpenReasonReport: (reasonId: string) => void;
   loaded: boolean;
-  children: ReactNode;
 }) {
   if (!loaded) {
     return (
-      <div className="mb-6 grid gap-4 lg:grid-cols-[3fr_1.2fr]">
-        <div className="space-y-4">
-          <Skeleton className="h-24 rounded-2xl" />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className="h-20 rounded-2xl" />
-            ))}
-          </div>
-          {children}
+      <div className="mb-6 space-y-4">
+        <Skeleton className="h-24 rounded-2xl" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+          {[...Array(5)].map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-2xl" />
+          ))}
         </div>
-        <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <Skeleton className="h-64 rounded-2xl" />
           <Skeleton className="h-64 rounded-2xl" />
           <Skeleton className="h-64 rounded-2xl" />
           <Skeleton className="h-40 rounded-2xl" />
@@ -213,38 +208,38 @@ export function ElectionDayDashboard({
   }
 
   return (
-    <div className="mb-6 grid gap-4 lg:grid-cols-[3fr_1.2fr]">
-      <div className="space-y-4">
-        <VotingProgressBar stats={stats} />
-        {/* 2 cols at the narrowest phones, growing to 5 across on
-            desktop - keeps every card readable rather than squeezing 5
-            into a row at 375px. */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-          <StatCard
-            label={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoters}
-            value={stats.total}
-          />
-          <StatCard
-            label={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoted}
-            value={stats.voted}
-          />
-          <StatCard
-            label={ELECTION_DAY_TEXT.dashboard.votingProgress.votingPct}
-            value={fmtVotedPct(stats.votedPct)}
-          />
-          <StatCard
-            label={ELECTION_DAY_TEXT.dashboard.worklist.closed}
-            value={stats.closed}
-          />
-          <StatCard
-            label={ELECTION_DAY_TEXT.dashboard.worklist.remaining}
-            value={stats.remaining}
-          />
-        </div>
-        {children}
+    <div className="mb-6 space-y-4">
+      <VotingProgressBar stats={stats} />
+      {/* 2 cols at the narrowest phones, growing to 5 across on
+          desktop - keeps every card readable rather than squeezing 5
+          into a row at 375px. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+        <StatCard
+          label={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoters}
+          value={stats.total}
+        />
+        <StatCard
+          label={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoted}
+          value={stats.voted}
+        />
+        <StatCard
+          label={ELECTION_DAY_TEXT.dashboard.votingProgress.votingPct}
+          value={fmtVotedPct(stats.votedPct)}
+        />
+        <StatCard
+          label={ELECTION_DAY_TEXT.dashboard.worklist.closed}
+          value={stats.closed}
+        />
+        <StatCard
+          label={ELECTION_DAY_TEXT.dashboard.worklist.remaining}
+          value={stats.remaining}
+        />
       </div>
 
-      <div className="space-y-4">
+      {/* Full-width now that the voter list lives on its own screen - a
+          responsive card grid instead of the old fixed-ratio 2-column
+          split, matching DashboardPage.tsx's chart-grid pattern. */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <VotingPieChart stats={stats} />
         <PermissionGuard permission="voter.viewCoordinator">
           {coordinatorBreakdown.length > 0 && (

@@ -6,9 +6,9 @@ import { useAsyncData } from "../../hooks/useAsyncData";
 import { api } from "../../services/api";
 import { useElectionDaySession } from "./electionDaySession";
 
-/** Passed to `ElectionDayPage` via `<Outlet context>` - this guard is the
+/** Passed to `ElectionDayShell` via `<Outlet context>` - this guard is the
  * single source of truth for whether the roster-empty bootstrap window is
- * active, so the page never has to re-derive it from its own data fetch. */
+ * active, so the shell never has to re-derive it from its own data fetch. */
 export interface ElectionDayOutletContext {
   isBootstrap: boolean;
 }
