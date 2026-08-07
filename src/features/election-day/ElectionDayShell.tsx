@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Outlet, useOutletContext } from "react-router";
 import { PageHeader } from "../../components/PageHeader";
-import { ELECTION_DAY_NAV_ITEMS, ELECTION_DAY_ROUTES } from "../../constants/routes";
+import { ELECTION_DAY_NAV_SECTION_LABEL, NAV_ITEMS } from "../../constants/routes";
+import { useAuth } from "../auth/authStore";
 import { usePermissions } from "../../permissions/usePermissions";
 import { AppShell } from "../../app/AppShell";
 import { CountdownHeader } from "./CountdownHeader";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayContactModal } from "./ElectionDayContactModal";
+import { getVisibleElectionDayNavItems } from "./electionDayNavVisibility";
 import { useElectionDaySession } from "./electionDaySession";
 import type { ElectionDayOutletContext as BootstrapContext } from "./ElectionDayGuard";
 import { roleDisplayName } from "./roleDisplayName";
@@ -40,29 +42,27 @@ export function ElectionDayShell() {
   const logout = useElectionDaySession((s) => s.logout);
   const { can } = usePermissions();
 
-  // Per-screen visibility - mirrors exactly what the retired
-  // ElectionDayNav.tsx accordion's per-category gating checked, just applied
-  // to a route instead of an accordion section. `isBootstrap` widens ONLY
-  // the permissions screen (same one deliberate exception as before - see
-  // useElectionDay.ts's addPermissionUser and CLAUDE.md).
-  const showFiles = can("electionDay.import") || can("electionDay.clearData");
-  const showPermissions =
-    can("electionDay.manageUsers") ||
-    can("electionDay.manageRolesAndPermissions") ||
-    isBootstrap;
-  const showRides = can("electionDay.manageRideCoordinators");
-  const showReasons =
-    can("electionDay.manageNonVotingReasons") || can("voter.viewVotedStatus");
-  const showReports = can("electionDay.export");
+  // Same managerOnly filter AppLayout.tsx applies to NAV_ITEMS, reused as-is
+  // (not a new permission mechanism) - `useAuth`'s Supabase session listener
+  // is already subscribed at module load regardless of route, so reading it
+  // here costs no new fetch and doesn't connect Election Day's own login to
+  // Supabase Auth in any way.
+  const supabaseUser = useAuth((s) => s.user);
+  const mainNavItems = useMemo(
+    () =>
+      NAV_ITEMS.filter((item) => !item.managerOnly || supabaseUser?.role === "manager"),
+    [supabaseUser?.role],
+  );
 
-  const visibleNavItems = ELECTION_DAY_NAV_ITEMS.filter((item) => {
-    if (item.to === ELECTION_DAY_ROUTES.files) return showFiles;
-    if (item.to === ELECTION_DAY_ROUTES.permissions) return showPermissions;
-    if (item.to === ELECTION_DAY_ROUTES.rides) return showRides;
-    if (item.to === ELECTION_DAY_ROUTES.reasons) return showReasons;
-    if (item.to === ELECTION_DAY_ROUTES.reports) return showReports;
-    return true; // dashboard + voters: always visible to any signed-in session
-  });
+  const visibleNavItems = useMemo(
+    () => getVisibleElectionDayNavItems(can, isBootstrap),
+    [can, isBootstrap],
+  );
+
+  const electionDaySections = useMemo(
+    () => [{ label: ELECTION_DAY_NAV_SECTION_LABEL, items: visibleNavItems }],
+    [visibleNavItems],
+  );
 
   // Looks up against `allContacts` (unfiltered/unpaginated), not the Voters
   // screen's own filtered/paginated view - a voter opened from elsewhere
@@ -77,7 +77,9 @@ export function ElectionDayShell() {
 
   return (
     <AppShell
-      navItems={visibleNavItems}
+      navItems={mainNavItems}
+      sections={electionDaySections}
+      mobileNavItems={visibleNavItems}
       footer={
         sessionUser
           ? {

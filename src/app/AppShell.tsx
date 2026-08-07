@@ -13,6 +13,11 @@ export interface ShellNavItem {
   end?: boolean;
 }
 
+export interface ShellNavSection {
+  label: string;
+  items: ShellNavItem[];
+}
+
 /** The user/session footer block at the bottom of the desktop sidebar -
  * intentionally a full slot (not a fixed name/role shape) since the main app
  * (Supabase `profiles`) and Election Day (its own local session) have
@@ -51,10 +56,14 @@ function SidebarLink({ to, label, icon: Icon, end }: ShellNavItem) {
  */
 export function AppShell({
   navItems,
+  sections,
+  mobileNavItems,
   footer,
   children,
 }: {
   navItems: ShellNavItem[];
+  sections?: ShellNavSection[];
+  mobileNavItems?: ShellNavItem[];
   footer?: ShellFooter;
   children: React.ReactNode;
 }) {
@@ -66,6 +75,16 @@ export function AppShell({
         <nav className="mt-6 flex flex-1 flex-col gap-1">
           {navItems.map((item) => (
             <SidebarLink key={item.to} {...item} />
+          ))}
+          {sections?.map((section) => (
+            <div key={section.label} className="mt-4 flex flex-col gap-1">
+              <p className="px-3.5 pt-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                {section.label}
+              </p>
+              {section.items.map((item) => (
+                <SidebarLink key={item.to} {...item} />
+              ))}
+            </div>
           ))}
         </nav>
         {footer && (
@@ -115,7 +134,7 @@ export function AppShell({
 
       {/* Mobile bottom nav */}
       <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
-        {navItems.map(({ to, label, icon: Icon, end }) => (
+        {(mobileNavItems ?? navItems).map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}

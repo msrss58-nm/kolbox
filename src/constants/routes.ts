@@ -9,7 +9,6 @@ import {
   ShieldCheck,
   Upload,
   Users,
-  Vote,
   type LucideIcon,
 } from "lucide-react";
 
@@ -51,20 +50,29 @@ export interface NavItem {
   managerOnly?: boolean;
 }
 
-/** Primary navigation - drives both the desktop sidebar and the mobile bottom nav. */
+/** Primary navigation - drives both the desktop sidebar and the mobile bottom
+ * nav. Election Day is no longer a single entry here (UX v3.1) - it's
+ * rendered as its own labeled section (see `ELECTION_DAY_NAV_SECTION_LABEL`
+ * + `getVisibleElectionDayNavItems`), shown alongside this list rather than
+ * replacing it. */
 export const NAV_ITEMS: NavItem[] = [
   { to: ROUTES.dashboard, label: "דשבורד", icon: LayoutDashboard, end: true },
   { to: ROUTES.voters, label: "בוחרים", icon: Users },
   { to: ROUTES.activists, label: "פעילים", icon: Megaphone },
   { to: ROUTES.import, label: "טעינת נתונים", icon: Upload },
-  { to: ROUTES.electionDay, label: "יום הבחירות", icon: Vote },
   { to: ROUTES.team, label: "צוות", icon: ShieldCheck, managerOnly: true },
 ];
 
-/** Election Day's own sidebar - drives `ElectionDayShell`, fully replacing
- * the main app's `NAV_ITEMS` while inside `/election-day` (UX v3). Every
- * item is always LISTED here - `ElectionDayShell` filters by the signed-in
- * session's actual permissions, mirroring how `ElectionDayNav.tsx`'s
+/** Section label for Election Day's nav items wherever they're rendered as a
+ * labeled group (UX v3.1 - both `AppLayout`'s main sidebar and
+ * `ElectionDayShell`'s own sidebar use this same section, see
+ * `getVisibleElectionDayNavItems`). */
+export const ELECTION_DAY_NAV_SECTION_LABEL = "יום הבחירות";
+
+/** Election Day's own nav items - drives `ElectionDayShell`'s section AND
+ * (UX v3.1) the matching section inside the main app sidebar. Every item is
+ * always LISTED here - `getVisibleElectionDayNavItems` filters by the
+ * signed-in session's actual permissions, mirroring how `ElectionDayNav.tsx`'s
  * accordion categories used to hide themselves per-role (that component is
  * retired by this same change). */
 export const ELECTION_DAY_NAV_ITEMS: NavItem[] = [
