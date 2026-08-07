@@ -1,3 +1,4 @@
+import { FileSpreadsheet } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Accordion, type AccordionSection } from "../../components/ui/Accordion";
 import { cn } from "../../lib/utils";
@@ -210,6 +211,7 @@ export function ElectionDayNav({
             onClick={onSendSnapshotReport}
           >
             📲 {ELECTION_DAY_TEXT.snapshotReport.button}
+            <FileSpreadsheet className="size-4 shrink-0" />
           </Button>
           <Button
             className={cn("touch-target w-full justify-start", exportButtonClass)}
@@ -217,6 +219,7 @@ export function ElectionDayNav({
             onClick={onExportReport}
           >
             ⬇️ {ELECTION_DAY_TEXT.exportReport.button}
+            <FileSpreadsheet className="size-4 shrink-0" />
           </Button>
         </div>
       ),

@@ -20,7 +20,7 @@ export function Accordion({ sections }: { sections: AccordionSection[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
 
   return (
-    <Card className="divide-y divide-slate-100 p-0">
+    <Card className="divide-y divide-slate-100 space-y-1.5 p-0">
       {sections.map((section) => {
         const isOpen = section.id === openId;
         const headerId = `accordion-header-${section.id}`;
@@ -34,13 +34,16 @@ export function Accordion({ sections }: { sections: AccordionSection[] }) {
               aria-expanded={isOpen}
               aria-controls={contentId}
               onClick={() => setOpenId(isOpen ? null : section.id)}
-              className="touch-target flex w-full items-center gap-3 px-5 py-4 text-start font-semibold text-slate-800 hover:bg-slate-50"
+              className={cn(
+                "touch-target flex w-full items-center gap-3 px-5 py-4 text-start font-semibold text-slate-800 hover:bg-slate-50",
+                isOpen && "bg-primary-50 hover:bg-primary-50",
+              )}
             >
               <span className="text-lg">{section.icon}</span>
               <span className="flex-1">{section.label}</span>
               <ChevronDown
                 className={cn(
-                  "size-5 shrink-0 text-slate-400 transition-transform duration-150",
+                  "size-6 shrink-0 text-slate-400 transition-transform duration-200",
                   isOpen && "rotate-180",
                 )}
               />
