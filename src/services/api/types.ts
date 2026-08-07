@@ -224,6 +224,23 @@ export interface ApiClient {
   // election day - local user/manager permissions roster (no real auth)
   listPermissionUsers(): Promise<PermissionUser[]>;
   deletePermissionUser(id: string): Promise<void>;
+  /** Resets an existing PermissionUser's (`targetId`) password in place
+   * (id/name/role untouched) - but only after REAL server-side
+   * re-authentication of the acting manager: the caller must supply the
+   * acting manager's own current password (`actorPassword`), verified via
+   * bcrypt inside the RPC against the actor's (`actorId`) own stored hash,
+   * plus a real server-side check that the actor's role holds
+   * `electionDay.manageUsers`. This is a genuine security boundary enforced
+   * in the database itself - not just a UI-level `guardedAction` check like
+   * every other mutation in this file. Self-reset: pass
+   * `targetId === actorId`. Never returns or otherwise exposes the password
+   * or its hash. */
+  resetPermissionUserPassword(
+    actorId: string,
+    actorPassword: string,
+    targetId: string,
+    newPassword: string,
+  ): Promise<PermissionUser>;
   /** Verifies name+password and returns the matching user (never a
    * password/hash) on success, or null on no match. */
   verifyPermissionUserLogin(

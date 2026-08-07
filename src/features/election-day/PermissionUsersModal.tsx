@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, EyeOff, Users } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Users } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Input, Select } from "../../components/ui/Field";
@@ -9,6 +9,7 @@ import type { RoleRecord } from "../../permissions/types";
 import type { NewPermissionUser } from "../../services/api";
 import type { PermissionUser } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import { roleDisplayName } from "./roleDisplayName";
 
 const text = ELECTION_DAY_TEXT.permissionsManager;
@@ -20,6 +21,7 @@ export function PermissionUsersModal({
   roles,
   onAdd,
   onDelete,
+  onReset,
 }: {
   open: boolean;
   onClose: () => void;
@@ -29,12 +31,14 @@ export function PermissionUsersModal({
   roles: readonly RoleRecord[];
   onAdd: (input: NewPermissionUser) => Promise<unknown>;
   onDelete: (id: string) => Promise<void>;
+  onReset: (id: string, newPassword: string, actorPassword: string) => Promise<unknown>;
 }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resetTarget, setResetTarget] = useState<PermissionUser | null>(null);
 
   const effectiveRoleId = selectedRoleId ?? roles[0]?.id ?? null;
 
@@ -77,98 +81,116 @@ export function PermissionUsersModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={text.modalTitle}>
-      <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-2.5">
-          <Field label={text.nameLabel}>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={text.namePlaceholder}
-            />
-          </Field>
-
-          <Field label={text.passwordLabel}>
-            <div className="flex gap-2">
+    <>
+      <Modal open={open} onClose={onClose} title={text.modalTitle}>
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-2.5">
+            <Field label={text.nameLabel}>
               <Input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={text.passwordPlaceholder}
-                className="flex-1"
-                dir="ltr"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={text.namePlaceholder}
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={
-                  showPassword ? text.hidePasswordAriaLabel : text.showPasswordAriaLabel
-                }
-                className="touch-target grid shrink-0 place-items-center rounded-xl text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50"
-              >
-                {showPassword ? (
-                  <EyeOff className="size-4" />
-                ) : (
-                  <Eye className="size-4" />
-                )}
-              </button>
-            </div>
-          </Field>
-        </div>
+            </Field>
 
-        <Field label={text.roleLabel}>
-          <Select
-            value={effectiveRoleId ?? ""}
-            onChange={(e) => setSelectedRoleId(e.target.value)}
-          >
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Button className="w-full" loading={busy} onClick={() => void handleAdd()}>
-          ➕ {text.addButton}
-        </Button>
-
-        {users.length === 0 ? (
-          <EmptyState icon={Users} title={text.empty} />
-        ) : (
-          <div className="overflow-hidden rounded-xl ring-1 ring-slate-100">
-            <div className="grid grid-cols-[1fr_7rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-              <span>{text.columns.name}</span>
-              <span>{text.columns.role}</span>
-            </div>
-            <ul className="divide-y divide-slate-100">
-              {sortedUsers.map((u) => (
-                <li
-                  key={u.id}
-                  className="grid grid-cols-[1fr_7rem] items-center gap-2 px-3 py-1"
+            <Field label={text.passwordLabel}>
+              <div className="flex gap-2">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={text.passwordPlaceholder}
+                  className="flex-1"
+                  dir="ltr"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={
+                    showPassword ? text.hidePasswordAriaLabel : text.showPasswordAriaLabel
+                  }
+                  className="touch-target grid shrink-0 place-items-center rounded-xl text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50"
                 >
-                  <span className="truncate text-sm font-bold text-slate-800">
-                    {u.name}
-                  </span>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm text-slate-600">
-                      {roleDisplayName(u.roleId, roles)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void onDelete(u.id)}
-                      aria-label={text.deleteAriaLabel}
-                      className="touch-target grid shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                  {showPassword ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                </button>
+              </div>
+            </Field>
           </div>
-        )}
-      </div>
-    </Modal>
+
+          <Field label={text.roleLabel}>
+            <Select
+              value={effectiveRoleId ?? ""}
+              onChange={(e) => setSelectedRoleId(e.target.value)}
+            >
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Button className="w-full" loading={busy} onClick={() => void handleAdd()}>
+            ➕ {text.addButton}
+          </Button>
+
+          {users.length === 0 ? (
+            <EmptyState icon={Users} title={text.empty} />
+          ) : (
+            <div className="overflow-hidden rounded-xl ring-1 ring-slate-100">
+              <div className="grid grid-cols-[1fr_7rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+                <span>{text.columns.name}</span>
+                <span>{text.columns.role}</span>
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {sortedUsers.map((u) => (
+                  <li
+                    key={u.id}
+                    className="grid grid-cols-[1fr_7rem] items-center gap-2 px-3 py-1"
+                  >
+                    <span className="truncate text-sm font-bold text-slate-800">
+                      {u.name}
+                    </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm text-slate-600">
+                        {roleDisplayName(u.roleId, roles)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setResetTarget(u)}
+                        aria-label={text.resetPassword.ariaLabel}
+                        title={text.resetPassword.ariaLabel}
+                        className="touch-target grid shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      >
+                        <KeyRound className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void onDelete(u.id)}
+                        aria-label={text.deleteAriaLabel}
+                        className="touch-target grid shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <ResetPasswordDialog
+        open={resetTarget !== null}
+        onClose={() => setResetTarget(null)}
+        user={resetTarget}
+        onReset={onReset}
+      />
+    </>
   );
 }

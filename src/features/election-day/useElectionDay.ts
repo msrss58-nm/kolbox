@@ -911,6 +911,52 @@ export function useElectionDay(isBootstrap: boolean) {
     "deletePermissionUser",
   );
 
+  // No `successMessage` - the dialog itself shows the success toast (needs
+  // the target user's name, which this hook layer doesn't carry), same
+  // division of responsibility documented in `ResetPasswordDialog.tsx`.
+  // `actorId` is this session's own id, never client-typed - the acting
+  // manager only re-enters their own PASSWORD (`actorPassword`, collected by
+  // the dialog); the RPC itself re-authenticates that password server-side
+  // and derives `reset_by` from the verified actor row, not from any text
+  // this layer sends. The `!sessionUser` branch is unreachable in practice
+  // (guardedAction's `can("electionDay.manageUsers")` check below already
+  // requires a resolved session - see usePermissions.ts's
+  // `sessionUser?.roleId ?? null`) - kept only so this closure never needs a
+  // non-null assertion on `sessionUser`.
+  const { run: runResetPermissionUserPassword } = useAsyncAction(
+    (targetId: string, newPassword: string, actorPassword: string) => {
+      if (!sessionUser) {
+        return Promise.reject(new Error(ELECTION_DAY_TEXT.permissionDenied));
+      }
+      return api.resetPermissionUserPassword(
+        sessionUser.id,
+        actorPassword,
+        targetId,
+        newPassword,
+      );
+    },
+  );
+  // No bootstrap exception here (unlike `addPermissionUser` above) - resetting
+  // a password is never needed to stand up the very first account, so this is
+  // a plain `can(...)` check like every other mutation.
+  const resetPermissionUserPasswordRaw = useCallback(
+    async (targetId: string, newPassword: string, actorPassword: string) => {
+      const result = await runResetPermissionUserPassword(
+        targetId,
+        newPassword,
+        actorPassword,
+      );
+      if (result) reloadPermissionUsers();
+      return result;
+    },
+    [runResetPermissionUserPassword, reloadPermissionUsers],
+  );
+  const resetPermissionUserPassword = guardedAction(
+    "electionDay.manageUsers",
+    resetPermissionUserPasswordRaw,
+    "resetPermissionUserPassword",
+  );
+
   /** Opens WhatsApp with the voter's pickup details pre-filled but no target
    * contact - the activist picks the driver by name inside WhatsApp itself
    * and sends it manually. Then marks the ride as arranged and tags the
@@ -1088,6 +1134,7 @@ export function useElectionDay(isBootstrap: boolean) {
     permissionUsers: permissionUsers ?? [],
     addPermissionUser,
     deletePermissionUser,
+    resetPermissionUserPassword,
     roles,
   };
 }

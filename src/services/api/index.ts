@@ -76,6 +76,8 @@ export const api: ApiClient = {
   // election day - permission users roster (Supabase-backed, RPC-only)
   listPermissionUsers: (...args) => electionDayApi.listPermissionUsers(...args),
   deletePermissionUser: (...args) => electionDayApi.deletePermissionUser(...args),
+  resetPermissionUserPassword: (...args) =>
+    electionDayApi.resetPermissionUserPassword(...args),
   verifyPermissionUserLogin: (...args) =>
     electionDayApi.verifyPermissionUserLogin(...args),
 

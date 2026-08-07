@@ -401,6 +401,26 @@ export const ELECTION_DAY_TEXT = {
       deleted: "המשתמש הוסר",
       invalid: "יש להזין שם וסיסמה",
     },
+    resetPassword: {
+      ariaLabel: "איפוס סיסמה",
+      dialogTitle: "איפוס סיסמה",
+      dialogBody: (userName: string) =>
+        `אתה עומד לאפס את הסיסמה עבור המשתמש:\n${userName}`,
+      actorPasswordLabel: "הסיסמה שלך לאישור הפעולה",
+      newPasswordLabel: "סיסמה חדשה",
+      confirmPasswordLabel: "אימות סיסמה חדשה",
+      showPasswordAriaLabel: "הצג סיסמה",
+      hidePasswordAriaLabel: "הסתר סיסמה",
+      cancelButton: "ביטול",
+      submitButton: "אפס סיסמה",
+      validation: {
+        required: "יש להזין סיסמה חדשה",
+        mismatch: "הסיסמאות אינן זהות",
+      },
+      toast: {
+        success: (userName: string) => `הסיסמה של ${userName} אופסה בהצלחה`,
+      },
+    },
   },
 
   /** Dynamic Roles & Permissions Phase 2: real role management ("תפקידים"). */

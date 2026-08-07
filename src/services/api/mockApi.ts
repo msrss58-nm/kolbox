@@ -689,6 +689,33 @@ export class MockApi implements ApiClient {
     saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
   }
 
+  /** Interface compliance only - never actually reached in the running app
+   * (see `listElectionDayRoles`'s comment), but mirrors the real RPC's two
+   * server-side checks (actor password compare, actor role's
+   * `electionDay.manageUsers`) against this class's own plaintext password
+   * store and `this.roles`, rather than trusting the actor params blindly. */
+  async resetPermissionUserPassword(
+    actorId: string,
+    actorPassword: string,
+    targetId: string,
+    newPassword: string,
+  ): Promise<PermissionUser> {
+    await latency();
+    const actor = this.permissionUsers.find((u) => u.id === actorId);
+    if (!actor || actor.password !== actorPassword) {
+      throw new Error("הסיסמה שהזנת אינה נכונה");
+    }
+    const actorRole = this.roles.find((r) => r.id === actor.roleId);
+    if (!actorRole?.permissions.includes("electionDay.manageUsers")) {
+      throw new Error("אין לך הרשאה לבצע פעולה זו");
+    }
+    const target = this.permissionUsers.find((u) => u.id === targetId);
+    if (!target) throw new Error("המשתמש לא נמצא");
+    target.password = newPassword;
+    saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
+    return toPublicPermissionUser(target);
+  }
+
   async verifyPermissionUserLogin(
     name: string,
     password: string,

@@ -153,8 +153,25 @@ function toPermissionUser(row: PermissionUserRpcRow): PermissionUser {
  * `ROLE_NAME_REQUIRED`, the `election_day_roles_name_key` unique-violation
  * message) rather than a Hebrew string themselves - translated here, once,
  * before the error ever reaches `useAsyncAction`'s generic toast, so a real
- * business rejection reads clearly instead of leaking raw Postgres text. */
+ * business rejection reads clearly instead of leaking raw Postgres text.
+ *
+ * Also covers `election_day_reset_permission_user_password`'s 4 error
+ * codes, in the priority order the RPC itself raises them:
+ * `UNAUTHORIZED`/`FORBIDDEN` come from that RPC's real server-side
+ * re-authentication and permission check on the ACTOR (steps 1-2 - wrong
+ * actor id/password, or a role that lacks `electionDay.manageUsers`),
+ * distinct from `USER_NOT_FOUND`/`INVALID_PASSWORD` (steps 3-4, about the
+ * target/new-password, already present here from the previous pass). No
+ * other Election Day RPC has an actor-identity failure mode like
+ * `UNAUTHORIZED`/`FORBIDDEN` - this is the first one that actually checks
+ * who's calling. */
 function mapRoleRpcErrorMessage(message: string): string {
+  if (message.includes("UNAUTHORIZED")) {
+    return "הסיסמה שהזנת אינה נכונה";
+  }
+  if (message.includes("FORBIDDEN")) {
+    return "אין לך הרשאה לבצע פעולה זו";
+  }
   if (message.includes("ROLE_HAS_ASSIGNED_USERS")) {
     return "לא ניתן למחוק תפקיד שיש לו משתמשים משויכים";
   }
@@ -166,6 +183,12 @@ function mapRoleRpcErrorMessage(message: string): string {
   }
   if (message.includes("ROLE_NOT_FOUND")) {
     return "התפקיד לא נמצא - ייתכן שנמחק על ידי משתמש אחר";
+  }
+  if (message.includes("USER_NOT_FOUND")) {
+    return "המשתמש לא נמצא - ייתכן שנמחק על ידי משתמש אחר";
+  }
+  if (message.includes("INVALID_PASSWORD")) {
+    return "יש להזין סיסמה חדשה";
   }
   if (
     message.includes("election_day_roles_name_key") ||
@@ -481,6 +504,30 @@ export class SupabaseElectionDayApi {
 
   async deletePermissionUser(id: string): Promise<void> {
     checkError(await supabase.rpc("election_day_delete_permission_user", { p_id: id }));
+  }
+
+  /** Resets an existing PermissionUser's (`targetId`) password_hash in
+   * place - but only after the RPC genuinely re-authenticates the acting
+   * manager server-side (bcrypt-verifies `actorPassword` against the
+   * actor's own `password_hash`, then checks the actor's role holds
+   * `electionDay.manageUsers`). See `mapRoleRpcErrorMessage` for how
+   * `UNAUTHORIZED`/`FORBIDDEN`/`USER_NOT_FOUND`/`INVALID_PASSWORD` become
+   * Hebrew toast text. Never returns/exposes the password or hash. */
+  async resetPermissionUserPassword(
+    actorId: string,
+    actorPassword: string,
+    targetId: string,
+    newPassword: string,
+  ): Promise<PermissionUser> {
+    const data = await callRoleRpc<PermissionUserRpcRow[]>(
+      supabase.rpc("election_day_reset_permission_user_password", {
+        p_actor_id: actorId,
+        p_actor_password: actorPassword,
+        p_target_user_id: targetId,
+        p_new_password: newPassword,
+      }),
+    );
+    return toPermissionUser(data[0]);
   }
 
   async verifyPermissionUserLogin(

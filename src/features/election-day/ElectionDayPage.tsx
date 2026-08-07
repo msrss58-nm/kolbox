@@ -337,6 +337,7 @@ export function ElectionDayPage() {
         roles={electionDay.roles}
         onAdd={electionDay.addPermissionUser}
         onDelete={electionDay.deletePermissionUser}
+        onReset={electionDay.resetPermissionUserPassword}
       />
 
       <RoleManagementModal

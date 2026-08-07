@@ -282,6 +282,24 @@ export interface Database {
         Args: { p_id: string };
         Returns: undefined;
       };
+      /** Resets an existing PermissionUser's (p_target_user_id) password_hash
+       * in place (id/name/role_id untouched) - but only after genuinely
+       * re-authenticating the ACTING manager server-side: p_actor_password
+       * is bcrypt-verified against the actor's (p_actor_id) own
+       * password_hash, and the actor's role must hold
+       * electionDay.manageUsers. Raises UNAUTHORIZED / FORBIDDEN /
+       * USER_NOT_FOUND / INVALID_PASSWORD, in that priority order. Never
+       * returns password_hash. Self-reset: pass p_target_user_id =
+       * p_actor_id. */
+      election_day_reset_permission_user_password: {
+        Args: {
+          p_actor_id: string;
+          p_actor_password: string;
+          p_target_user_id: string;
+          p_new_password: string;
+        };
+        Returns: { id: string; name: string; role_id: string }[];
+      };
       /** Dynamic Roles & Permissions, Phase 2. Unlike Phase 0's migration-only
        * seed insert, this RPC accepts arbitrary caller-supplied permission
        * arrays - validated DB-side by `election_day_is_valid_permission`

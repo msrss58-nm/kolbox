@@ -13,7 +13,10 @@
  * mismatch here means either the source's permission choice or this pin is
  * wrong - either way worth catching.
  */
-import { computePermissions, type PermissionsResult } from "../src/permissions/computePermissions";
+import {
+  computePermissions,
+  type PermissionsResult,
+} from "../src/permissions/computePermissions";
 import type { Permission } from "../src/permissions/types";
 import { BUILT_IN_ROLE_SEED } from "./fixtures/electionDayRoles";
 
@@ -52,6 +55,7 @@ const MUTATION_PERMISSIONS: Record<string, Permission> = {
   sendSnapshotReport: "electionDay.export",
   setElectionDayDeadline: "electionDay.manageSettings",
   deletePermissionUser: "electionDay.manageUsers",
+  resetPermissionUserPassword: "electionDay.manageUsers",
   addRideCoordinator: "electionDay.manageRideCoordinators",
   deleteRideCoordinator: "electionDay.manageRideCoordinators",
   incrementCallAttempts: "voter.viewPhone",
@@ -60,7 +64,10 @@ const MUTATION_PERMISSIONS: Record<string, Permission> = {
 
 // ---- manager: every mutation allowed, no exceptions ----------------------
 for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
-  assert(can(MANAGER, permission) === true, `manager: "${mutation}" (${permission}) allowed`);
+  assert(
+    can(MANAGER, permission) === true,
+    `manager: "${mutation}" (${permission}) allowed`,
+  );
 }
 
 // ---- operations: setVoted denied; reminder/ride/phone/notes allowed; -----
@@ -115,7 +122,11 @@ for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
 // contract applies uniformly regardless of which mutation is being guarded.
 for (const status of ["idle", "loading", "error"] as const) {
   for (const sessionRole of [MANAGER, OPERATIONS, VOTING]) {
-    const result: PermissionsResult = computePermissions(sessionRole, status, BUILT_IN_ROLE_SEED);
+    const result: PermissionsResult = computePermissions(
+      sessionRole,
+      status,
+      BUILT_IN_ROLE_SEED,
+    );
     for (const [mutation, permission] of Object.entries(MUTATION_PERMISSIONS)) {
       assert(
         result.can(permission) === false,
@@ -176,8 +187,31 @@ assert(
   "deletePermissionUser: no session denied - bootstrap exception applies ONLY to addPermissionUser, never delete",
 );
 
+// ---- resetPermissionUserPassword: plain can() check, NEVER gets a --------
+// bootstrap exception either (resetting a password is never needed to stand
+// up the very first account - only creating one is).
+assert(
+  can(MANAGER, MUTATION_PERMISSIONS.resetPermissionUserPassword) === true,
+  "resetPermissionUserPassword: manager allowed",
+);
+assert(
+  can(OPERATIONS, MUTATION_PERMISSIONS.resetPermissionUserPassword) === false,
+  "resetPermissionUserPassword: operations denied (no manageUsers)",
+);
+assert(
+  can(VOTING, MUTATION_PERMISSIONS.resetPermissionUserPassword) === false,
+  "resetPermissionUserPassword: voting denied (no manageUsers)",
+);
+assert(
+  can(NO_SESSION, MUTATION_PERMISSIONS.resetPermissionUserPassword) === false,
+  "resetPermissionUserPassword: no session denied - no bootstrap exception, unlike addPermissionUser",
+);
+
 // ---- reminder-due effect gate: voter.viewReminderStatus -------------------
-assert(can(MANAGER, "voter.viewReminderStatus") === true, "reminder-due effect: manager can run");
+assert(
+  can(MANAGER, "voter.viewReminderStatus") === true,
+  "reminder-due effect: manager can run",
+);
 assert(
   can(OPERATIONS, "voter.viewReminderStatus") === true,
   "reminder-due effect: operations can run",
