@@ -4,8 +4,13 @@ import { cn } from "../../lib/utils";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayImportButton } from "./ElectionDayImportButton";
 
+// `!` (Tailwind v4 important modifier) forces this green over `Button`'s
+// default `variant="primary"` background - `cn()` is a plain `clsx` (no
+// tailwind-merge dedup), so a later-in-string class isn't guaranteed to win
+// on specificity/stylesheet order alone, which is exactly why these two
+// report buttons rendered purple instead of green before this fix.
 const exportButtonClass =
-  "bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400";
+  "!bg-[#00a400] !text-white hover:!bg-[#008f00] active:!bg-[#007a00] disabled:!bg-slate-200 disabled:!text-slate-400";
 
 function NavRow({
   icon,
