@@ -245,6 +245,64 @@ export const ELECTION_DAY_TEXT = {
         undone: "הסימון בוטל",
       },
     },
+    refresh: {
+      label: "רענון",
+      lastUpdated: (time: string) => `עודכן לאחרונה: ${time}`,
+    },
+    /** Row 3 - "מה דורש טיפול עכשיו": a mutually-exclusive partition of the
+     * coordinator worklist's "remaining" bucket (see `followUpBreakdown.ts`). */
+    followUp: {
+      title: "מה דורש טיפול עכשיו",
+      callAttempts2Plus: "ניסיונות חיוג 2+",
+      reminderDue: "תזכורת הגיעה",
+      reminderWaiting: "ממתינים לתזכורת",
+      notYetHandled: "לא טופלו עדיין",
+    },
+    /** Row 4 - ride pipeline counts (see `rideStatusBreakdown.ts`). */
+    rideStatus: {
+      title: "הסעות",
+      needsRide: "צריכים הסעה",
+      arranged: "הסעה תואמת",
+      completed: "הסעה הושלמה",
+    },
+    performance: {
+      title: "ביצועי אחראים",
+      empty: "אין נתונים עדיין",
+      columns: {
+        coordinator: "אחראי",
+        votedPct: "אחוז הצבעה",
+        open: "פתוחים",
+        closed: "נסגרו",
+        voted: "הצביעו",
+        assigned: "הוקצו",
+      },
+      totalsRow: 'סה"כ',
+    },
+    /** "קצב הצבעה" - cumulative turnout-over-time chart (see `turnoutPace.ts`). */
+    pace: {
+      title: "קצב הצבעה",
+      chartTitle: "הצבעות מצטברות לאורך היום",
+      now: "עכשיו",
+      changeFromPrevHour: "שינוי מהשעה הקודמת",
+      currentPace: "קצב נוכחי",
+      currentPaceUnit: "לשעה",
+      lastHour: "בשעה האחרונה",
+      votedSeries: "הצביעו",
+    },
+    /** "מוקדי תשומת לב" - see `attentionAlerts.ts`. */
+    attention: {
+      title: "מוקדי תשומת לב",
+      empty: "אין כרגע מוקדי תשומת לב",
+      callAttempts: (count: number) => `${count} ניסיונות 2+ ללא מענה`,
+      callAttemptsHint: "דחוף להתקשר שוב",
+      ridesUnmatched: (count: number) => `${count} הסעות עדיין לא תואמו`,
+      ridesUnmatchedHint: "דורש תיאום מיידי",
+      coordinatorOverload: (count: number, coordinator: string) =>
+        `${count} נותרו לטיפול ל${coordinator}`,
+      coordinatorOverloadHint: "מומלץ לחלק מחדש",
+      remindersOverdue: (count: number) => `${count} תזכורות שהגיע זמנן טרם טופלו`,
+      remindersOverdueHint: "יש לבצע כעת",
+    },
   },
 
   list: {

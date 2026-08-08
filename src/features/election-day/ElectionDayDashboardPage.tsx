@@ -15,6 +15,12 @@ export function ElectionDayDashboardPage() {
       <ElectionDayDashboard
         stats={electionDay.stats}
         coordinatorBreakdown={electionDay.coordinatorBreakdown}
+        followUpBreakdown={electionDay.followUpBreakdown}
+        rideStatusBreakdown={electionDay.rideStatusBreakdown}
+        attentionAlerts={electionDay.attentionAlerts}
+        turnoutPace={electionDay.turnoutPace}
+        lastUpdatedAt={electionDay.lastUpdatedAt}
+        onRefresh={electionDay.refresh}
         rideCoordinationQueue={electionDay.rideCoordinationQueue}
         onToggleRideCompleted={(contact, completed) =>
           void electionDay.setRideCompleted(contact.id, completed)

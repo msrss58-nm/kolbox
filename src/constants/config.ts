@@ -59,4 +59,17 @@ export const APP_CONFIG = {
 
   /** Election day contact-modal notes textarea autosave debounce. */
   electionDayNotesAutosaveMs: 800,
+
+  /** Dashboard "מוקדי תשומת לב" - a contact counts as "no answer" once its
+   * call-attempts counter reaches this many dials. */
+  electionDayAttentionCallAttemptsThreshold: 2,
+
+  /** Dashboard "מוקדי תשומת לב" coordinator-overload alert - the most-loaded
+   * coordinator's open (remaining) count must be at least this high before
+   * it's worth flagging. */
+  electionDayAttentionCoordinatorOverloadFloor: 10,
+
+  /** Dashboard turnout-pace chart - bucket size for the cumulative votes
+   * curve and for the "last hour" / "previous hour" pace stats. */
+  electionDayPaceBucketMinutes: 60,
 } as const;

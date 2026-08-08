@@ -1,14 +1,24 @@
 import {
-  Bar,
-  BarChart,
+  Ban,
+  BellRing,
+  Car,
+  CarFront,
+  ChartPie,
+  CircleCheckBig,
+  Clock,
+  Handshake,
+  ListTodo,
+  PhoneMissed,
+  RefreshCw,
+  Users,
+} from "lucide-react";
+import {
   Cell,
   Legend,
   Pie,
-  PieChart,
+  PieChart as RechartsPieChart,
   ResponsiveContainer,
   Tooltip,
-  XAxis,
-  YAxis,
 } from "recharts";
 import { Card, CardTitle } from "../../components/ui/Card";
 import { Skeleton } from "../../components/ui/Skeleton";
@@ -16,11 +26,19 @@ import { CHART_TOOLTIP_STYLE_COMPACT } from "../../constants/chart";
 import { fmtVotedPct } from "../../lib/utils";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
 import type { ElectionDayVoter } from "../../types";
+import { AttentionAlertsCard } from "./AttentionAlertsCard";
+import type { AttentionAlertRow } from "./attentionAlerts";
 import type { ClosedReasonBreakdownRow } from "./closedReasonBreakdown";
+import { CoordinatorPerformanceTable } from "./CoordinatorPerformanceTable";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { ElectionDayStatTile } from "./ElectionDayStatTile";
+import type { FollowUpBreakdown } from "./followUpBreakdown";
 import type { NonVotingReasonReportRow } from "./nonVotingReasonReport";
 import { NonVotingReasonsReportCard } from "./NonVotingReasonsReportCard";
 import { RideCoordinationTable } from "./RideCoordinationTable";
+import type { RideStatusBreakdown } from "./rideStatusBreakdown";
+import { TurnoutPaceCard } from "./TurnoutPaceCard";
+import type { TurnoutPaceResult } from "./turnoutPace";
 import type { CoordinatorBreakdown, ElectionDayStats } from "./useElectionDay";
 
 /** Big, prominent voting-turnout bar - the headline number of the page. */
@@ -50,23 +68,31 @@ function VotingProgressBar({ stats }: { stats: ElectionDayStats }) {
   );
 }
 
-function StatCard({
-  label,
-  value,
-  suffix = "",
+function RefreshRow({
+  lastUpdatedAt,
+  onRefresh,
 }: {
-  label: string;
-  value: number | string;
-  suffix?: string;
+  lastUpdatedAt: number | null;
+  onRefresh: () => void;
 }) {
+  const time = lastUpdatedAt
+    ? new Date(lastUpdatedAt).toLocaleTimeString("he-IL", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
   return (
-    <Card className="p-3.5 text-center">
-      <h3 className="text-xs font-semibold text-slate-500">{label}</h3>
-      <p className="mt-1.5 text-2xl font-extrabold tabular-nums text-primary-600">
-        {value}
-        {suffix}
-      </p>
-    </Card>
+    <div className="flex items-center justify-end gap-2 text-xs font-semibold text-slate-400">
+      {time && <span>{ELECTION_DAY_TEXT.dashboard.refresh.lastUpdated(time)}</span>}
+      <button
+        type="button"
+        onClick={onRefresh}
+        aria-label={ELECTION_DAY_TEXT.dashboard.refresh.label}
+        className="grid size-8 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+      >
+        <RefreshCw className="size-4" />
+      </button>
+    </div>
   );
 }
 
@@ -83,7 +109,7 @@ function VotingPieChart({ stats }: { stats: ElectionDayStats }) {
       <div className="mt-2 h-56">
         {stats.total > 0 ? (
           <ResponsiveContainer>
-            <PieChart>
+            <RechartsPieChart>
               <Pie
                 data={data}
                 dataKey="value"
@@ -98,7 +124,7 @@ function VotingPieChart({ stats }: { stats: ElectionDayStats }) {
               </Pie>
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE_COMPACT} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-            </PieChart>
+            </RechartsPieChart>
           </ResponsiveContainer>
         ) : (
           <Skeleton className="h-full" />
@@ -108,73 +134,15 @@ function VotingPieChart({ stats }: { stats: ElectionDayStats }) {
   );
 }
 
-function CoordinatorBarCard({ rows }: { rows: CoordinatorBreakdown[] }) {
-  return (
-    <Card>
-      <CardTitle>👔 {ELECTION_DAY_TEXT.dashboard.byCoordinator}</CardTitle>
-      <div className="mt-2 h-52">
-        <ResponsiveContainer>
-          <BarChart data={rows} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-            <XAxis
-              dataKey="coordinator"
-              tick={{ fontSize: 11, fill: "#64748b", fontFamily: "Heebo" }}
-              tickLine={false}
-              axisLine={false}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: "#94a3b8" }}
-              tickLine={false}
-              axisLine={false}
-              allowDecimals={false}
-            />
-            <Tooltip contentStyle={CHART_TOOLTIP_STYLE_COMPACT} />
-            <Bar
-              dataKey="voted"
-              name={ELECTION_DAY_TEXT.dashboard.votingProgress.voted}
-              fill="#00a400"
-              radius={[4, 4, 0, 0]}
-            />
-            <Bar
-              dataKey="total"
-              name={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoters}
-              fill="#1877f2"
-              radius={[4, 4, 0, 0]}
-            />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <table className="mt-3 w-full text-sm">
-        <thead>
-          <tr className="text-xs text-slate-400">
-            <th className="pb-1.5 text-start font-semibold">
-              {ELECTION_DAY_TEXT.coordinatorFilter.label}
-            </th>
-            <th className="pb-1.5 text-start font-semibold">
-              {ELECTION_DAY_TEXT.dashboard.totalContacts}
-            </th>
-            <th className="pb-1.5 text-start font-semibold">
-              {ELECTION_DAY_TEXT.dashboard.votingProgress.voted}
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {rows.map((row) => (
-            <tr key={row.coordinator}>
-              <td className="py-1.5 font-semibold text-slate-700">{row.coordinator}</td>
-              <td className="py-1.5 tabular-nums text-slate-600">{row.total}</td>
-              <td className="py-1.5 tabular-nums text-slate-600">{row.voted}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
-  );
-}
-
 export function ElectionDayDashboard({
   stats,
   coordinatorBreakdown,
+  followUpBreakdown,
+  rideStatusBreakdown,
+  attentionAlerts,
+  turnoutPace,
+  lastUpdatedAt,
+  onRefresh,
   rideCoordinationQueue,
   onToggleRideCompleted,
   nonVotingReasonReport,
@@ -184,6 +152,12 @@ export function ElectionDayDashboard({
 }: {
   stats: ElectionDayStats;
   coordinatorBreakdown: CoordinatorBreakdown[];
+  followUpBreakdown: FollowUpBreakdown;
+  rideStatusBreakdown: RideStatusBreakdown;
+  attentionAlerts: AttentionAlertRow[];
+  turnoutPace: TurnoutPaceResult;
+  lastUpdatedAt: number | null;
+  onRefresh: () => void;
   rideCoordinationQueue: ElectionDayVoter[];
   onToggleRideCompleted: (contact: ElectionDayVoter, completed: boolean) => void;
   nonVotingReasonReport: NonVotingReasonReportRow[];
@@ -191,20 +165,20 @@ export function ElectionDayDashboard({
   closedReasonBreakdown: ClosedReasonBreakdownRow[];
   loaded: boolean;
 }) {
+  const followUpText = ELECTION_DAY_TEXT.dashboard.followUp;
+  const rideStatusText = ELECTION_DAY_TEXT.dashboard.rideStatus;
+
   if (!loaded) {
     return (
       <div className="mb-6 space-y-4">
         <Skeleton className="h-24 rounded-2xl" />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-2xl" />
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[...Array(2)].map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-2xl" />
-          ))}
-        </div>
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[...Array(4)].map((_, j) => (
+              <Skeleton key={j} className="h-20 rounded-2xl" />
+            ))}
+          </div>
+        ))}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <Skeleton className="h-64 rounded-2xl" />
           <Skeleton className="h-64 rounded-2xl" />
@@ -217,58 +191,131 @@ export function ElectionDayDashboard({
 
   return (
     <div className="mb-6 space-y-4">
+      <RefreshRow lastUpdatedAt={lastUpdatedAt} onRefresh={onRefresh} />
       <VotingProgressBar stats={stats} />
-      {/* Row 1: exactly the 4 headline metrics, balanced 2-up on the
-          narrowest phones growing to 4-across from `sm:` up. */}
+
+      {/* Row 1: the 4 headline metrics. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard
+        <ElectionDayStatTile
+          icon={Users}
+          tone="purple"
           label={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoters}
           value={stats.total}
         />
-        <StatCard
+        <ElectionDayStatTile
+          icon={CircleCheckBig}
+          tone="success"
           label={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoted}
           value={stats.voted}
         />
-        <StatCard
+        <ElectionDayStatTile
+          icon={ChartPie}
+          tone="info"
           label={ELECTION_DAY_TEXT.dashboard.votingProgress.votingPct}
           value={fmtVotedPct(stats.votedPct)}
         />
-        <StatCard
+        <ElectionDayStatTile
+          icon={Clock}
+          tone="warning"
           label={ELECTION_DAY_TEXT.dashboard.worklist.remaining}
           value={stats.remaining}
         />
       </div>
 
-      {/* Row 2: "סה"כ נסגרו" first (start of the row in RTL), then a
-          variable number of per-reason tiles - flex-wrap instead of a fixed
-          grid so any number of reasons (including zero) lays out cleanly
-          with no horizontal overflow. Zero-count reasons are never passed
-          in here at all (see `closedReasonBreakdown.ts`), so there's
-          nothing to filter at render time. */}
+      {/* Row 2: "סה"כ נסגרו" first, then a variable number of per-reason
+          tiles - flex-wrap so any number of reasons (including zero) lays
+          out cleanly. */}
       <div className="flex flex-wrap gap-3">
         <div className="min-w-28 flex-1 basis-32 sm:max-w-56">
-          <StatCard
+          <ElectionDayStatTile
+            icon={CircleCheckBig}
+            tone="success"
             label={ELECTION_DAY_TEXT.dashboard.worklist.totalClosed}
             value={stats.closed}
           />
         </div>
         {closedReasonBreakdown.map((row) => (
           <div key={row.reasonId} className="min-w-28 flex-1 basis-32 sm:max-w-56">
-            <StatCard label={row.reasonName} value={row.count} />
+            <ElectionDayStatTile
+              icon={Ban}
+              tone="slate"
+              label={row.reasonName}
+              value={row.count}
+            />
           </div>
         ))}
       </div>
 
-      {/* Full-width now that the voter list lives on its own screen - a
-          responsive card grid instead of the old fixed-ratio 2-column
-          split, matching DashboardPage.tsx's chart-grid pattern. */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <VotingPieChart stats={stats} />
+      {/* Row 3: "מה דורש טיפול עכשיו" - see `followUpBreakdown.ts`. */}
+      <PermissionGuard permission="voter.viewVotedStatus">
+        <div>
+          <p className="mb-2 text-xs font-bold text-slate-500">{followUpText.title}</p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <ElectionDayStatTile
+              icon={PhoneMissed}
+              tone="danger"
+              label={followUpText.callAttempts2Plus}
+              value={followUpBreakdown.callAttempts2Plus}
+            />
+            <ElectionDayStatTile
+              icon={BellRing}
+              tone="success"
+              label={followUpText.reminderDue}
+              value={followUpBreakdown.reminderDue}
+            />
+            <ElectionDayStatTile
+              icon={Clock}
+              tone="purple"
+              label={followUpText.reminderWaiting}
+              value={followUpBreakdown.reminderWaiting}
+            />
+            <ElectionDayStatTile
+              icon={ListTodo}
+              tone="info"
+              label={followUpText.notYetHandled}
+              value={followUpBreakdown.notYetHandled}
+            />
+          </div>
+        </div>
+      </PermissionGuard>
+
+      {/* Row 4: ride pipeline counts - see `rideStatusBreakdown.ts`. */}
+      <PermissionGuard permission="voter.viewRideStatus">
+        <div>
+          <p className="mb-2 text-xs font-bold text-slate-500">{rideStatusText.title}</p>
+          <div className="grid grid-cols-3 gap-3">
+            <ElectionDayStatTile
+              icon={Car}
+              tone="warning"
+              label={rideStatusText.needsRide}
+              value={rideStatusBreakdown.needsRide}
+            />
+            <ElectionDayStatTile
+              icon={Handshake}
+              tone="purple"
+              label={rideStatusText.arranged}
+              value={rideStatusBreakdown.arranged}
+            />
+            <ElectionDayStatTile
+              icon={CarFront}
+              tone="success"
+              label={rideStatusText.completed}
+              value={rideStatusBreakdown.completed}
+            />
+          </div>
+        </div>
+      </PermissionGuard>
+
+      <div className="grid gap-4 md:grid-cols-2">
         <PermissionGuard permission="voter.viewCoordinator">
-          {coordinatorBreakdown.length > 0 && (
-            <CoordinatorBarCard rows={coordinatorBreakdown} />
-          )}
+          <CoordinatorPerformanceTable rows={coordinatorBreakdown} />
         </PermissionGuard>
+        <TurnoutPaceCard pace={turnoutPace} loaded={loaded} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <AttentionAlertsCard rows={attentionAlerts} />
+        <VotingPieChart stats={stats} />
         <PermissionGuard permission="voter.viewRideStatus">
           <RideCoordinationTable
             contacts={rideCoordinationQueue}

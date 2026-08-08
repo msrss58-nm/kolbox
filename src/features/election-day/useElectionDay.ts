@@ -30,6 +30,10 @@ import { resolveFollowUpStatus, type FollowUpStatus } from "./followUpStatus";
 import { buildClosedReasonBreakdown } from "./closedReasonBreakdown";
 import { buildNonVotingReasonReport } from "./nonVotingReasonReport";
 import { formatReminderDisplay } from "./reminderDisplay";
+import { buildFollowUpBreakdown } from "./followUpBreakdown";
+import { buildRideStatusBreakdown } from "./rideStatusBreakdown";
+import { buildAttentionAlerts } from "./attentionAlerts";
+import { buildTurnoutPaceSeries } from "./turnoutPace";
 
 export interface ElectionDayStats {
   total: number;
@@ -54,6 +58,13 @@ export interface CoordinatorBreakdown {
   total: number;
   arranged: number;
   voted: number;
+  /** Coordinator worklist's "case closed" count, scoped to this coordinator
+   * (same definition as `ElectionDayStats.closed` - see `followUpStatus.ts`). */
+  closed: number;
+  /** Coordinator worklist's "still needs follow-up" count, scoped to this
+   * coordinator (same definition as `ElectionDayStats.remaining`). */
+  remaining: number;
+  votedPct: number;
 }
 
 export type ElectionDaySortKey = "city" | "status";
@@ -399,14 +410,63 @@ export function useElectionDay(isBootstrap: boolean) {
         total: 0,
         arranged: 0,
         voted: 0,
+        closed: 0,
+        remaining: 0,
+        votedPct: 0,
       };
       entry.total++;
       if (c.rideArranged) entry.arranged++;
-      if (c.voted) entry.voted++;
+      const status = resolveFollowUpStatus(c, reasonsById);
+      if (status === "voted") entry.voted++;
+      else if (status === "closed") entry.closed++;
+      else entry.remaining++;
       byCoordinator.set(c.coordinator, entry);
     }
-    return [...byCoordinator.values()].sort((a, b) => b.total - a.total);
-  }, [scopedContacts]);
+    const rows = [...byCoordinator.values()];
+    for (const row of rows) row.votedPct = row.total ? (row.voted / row.total) * 100 : 0;
+    return rows.sort((a, b) => b.total - a.total);
+  }, [scopedContacts, reasonsById]);
+
+  // Dashboard rows 3/4 and the "מוקדי תשומת לב" alerts panel - all pure
+  // derivations reading through `resolveFollowUpStatus`/`scopedContacts`, so
+  // none of them can drift from `stats`/`closedReasonBreakdown` above.
+  const followUpBreakdown = useMemo(
+    () => buildFollowUpBreakdown(scopedContacts ?? [], reasonsById),
+    [scopedContacts, reasonsById],
+  );
+
+  const rideStatusBreakdown = useMemo(
+    () => buildRideStatusBreakdown(scopedContacts ?? []),
+    [scopedContacts],
+  );
+
+  const attentionAlerts = useMemo(
+    () =>
+      buildAttentionAlerts(followUpBreakdown, rideStatusBreakdown, coordinatorBreakdown),
+    [followUpBreakdown, rideStatusBreakdown, coordinatorBreakdown],
+  );
+
+  const turnoutPace = useMemo(
+    () => buildTurnoutPaceSeries(scopedContacts ?? []),
+    [scopedContacts],
+  );
+
+  // "עודכן לאחרונה" + manual refresh for the dashboard header - set from an
+  // effect (never `Date.now()` during render, per the project's React
+  // Compiler purity rule) whenever a fetch that feeds the dashboard resolves.
+  // Deferred to a microtask (like `useCountdown`'s `now`) rather than called
+  // synchronously in the effect body, per the set-state-in-effect rule.
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (contacts !== null) {
+      Promise.resolve().then(() => setLastUpdatedAt(Date.now()));
+    }
+  }, [contacts]);
+
+  const refresh = useCallback(() => {
+    reloadContacts();
+    reloadEvents();
+  }, [reloadContacts, reloadEvents]);
 
   // Everyone who either needs a ride or has one coordinated, and hasn't
   // voted yet - shown in the dashboard's ride-coordination table. Sorted by
@@ -1088,6 +1148,12 @@ export function useElectionDay(isBootstrap: boolean) {
     setSearch,
     stats,
     coordinatorBreakdown,
+    followUpBreakdown,
+    rideStatusBreakdown,
+    attentionAlerts,
+    turnoutPace,
+    lastUpdatedAt,
+    refresh,
     rideCoordinationQueue,
     events: events ?? [],
     coordinators,
