@@ -16,6 +16,7 @@ import { CHART_TOOLTIP_STYLE_COMPACT } from "../../constants/chart";
 import { fmtVotedPct } from "../../lib/utils";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
 import type { ElectionDayVoter } from "../../types";
+import type { ClosedReasonBreakdownRow } from "./closedReasonBreakdown";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { NonVotingReasonReportRow } from "./nonVotingReasonReport";
 import { NonVotingReasonsReportCard } from "./NonVotingReasonsReportCard";
@@ -178,6 +179,7 @@ export function ElectionDayDashboard({
   onToggleRideCompleted,
   nonVotingReasonReport,
   onOpenReasonReport,
+  closedReasonBreakdown,
   loaded,
 }: {
   stats: ElectionDayStats;
@@ -186,14 +188,20 @@ export function ElectionDayDashboard({
   onToggleRideCompleted: (contact: ElectionDayVoter, completed: boolean) => void;
   nonVotingReasonReport: NonVotingReasonReportRow[];
   onOpenReasonReport: (reasonId: string) => void;
+  closedReasonBreakdown: ClosedReasonBreakdownRow[];
   loaded: boolean;
 }) {
   if (!loaded) {
     return (
       <div className="mb-6 space-y-4">
         <Skeleton className="h-24 rounded-2xl" />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
-          {[...Array(5)].map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-2xl" />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[...Array(2)].map((_, i) => (
             <Skeleton key={i} className="h-20 rounded-2xl" />
           ))}
         </div>
@@ -210,10 +218,9 @@ export function ElectionDayDashboard({
   return (
     <div className="mb-6 space-y-4">
       <VotingProgressBar stats={stats} />
-      {/* 2 cols at the narrowest phones, growing to 5 across on
-          desktop - keeps every card readable rather than squeezing 5
-          into a row at 375px. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+      {/* Row 1: exactly the 4 headline metrics, balanced 2-up on the
+          narrowest phones growing to 4-across from `sm:` up. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
           label={ELECTION_DAY_TEXT.dashboard.votingProgress.totalVoters}
           value={stats.total}
@@ -227,13 +234,29 @@ export function ElectionDayDashboard({
           value={fmtVotedPct(stats.votedPct)}
         />
         <StatCard
-          label={ELECTION_DAY_TEXT.dashboard.worklist.closed}
-          value={stats.closed}
-        />
-        <StatCard
           label={ELECTION_DAY_TEXT.dashboard.worklist.remaining}
           value={stats.remaining}
         />
+      </div>
+
+      {/* Row 2: "סה"כ נסגרו" first (start of the row in RTL), then a
+          variable number of per-reason tiles - flex-wrap instead of a fixed
+          grid so any number of reasons (including zero) lays out cleanly
+          with no horizontal overflow. Zero-count reasons are never passed
+          in here at all (see `closedReasonBreakdown.ts`), so there's
+          nothing to filter at render time. */}
+      <div className="flex flex-wrap gap-3">
+        <div className="min-w-28 flex-1 basis-32 sm:max-w-56">
+          <StatCard
+            label={ELECTION_DAY_TEXT.dashboard.worklist.totalClosed}
+            value={stats.closed}
+          />
+        </div>
+        {closedReasonBreakdown.map((row) => (
+          <div key={row.reasonId} className="min-w-28 flex-1 basis-32 sm:max-w-56">
+            <StatCard label={row.reasonName} value={row.count} />
+          </div>
+        ))}
       </div>
 
       {/* Full-width now that the voter list lives on its own screen - a

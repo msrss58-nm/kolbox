@@ -21,6 +21,7 @@ export function ElectionDayDashboardPage() {
         }
         nonVotingReasonReport={electionDay.nonVotingReasonReport}
         onOpenReasonReport={setReportReasonId}
+        closedReasonBreakdown={electionDay.closedReasonBreakdown}
         loaded={electionDay.loaded}
       />
 

@@ -215,6 +215,10 @@ export const ELECTION_DAY_TEXT = {
       assigned: "הוקצו",
       closed: "נסגרו",
       remaining: "נותרו לטיפול",
+      /** Row 2's leading tile - the coordinator-worklist "closed" total,
+       * unconditionally shown even when no reason breakdown tile qualifies
+       * (see `closedReasonBreakdown.ts`). */
+      totalClosed: 'סה"כ נסגרו',
     },
     recentActivity: {
       title: "פעילות אחרונה",

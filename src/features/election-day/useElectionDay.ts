@@ -27,6 +27,7 @@ import {
 } from "./electionDayImport";
 import { addNoteTag, hasNoteTag, removeNoteTag } from "./notesTags";
 import { resolveFollowUpStatus, type FollowUpStatus } from "./followUpStatus";
+import { buildClosedReasonBreakdown } from "./closedReasonBreakdown";
 import { buildNonVotingReasonReport } from "./nonVotingReasonReport";
 import { formatReminderDisplay } from "./reminderDisplay";
 
@@ -375,6 +376,19 @@ export function useElectionDay(isBootstrap: boolean) {
   const nonVotingReasonReport = useMemo(
     () => buildNonVotingReasonReport(scopedContacts ?? [], nonVotingReasons ?? []),
     [scopedContacts, nonVotingReasons],
+  );
+
+  // Dashboard KPI row 2's "closed by reason" tiles - reads through the same
+  // `reasonsById`/`resolveFollowUpStatus` the `stats.closed` total above
+  // uses, so the two can never disagree.
+  const closedReasonBreakdown = useMemo(
+    () =>
+      buildClosedReasonBreakdown(
+        scopedContacts ?? [],
+        nonVotingReasons ?? [],
+        reasonsById,
+      ),
+    [scopedContacts, nonVotingReasons, reasonsById],
   );
 
   const coordinatorBreakdown = useMemo((): CoordinatorBreakdown[] => {
@@ -1090,6 +1104,7 @@ export function useElectionDay(isBootstrap: boolean) {
     nonVotingReasons: nonVotingReasons ?? [],
     reloadNonVotingReasons,
     nonVotingReasonReport,
+    closedReasonBreakdown,
     showUnvotedOnly,
     setShowUnvotedOnly,
     followUpFilter,
