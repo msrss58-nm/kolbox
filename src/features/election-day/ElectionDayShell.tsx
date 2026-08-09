@@ -26,6 +26,13 @@ import { useElectionDay, type ElectionDayHook } from "./useElectionDay";
  * screen row click would). */
 export interface ElectionDayShellContext extends ElectionDayHook {
   openContact: (id: string) => void;
+  /** From `ElectionDayGuard`'s Outlet context - re-exposed here so screens
+   * nested under this Shell's own `<Outlet context={shellContext}>` (which
+   * shadows the Guard's context) can still read it, e.g.
+   * `ElectionDayPermissionsPage` widening the "add first account" exception
+   * to the Add-user form's visibility, matching `addPermissionUser`'s own
+   * bootstrap exception in `useElectionDay.ts`. */
+  isBootstrap: boolean;
 }
 
 export function useElectionDayShell() {
@@ -73,6 +80,7 @@ export function ElectionDayShell() {
   const shellContext: ElectionDayShellContext = {
     ...electionDay,
     openContact: setOpenContactId,
+    isBootstrap,
   };
 
   return (

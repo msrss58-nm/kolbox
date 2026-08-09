@@ -25,6 +25,7 @@ export function PermissionUsersPanel({
   onDelete,
   deleting,
   onReset,
+  canManageUsers,
 }: {
   users: PermissionUser[];
   /** Dynamic Roles & Permissions: the live catalog - the 3 built-in roles
@@ -37,6 +38,14 @@ export function PermissionUsersPanel({
   onDelete: (id: string) => Promise<unknown>;
   deleting: boolean;
   onReset: (id: string, newPassword: string, actorPassword: string) => Promise<unknown>;
+  /** `electionDay.manageUsers` (widened by the same bootstrap exception
+   * `addPermissionUser` itself applies) - Add/Reset/Delete are all gated by
+   * this one permission in `useElectionDay.ts`, so one flag controls all
+   * three here. A denied session doesn't just get disabled controls, it
+   * never sees the Add form or the actions column at all - `guardedAction`
+   * still blocks the mutation underneath regardless, this is purely an
+   * additional UI-visibility layer on top of it. */
+  canManageUsers: boolean;
 }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -93,68 +102,78 @@ export function PermissionUsersPanel({
   return (
     <>
       <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-2.5">
-          <Field label={text.nameLabel}>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={text.namePlaceholder}
-            />
-          </Field>
+        {canManageUsers && (
+          <>
+            <div className="grid grid-cols-2 gap-2.5">
+              <Field label={text.nameLabel}>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={text.namePlaceholder}
+                />
+              </Field>
 
-          <Field label={text.passwordLabel}>
-            <div className="flex gap-2">
-              <Input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={text.passwordPlaceholder}
-                className="flex-1"
-                dir="ltr"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={
-                  showPassword ? text.hidePasswordAriaLabel : text.showPasswordAriaLabel
-                }
-                className="touch-target grid shrink-0 place-items-center rounded-xl text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50"
-              >
-                {showPassword ? (
-                  <EyeOff className="size-4" />
-                ) : (
-                  <Eye className="size-4" />
-                )}
-              </button>
+              <Field label={text.passwordLabel}>
+                <div className="flex gap-2">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={text.passwordPlaceholder}
+                    className="flex-1"
+                    dir="ltr"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={
+                      showPassword
+                        ? text.hidePasswordAriaLabel
+                        : text.showPasswordAriaLabel
+                    }
+                    className="touch-target grid shrink-0 place-items-center rounded-xl text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="size-4" />
+                    ) : (
+                      <Eye className="size-4" />
+                    )}
+                  </button>
+                </div>
+              </Field>
             </div>
-          </Field>
-        </div>
 
-        <Field label={text.roleLabel}>
-          <Select
-            value={effectiveRoleId ?? ""}
-            onChange={(e) => setSelectedRoleId(e.target.value)}
-          >
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
+            <Field label={text.roleLabel}>
+              <Select
+                value={effectiveRoleId ?? ""}
+                onChange={(e) => setSelectedRoleId(e.target.value)}
+              >
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
 
-        <Button className="w-full" loading={busy} onClick={() => void handleAdd()}>
-          ➕ {text.addButton}
-        </Button>
+            <Button className="w-full" loading={busy} onClick={() => void handleAdd()}>
+              ➕ {text.addButton}
+            </Button>
+          </>
+        )}
 
         {users.length === 0 ? (
           <EmptyState icon={Users} title={text.empty} />
         ) : (
           <div className="overflow-hidden rounded-xl ring-1 ring-slate-100">
-            <div className="grid grid-cols-[1fr_4.5rem_6rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+            <div
+              className={`grid gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500 ${
+                canManageUsers ? "grid-cols-[1fr_4.5rem_6rem]" : "grid-cols-[1fr_4.5rem]"
+              }`}
+            >
               <span>{text.columns.name}</span>
               <span>{text.columns.role}</span>
-              <span className="text-end">{text.columns.actions}</span>
+              {canManageUsers && <span className="text-end">{text.columns.actions}</span>}
             </div>
             <ul className="divide-y divide-slate-100">
               {sortedUsers.map((u) => {
@@ -163,7 +182,11 @@ export function PermissionUsersPanel({
                 return (
                   <li
                     key={u.id}
-                    className="grid grid-cols-[1fr_4.5rem_6rem] items-center gap-2 px-3 py-1"
+                    className={`grid items-center gap-2 px-3 py-1 ${
+                      canManageUsers
+                        ? "grid-cols-[1fr_4.5rem_6rem]"
+                        : "grid-cols-[1fr_4.5rem]"
+                    }`}
                   >
                     <span className="min-w-0 truncate text-sm font-bold text-slate-800">
                       {u.name}
@@ -176,32 +199,38 @@ export function PermissionUsersPanel({
                     </span>
                     {/* Fixed shrink-0 actions column so the icons can never
                         be squeezed/clipped by the name or role cells - each
-                        of the 2 buttons keeps its full ≥44px touch target. */}
-                    <div className="flex shrink-0 items-center justify-end gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setResetTarget(u)}
-                        aria-label={text.resetPassword.ariaLabel}
-                        title={text.resetPassword.ariaLabel}
-                        className="touch-target grid shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                      >
-                        <KeyRound className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(u)}
-                        disabled={isSelf}
-                        aria-label={
-                          isSelf ? text.selfDelete.disabledLabel : text.deleteAriaLabel
-                        }
-                        title={
-                          isSelf ? text.selfDelete.disabledLabel : text.deleteAriaLabel
-                        }
-                        className="touch-target grid shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent disabled:pointer-events-none disabled:opacity-30 disabled:hover:bg-transparent"
-                      >
-                        🗑️
-                      </button>
-                    </div>
+                        of the 2 buttons keeps its full ≥44px touch target.
+                        The whole column - and the grid template's 3rd track
+                        above - only exists when the session actually holds
+                        `electionDay.manageUsers`; otherwise there is nothing
+                        to act on, so no empty column or dead space renders. */}
+                    {canManageUsers && (
+                      <div className="flex shrink-0 items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setResetTarget(u)}
+                          aria-label={text.resetPassword.ariaLabel}
+                          title={text.resetPassword.ariaLabel}
+                          className="touch-target grid shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                        >
+                          <KeyRound className="size-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(u)}
+                          disabled={isSelf}
+                          aria-label={
+                            isSelf ? text.selfDelete.disabledLabel : text.deleteAriaLabel
+                          }
+                          title={
+                            isSelf ? text.selfDelete.disabledLabel : text.deleteAriaLabel
+                          }
+                          className="touch-target grid shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent disabled:pointer-events-none disabled:opacity-30 disabled:hover:bg-transparent"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    )}
                   </li>
                 );
               })}
