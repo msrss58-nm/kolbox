@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Eye, EyeOff, KeyRound, Users } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Input, Select } from "../../components/ui/Field";
 import { toast } from "../../components/ui/Toast";
@@ -8,6 +9,7 @@ import type { RoleRecord } from "../../permissions/types";
 import type { NewPermissionUser } from "../../services/api";
 import type { PermissionUser } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { useElectionDaySession } from "./electionDaySession";
 import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import { roleDisplayName } from "./roleDisplayName";
 
@@ -21,6 +23,7 @@ export function PermissionUsersPanel({
   roles,
   onAdd,
   onDelete,
+  deleting,
   onReset,
 }: {
   users: PermissionUser[];
@@ -28,7 +31,11 @@ export function PermissionUsersPanel({
    * and any custom role alike, offered together as one picker. */
   roles: readonly RoleRecord[];
   onAdd: (input: NewPermissionUser) => Promise<unknown>;
-  onDelete: (id: string) => Promise<void>;
+  /** Resolves to `undefined` on a blocked/failed delete (permission denial,
+   * self-delete, or a thrown error) - only `!== undefined` means it actually
+   * succeeded, same "undefined on failure" contract as `onAdd`. */
+  onDelete: (id: string) => Promise<unknown>;
+  deleting: boolean;
   onReset: (id: string, newPassword: string, actorPassword: string) => Promise<unknown>;
 }) {
   const [name, setName] = useState("");
@@ -37,6 +44,11 @@ export function PermissionUsersPanel({
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resetTarget, setResetTarget] = useState<PermissionUser | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PermissionUser | null>(null);
+  // The signed-in Election Day session's own id - never lets that account's
+  // row offer self-delete, see `text.selfDelete` and `useElectionDay.ts`'s
+  // matching handler-level guard.
+  const currentUserId = useElectionDaySession((s) => s.user?.id ?? null);
 
   const effectiveRoleId = selectedRoleId ?? roles[0]?.id ?? null;
 
@@ -139,43 +151,60 @@ export function PermissionUsersPanel({
           <EmptyState icon={Users} title={text.empty} />
         ) : (
           <div className="overflow-hidden rounded-xl ring-1 ring-slate-100">
-            <div className="grid grid-cols-[1fr_7rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
+            <div className="grid grid-cols-[1fr_4.5rem_6rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
               <span>{text.columns.name}</span>
               <span>{text.columns.role}</span>
+              <span className="text-end">{text.columns.actions}</span>
             </div>
             <ul className="divide-y divide-slate-100">
-              {sortedUsers.map((u) => (
-                <li
-                  key={u.id}
-                  className="grid grid-cols-[1fr_7rem] items-center gap-2 px-3 py-1"
-                >
-                  <span className="truncate text-sm font-bold text-slate-800">
-                    {u.name}
-                  </span>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm text-slate-600">
-                      {roleDisplayName(u.roleId, roles)}
+              {sortedUsers.map((u) => {
+                const isSelf = u.id === currentUserId;
+                const roleName = roleDisplayName(u.roleId, roles);
+                return (
+                  <li
+                    key={u.id}
+                    className="grid grid-cols-[1fr_4.5rem_6rem] items-center gap-2 px-3 py-1"
+                  >
+                    <span className="min-w-0 truncate text-sm font-bold text-slate-800">
+                      {u.name}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setResetTarget(u)}
-                      aria-label={text.resetPassword.ariaLabel}
-                      title={text.resetPassword.ariaLabel}
-                      className="touch-target grid shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    <span
+                      className="min-w-0 truncate text-sm text-slate-600"
+                      title={roleName}
                     >
-                      <KeyRound className="size-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void onDelete(u.id)}
-                      aria-label={text.deleteAriaLabel}
-                      className="touch-target grid shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </li>
-              ))}
+                      {roleName}
+                    </span>
+                    {/* Fixed shrink-0 actions column so the icons can never
+                        be squeezed/clipped by the name or role cells - each
+                        of the 2 buttons keeps its full ≥44px touch target. */}
+                    <div className="flex shrink-0 items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setResetTarget(u)}
+                        aria-label={text.resetPassword.ariaLabel}
+                        title={text.resetPassword.ariaLabel}
+                        className="touch-target grid shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      >
+                        <KeyRound className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(u)}
+                        disabled={isSelf}
+                        aria-label={
+                          isSelf ? text.selfDelete.disabledLabel : text.deleteAriaLabel
+                        }
+                        title={
+                          isSelf ? text.selfDelete.disabledLabel : text.deleteAriaLabel
+                        }
+                        className="touch-target grid shrink-0 place-items-center rounded-lg text-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent disabled:pointer-events-none disabled:opacity-30 disabled:hover:bg-transparent"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
@@ -186,6 +215,21 @@ export function PermissionUsersPanel({
         onClose={() => setResetTarget(null)}
         user={resetTarget}
         onReset={onReset}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={text.confirmDelete.title}
+        message={deleteTarget ? text.confirmDelete.message(deleteTarget.name) : ""}
+        confirmLabel={text.confirmDelete.confirmButton}
+        danger
+        busy={deleting}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          const result = await onDelete(deleteTarget.id);
+          if (result !== undefined) setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
       />
     </>
   );

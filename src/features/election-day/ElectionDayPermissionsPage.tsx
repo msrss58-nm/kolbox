@@ -26,6 +26,7 @@ export function ElectionDayPermissionsPage() {
               roles={electionDay.roles}
               onAdd={electionDay.addPermissionUser}
               onDelete={electionDay.deletePermissionUser}
+              deleting={electionDay.deletingPermissionUser}
               onReset={electionDay.resetPermissionUserPassword}
             />
           ),

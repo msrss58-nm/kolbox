@@ -486,6 +486,7 @@ export const ELECTION_DAY_TEXT = {
     columns: {
       name: "שם",
       role: "הרשאה",
+      actions: "פעולות",
     },
     deleteAriaLabel: "מחיקת משתמש",
     empty: "לא נוספו משתמשים עדיין",
@@ -493,6 +494,21 @@ export const ELECTION_DAY_TEXT = {
       added: "המשתמש נוסף",
       deleted: "המשתמש הוסר",
       invalid: "יש להזין שם וסיסמה",
+    },
+    confirmDelete: {
+      title: "מחיקת משתמש",
+      message: (userName: string) =>
+        `האם אתה בטוח שברצונך למחוק את המשתמש "${userName}"? פעולה זו תמחק את המשתמש ממערכת יום הבחירות.`,
+      confirmButton: "מחק משתמש",
+    },
+    /** Self-delete protection: the currently signed-in PermissionUser can
+     * never delete their own account, neither via the row button (disabled,
+     * see `PermissionUsersPanel`) nor via the client handler itself (see
+     * `useElectionDay.ts`'s `deletePermissionUserRaw`) - defense in depth,
+     * since a hidden/disabled button alone wouldn't stop a direct call. */
+    selfDelete: {
+      disabledLabel: "לא ניתן למחוק את המשתמש המחובר",
+      blockedError: "לא ניתן למחוק את המשתמש המחובר",
     },
     resetPassword: {
       ariaLabel: "איפוס סיסמה",

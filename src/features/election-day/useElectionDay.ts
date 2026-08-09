@@ -967,17 +967,35 @@ export function useElectionDay(isBootstrap: boolean) {
     [can, role, isBootstrap, rosterStillEmpty, addPermissionUserRaw],
   );
 
-  const { run: runDeletePermissionUser } = useAsyncAction(
-    (id: string) => api.deletePermissionUser(id),
+  // Wrapped to resolve to an explicit `true` sentinel on success (the
+  // underlying `api.deletePermissionUser` resolves void, otherwise
+  // indistinguishable from a blocked/failed call) - same pattern as
+  // `useRoleManagement.ts`'s `deleteRole`.
+  const { run: runDeletePermissionUser, busy: deletingPermissionUser } = useAsyncAction(
+    async (id: string) => {
+      await api.deletePermissionUser(id);
+      return true;
+    },
     { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.deleted },
   );
 
   const deletePermissionUserRaw = useCallback(
     async (id: string) => {
-      await runDeletePermissionUser(id);
+      // Self-delete protection, second layer: even if this handler is ever
+      // invoked outside the normal (already-disabled-for-self) row button,
+      // never call the delete RPC against the signed-in session's own id.
+      // Client-side only - the RPC itself takes no caller identity, see
+      // task-plan.md's "Known Security Limitations".
+      if (sessionUser && id === sessionUser.id) {
+        toast.error(ELECTION_DAY_TEXT.permissionsManager.selfDelete.blockedError);
+        return undefined;
+      }
+      const result = await runDeletePermissionUser(id);
+      if (result === undefined) return undefined;
       reloadPermissionUsers();
+      return true;
     },
-    [runDeletePermissionUser, reloadPermissionUsers],
+    [runDeletePermissionUser, reloadPermissionUsers, sessionUser],
   );
   const deletePermissionUser = guardedAction(
     "electionDay.manageUsers",
@@ -1215,6 +1233,7 @@ export function useElectionDay(isBootstrap: boolean) {
     permissionUsers: permissionUsers ?? [],
     addPermissionUser,
     deletePermissionUser,
+    deletingPermissionUser,
     resetPermissionUserPassword,
     roles,
   };
