@@ -133,7 +133,7 @@ export function AppShell({
       </div>
 
       {/* Mobile bottom nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex w-full border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {(mobileNavItems ?? navItems).map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
@@ -141,13 +141,13 @@ export function AppShell({
             end={end}
             className={({ isActive }) =>
               cn(
-                "flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-colors",
+                "flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 text-[11px] font-semibold transition-colors",
                 isActive ? "text-primary-600" : "text-slate-400",
               )
             }
           >
-            <Icon className="size-5" />
-            {label}
+            <Icon className="size-5 shrink-0" />
+            <span className="w-full truncate text-center">{label}</span>
           </NavLink>
         ))}
       </nav>
