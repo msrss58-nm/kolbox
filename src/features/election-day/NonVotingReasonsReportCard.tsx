@@ -20,7 +20,7 @@ export function NonVotingReasonsReportCard({
   onOpenReasonReport: (reasonId: string) => void;
 }) {
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardTitle>🗳️ {text.cardTitle}</CardTitle>
       {rows.length === 0 ? (
         <div className="mt-2">

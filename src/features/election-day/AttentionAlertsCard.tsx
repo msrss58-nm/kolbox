@@ -46,7 +46,7 @@ export function AttentionAlertsCard({ rows }: { rows: AttentionAlertRow[] }) {
   if (visible.length === 0) return null;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardTitle className="flex items-center gap-1.5">
         <TriangleAlert className="size-4 text-amber-500" />
         {text.title}

@@ -49,7 +49,7 @@ export function TurnoutPaceCard({
       : `${stats.changePct >= 0 ? "+" : ""}${Math.round(stats.changePct)}%`;
 
   return (
-    <Card className="md:col-span-2">
+    <Card className="min-w-0 md:col-span-2">
       <CardTitle className="flex items-center gap-1.5">
         <TrendingUp className="size-4 text-primary-600" />
         {text.title}

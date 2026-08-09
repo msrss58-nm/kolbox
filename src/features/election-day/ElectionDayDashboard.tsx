@@ -104,7 +104,7 @@ function VotingPieChart({ stats }: { stats: ElectionDayStats }) {
   const colors = ["#00a400", "#e4e6eb"];
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardTitle>📊 {ELECTION_DAY_TEXT.dashboard.votingProgress.pieTitle}</CardTitle>
       <div className="mt-2 h-56">
         {stats.total > 0 ? (

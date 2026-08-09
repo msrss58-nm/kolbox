@@ -13,7 +13,7 @@ function pad(n: number): string {
 
 function TimeBox({ value, label }: { value: number; label: string }) {
   return (
-    <div className="flex min-w-14 flex-col items-center rounded-xl bg-white/10 px-3 py-2 md:min-w-20 md:px-4 md:py-3">
+    <div className="flex min-w-0 flex-col items-center rounded-xl bg-white/10 px-2 py-1.5 md:min-w-20 md:px-4 md:py-3">
       <span className="text-2xl font-extrabold tabular-nums text-white md:text-4xl">
         {pad(value)}
       </span>
@@ -63,7 +63,7 @@ export function CountdownHeader({
       <div
         dir="ltr"
         className={cn(
-          "mt-3 flex items-center justify-center gap-2",
+          "mt-3 flex items-center justify-center gap-1.5 md:gap-2",
           !deadline && "pointer-events-none opacity-40",
         )}
       >

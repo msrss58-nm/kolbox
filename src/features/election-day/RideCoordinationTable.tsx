@@ -19,7 +19,7 @@ export function RideCoordinationTable({
   onToggleCompleted: (contact: ElectionDayVoter, completed: boolean) => void;
 }) {
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardTitle>🚕 {ELECTION_DAY_TEXT.dashboard.rideCoordination.title}</CardTitle>
       {contacts.length === 0 ? (
         <p className="mt-2 text-sm text-slate-400">

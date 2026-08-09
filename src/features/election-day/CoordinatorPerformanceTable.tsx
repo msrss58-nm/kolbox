@@ -40,7 +40,7 @@ export function CoordinatorPerformanceTable({ rows }: { rows: CoordinatorBreakdo
   const totalsVotedPct = totals.total ? (totals.voted / totals.total) * 100 : 0;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardTitle>{text.title}</CardTitle>
       {rows.length === 0 ? (
         <div className="mt-2">
