@@ -6,32 +6,90 @@
 
 ## Production
 
-- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Dynamic Non-Voting Reasons - fully functional, including role management.**
+- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Election Day's full 7-screen Shell, redesigned dashboard, and Reminder Lifecycle v1 - Production Complete as of 2026-08-10.**
 - **Vercel project**: `kolbox`, scope `nahom10`, Git integration auto-deploys on push to `master`.
-- Current production deployment: `dpl_4Nh8D8LfczkysaRb54zL3QLrj3F5`, `readyState: READY`, `target: production`, built from commit `e98f180` ("fix: recognize manageNonVotingReasons in the DB permission validator") - confirmed via GitHub's commit-status API (`state: success`, matching deployment id). Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`. HTTP 200 confirmed.
-- Verified live on 2026-08-06 (post-deploy production smoke test, full Playwright run against the `2c92470` deploy): **21/21 checks passed**, 0 console/page errors - assigning a non-voting reason, the save toast, persistence across refresh and logout/login, the reason dropdown correctly disappearing once a voter is marked voted (value confirmed still present in the DB directly), reappearing with the same value after un-voting, the reason filter, plus regression coverage (role management modal, reminders, reversed-word-order search). A separate direct-RPC pass (31/31 checks) verified the full catalog CRUD, duplicate-name rejection, `REASON_IN_USE`/`REASON_NOT_FOUND`/`REORDER_ID_MISMATCH` rejections, and FK-restrict against a real voter assignment. All temporary test accounts/roles were created via RPC and removed immediately after; real data confirmed unchanged after cleanup: **1,928 voters**, catalog back to exactly its 6 seed reasons, `PermissionUser`/role roster back to its exact 4-account baseline.
-- **Gap found, fixed, and verified the same day**: `election_day_is_valid_permission` (DB-side role-permission allowlist) didn't recognize `electionDay.manageNonVotingReasons`, blocking any role from being granted it. Fixed via migration `election_day_valid_permission_non_voting_reasons`, shipped as commit `e98f180`, deployed as `dpl_4Nh8D8LfczkysaRb54zL3QLrj3F5`. Verified live in two rounds (8/8 then 7/7 checks, 0 console/page errors both times): the permission is now recognized and grantable, a role with it sees and can open "ניהול סיבות אי-הצבעה", a role without it correctly does not, no regressions. See `CLAUDE.md`'s "Known Security Limitations" and `CHANGELOG.md`'s matching entries.
+- Current production deployment: `dpl_DQ7Bz5KUPyU5c1QptbtrCfWq3zxt`, `readyState: READY`, `target: production`, built from commit `6f9f3f4` ("test: harden production smoke test safety") - confirmed both via `npx vercel inspect` and directly via the Vercel API's `meta.githubCommitSha`, which matches local HEAD exactly. Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`. HTTP 200 confirmed on `/election-day` (2026-08-10).
+- **Reminder Lifecycle v1 production smoke test - PASSED** (2026-08-10, run under the new Production Smoke Test Safety Hardening protocol - see below): 63/63 checks (55 RPC-level + 8 live-browser UI). Production baseline reconfirmed exactly restored after cleanup: **1,928 voters**, `voted=true`=**7**, 0 open reminders, 0 reminder events, 4 real `PermissionUser` accounts, 5 roles.
+- Everything documented below this line through "Dynamic Roles & Permissions - status" describes the initiative that closed on 2026-08-06 at commit `e98f180` - still accurate as history, no longer the most current state. **See "What shipped after Dynamic Roles closed" further down for 2026-08-06 → 2026-08-10.**
+- Prior verification (2026-08-06, still accurate as history): post-deploy production smoke test against the `2c92470` deploy - 21/21 checks passed, 0 console/page errors (non-voting-reason assignment, persistence, role management, reminders, search regression). A gap found the same day (`election_day_is_valid_permission` didn't recognize `electionDay.manageNonVotingReasons`) was fixed via migration `election_day_valid_permission_non_voting_reasons`, shipped as `e98f180`, verified live in two rounds (8/8, 7/7 checks).
 
 ## Git
 
 - Branch: `master`
-- HEAD: `e98f180` ("fix: recognize manageNonVotingReasons in the DB permission validator")
-- `origin/master...master`: 0 ahead / 0 behind - fully synced (push completed 2026-08-06)
-- Working tree: this feature's own files are clean; unrelated pre-existing uncommitted work from before this feature predates it and is untouched.
+- HEAD: `6f9f3f4` ("test: harden production smoke test safety")
+- `origin/master...master`: 0 ahead / 0 behind - fully synced (push completed 2026-08-10)
+- Working tree, as of the 2026-08-10 documentation/security/allowlist follow-up pass: the same 16 pre-existing, harmless dirty scripts (`scripts/drive-*.mjs`, `scripts/smoke-*.ts`, audited read-only, none perform a live mutating RPC against real data) **plus** 4 documentation files (`CLAUDE.md`, `CURRENT_STATUS.md`, `CHANGELOG.md`, `task-plan.md`) and one new, already-applied-to-production migration file (`supabase/migrations/20260810140000_election_day_valid_permission_reminder_history.sql`) - all still uncommitted pending explicit approval to commit.
 
-Recent history (newest first):
+Recent history (newest first, 19 commits since `e98f180` - see `CHANGELOG.md` for full detail on each):
 
 ```
-e98f180 fix: recognize manageNonVotingReasons in the DB permission validator
-4d37005 docs: verify dynamic non-voting reasons in production, flag validator gap
-2c92470 feat: add dynamic non-voting reasons
-2e8191c feat: remove legacy role model (Phase 3)
-461f6b0 docs: close Dynamic Roles Phase 2 documentation
-92e8162 feat: add dynamic role management (Phase 2)
-58e70db docs: close Dynamic Roles Phase 1 documentation
-b3ce9b9 feat: cut election day permission engine over to dynamic roles
-d830d50 feat: add dynamic roles database foundation
+6f9f3f4 test: harden production smoke test safety
+6635aad feat: add election day reminder lifecycle
+0a0343b fix: hide unauthorized election day user actions
+b682594 fix: harden election day user deletion
+812092b fix: prevent election day dashboard mobile overflow
+ea31937 fix: prevent mobile bottom navigation overflow
+4bd7db6 feat: redesign election day dashboard with new KPI rows and panels
+89298ac feat: add closed reason breakdown to election day dashboard
+d4ff25a feat: integrate election day navigation into main sidebar
+7f5381d refactor: rebuild Election Day as a Shell with persistent nav and 7 screens
+7455cb0 polish: accordion animation, spacing, open-state tint, report icons
+e6eef0d fix: report buttons render green instead of purple
+a2c9977 refactor: reorganize election day actions into a categorized nav accordion
+da198ef feat: add secure password reset for election day permission users
+d52c933 fix: show sub-10% voting turnout with one decimal instead of rounding to 0%
+8045f0e feat: add call attempts counter with auto-triggered no-answer dialog
+0aa25c0 docs: close out the follow-up tracking + non-voting-reason reports feature
+89b2847 feat: add coordinator follow-up tracking and non-voting-reason reports
+1830c07 docs: close out the manageNonVotingReasons validator fix
+e98f180 fix: recognize manageNonVotingReasons in the DB permission validator   <- this file's old "current" point
 ```
+
+## Current Supabase migrations (24 total, all confirmed `local` = `remote` via `npx supabase migration list --linked`)
+
+```
+20260803174712_election_day_core_tables.sql
+20260803174722_election_day_core_rls.sql
+20260803174731_election_day_permission_users.sql
+20260803174740_election_day_permission_rpc.sql
+20260803174751_election_day_realtime.sql
+20260803192810_election_day_voters_phone_optional.sql
+20260803203025_election_day_atomic_import.sql
+20260803210234_election_day_atomic_import_where_fix.sql
+20260805150834_election_day_voting_role.sql
+20260805181806_election_day_dynamic_roles_phase0.sql
+20260805190000_election_day_list_roles_rpc.sql
+20260806100000_election_day_dynamic_roles_phase2.sql
+20260806150000_election_day_dynamic_roles_phase3.sql
+20260806160000_election_day_not_voting_reasons_table.sql
+20260806161000_election_day_voters_not_voting_reason_column.sql
+20260806162000_election_day_not_voting_reasons_rpc.sql
+20260806170000_election_day_valid_permission_non_voting_reasons.sql
+20260806180000_election_day_not_voting_reasons_requires_follow_up.sql
+20260806190000_election_day_call_attempts.sql
+20260806200000_election_day_reset_permission_user_password.sql
+20260806210000_election_day_reset_permission_user_password_fix.sql
+20260810120000_election_day_reminder_lifecycle.sql
+20260810130000_election_day_set_non_voting_reason_security_definer_fix.sql
+20260810140000_election_day_valid_permission_reminder_history.sql
+```
+
+## What shipped after Dynamic Roles closed (2026-08-06 → 2026-08-10)
+
+Full detail lives in `CHANGELOG.md` (backfilled 2026-08-10) and `task-plan.md`'s Progress Log. High-level summary, oldest first:
+
+- **Call-attempts counter + no-answer dialog** (`8045f0e`) and a **sub-10% turnout display precision fix** (`d52c933`) - 2026-08-06.
+- **Secure password reset for permission users** (`da198ef`) - 2026-08-07. The one roster RPC with real caller re-authentication (bcrypt-verifies the acting manager, not just a client-side check) - every other roster RPC has no caller-identity check at all.
+- **Election Day rebuilt as a 7-screen router Shell** (`7f5381d`, preceded by a short-lived nav-accordion iteration in `a2c9977`/`e6eef0d`/`7455cb0` that it fully replaced) and **merged into the main app's own sidebar** as a "יום הבחירות" section (`d4ff25a`) - 2026-08-07. Election Day is no longer a single screen: `/election-day/{dashboard,voters,files,permissions,rides,reasons,reports}`, own persistent nav, data/mutations shared across screens via router outlet context.
+- **Dashboard redesign**: closed-reason breakdown row (`89298ac`) then a full redesign from an approved Trello mockup adding a coordinator-performance table, turnout-pace chart, and attention-alerts panel (`4bd7db6`) - 2026-08-08. Live-browser-verified 2026-08-10 (desktop 1400px + mobile 375px screenshots against real production data).
+- **Two distinct mobile-overflow bugs**, fixed a day apart: the shared bottom-nav component (`ea31937`) and the new dashboard's grid-nested cards + countdown boxes (`812092b`) - 2026-08-09.
+- **User-deletion hardening** (`b682594`: confirm dialog, self-delete protection at 2 layers, still client-side only) and **permissions-UI visibility hardening** (`0a0343b`: Add/Reset/Delete fully hidden, not just disabled, for a non-`manageUsers` session) - 2026-08-10.
+- **Reminder Lifecycle v1** (`6635aad`) - a full FUTURE/DUE/CLOSED/CANCELLED state machine replacing the old single `reminder_at` column, with a follow-up security-definer bug fix the same day - 2026-08-10.
+- **Production Smoke Test Safety Hardening** (`6f9f3f4`) - built in direct response to a production incident during the Reminder Lifecycle smoke test (2 real voters briefly mutated, surgically recovered). Permanent new rule + module (`scripts/lib/productionTestSafety.ts`) now governs every future production-mutating test script. **Reminder Lifecycle v1 smoke-tested clean under this protocol immediately after (63/63) - milestone is production complete.**
+
+**A gap surfaced by this documentation audit itself was found and fixed the same day**: `voter.viewReminderHistory` (the permission added by `6635aad`) was missing from the DB-side `election_day_is_valid_permission` write-path allowlist - the same bug class as the already-fixed `electionDay.manageNonVotingReasons` gap above. Fixed via migration `20260810140000_election_day_valid_permission_reminder_history.sql` (applied to the linked remote project the same day): delta verified to be exactly `+voter.viewReminderHistory`, no other permission touched. Post-fix production verification: `election_day_create_role` now accepts the permission on a disposable test role (created, confirmed, then deleted) while still rejecting a fake permission literal; baseline unchanged (1928 voters / 5 roles / 4 accounts / 0 open reminders / 0 events).
+
+**A separate, unrelated finding from the same session**: a subagent's tool output was flagged for printing the live Vercel CLI personal token; remediated the same day via `vercel logout` (server-side invalidation, not just a local credential wipe) plus a repo-wide secret-residue scan (clean). Re-authenticating the CLI requires an interactive step only the project owner can do - not yet done as of this update. See CLAUDE.md's "Resolved: Vercel CLI credential exposure" for the full record.
 
 ## Election Day Permission Engine - status
 
@@ -164,10 +222,14 @@ All application code updated to match: `RoleRecord.legacyRoleKey`/`DatabaseRole`
 
 ## Continuation point
 
-**Phase 1 is complete and closed.** Commit `b3ce9b9` is pushed to `origin/master` and deployed to production (`dpl_BbCLGPtefzD8CzEHvdtApUhsSThQ`, `READY`, `https://kolbox-gamma.vercel.app`). The permission engine now reads roles from the live `election_day_roles` catalog instead of a hardcoded map, fail-closed on every non-"loaded and matched" state, live-verified in production with 0 regressions - 1,928 voters and 5 `PermissionUser` accounts unchanged.
+**The Dynamic Roles & Permissions initiative (Phases 0-3) is closed** - all 4 phases shipped, deployed, and live-verified in production with zero unresolved regressions, as of 2026-08-06 (commit `2e8191c`). This section used to be the file's "continuation point"; it no longer is - see "What shipped after Dynamic Roles closed" above for everything that has landed since.
 
-**Phase 2 is complete and closed.** Commit `92e8162` is pushed to `origin/master` and deployed to production (`dpl_GCJJkBDLJWtDHm4AEYguCbJiYP3C`, `READY`, `https://kolbox-gamma.vercel.app`). The role-management UI ("תפקידים" tab), its 5 supporting RPCs, and the necessary session-resolution correction (matching by `roleId`, not legacy text) are all live-verified in production with 0 regressions - 1,928 voters and the `PermissionUser` roster unchanged. One residual gap remains explicitly documented, not silently resolved (the `CANNOT_REMOVE_LAST_PERMISSION_HOLDER` guard's blocking path - see above).
+**As of this file's 2026-08-10 update, there is no in-flight initiative.** HEAD (`6f9f3f4`) is pushed and deployed; production is fully synced with `master`; the Reminder Lifecycle v1 production smoke test (63/63) closed the most recent feature milestone clean. `git status` shows only the same 16 pre-existing dirty scripts documented above - no other uncommitted work.
 
-**Phase 3 is complete and closed.** Commit `2e8191c` is pushed to `origin/master` and deployed to production (`dpl_DvJscBWx42YSKQRQHdyDEbKwmP5p`, `READY`, `https://kolbox-gamma.vercel.app`). The legacy `role`/`legacy_role_key` scaffolding is fully removed at every layer (DB, RPC, TS types, UI); live-verified twice (23/23 pre-commit, 20/20 post-deploy) with 0 regressions - 1,928 voters and the `PermissionUser` roster (baseline 0) unchanged. The disclosed transient window (old frontend calling a now-dropped RPC name) is confirmed closed.
+**Known open items for whoever picks this up next** (none blocking, none urgent):
 
-**The Dynamic Roles & Permissions initiative is closed.** All 4 phases (foundation, read-path cutover, role management, legacy cleanup) are shipped, deployed, and live-verified in production with zero unresolved regressions. Remaining work on this initiative, if any, is a new, separately-approved initiative - not a continuation of this one.
+1. `task-plan.md`'s M6 "Polish & ship" checklist items (micro-interactions, a systematic mobile/RTL/lighthouse audit, README+screenshots) remain genuinely open - the 2 mobile-overflow bug fixes documented above are incremental progress, not a substitute for a systematic pass.
+2. `task-plan.md`'s P2 "Real backend" items (Postgres schema for voters/activists/classifications, `MockApi`→`SupabaseApi` swap) remain open - only Election Day's own data has moved to Supabase; the core campaign-management data model is still `MockApi`/localStorage.
+3. The Vercel CLI needs a fresh interactive login (see "Production" above) - the project owner's action, not something to script around.
+
+The `voter.viewReminderHistory` allowlist gap noted in an earlier version of this list has been fixed (migration `20260810140000`, verified in production) and is no longer open. None of the remaining items were assigned or approved as the next piece of work as of this file's last update - check with whoever's driving before starting on any of them.
