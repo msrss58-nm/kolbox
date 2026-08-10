@@ -16,6 +16,7 @@ export function ElectionDayDashboardPage() {
         stats={electionDay.stats}
         coordinatorBreakdown={electionDay.coordinatorBreakdown}
         followUpBreakdown={electionDay.followUpBreakdown}
+        closedRemindersToday={electionDay.closedRemindersToday}
         rideStatusBreakdown={electionDay.rideStatusBreakdown}
         attentionAlerts={electionDay.attentionAlerts}
         turnoutPace={electionDay.turnoutPace}

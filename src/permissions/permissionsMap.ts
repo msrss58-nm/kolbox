@@ -32,6 +32,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   "voter.viewCoordinator",
   "voter.viewNotes",
   "voter.viewReminderStatus",
+  "voter.viewReminderHistory",
   "voter.viewRideStatus",
   "voter.viewVotedStatus",
 ];

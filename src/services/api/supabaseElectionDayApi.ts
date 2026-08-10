@@ -9,6 +9,8 @@ import type {
   ElectionDayVoter,
   NonVotingReason,
   PermissionUser,
+  ReminderClosedReason,
+  ReminderEvent,
   RideCoordinator,
   RideStatusEvent,
 } from "../../types";
@@ -73,6 +75,9 @@ type VoterRow = {
   ride_completed: boolean;
   ride_completed_at: string | null;
   reminder_at: string | null;
+  reminder_closed_at: string | null;
+  reminder_closed_reason: string | null;
+  reminder_closed_by: string | null;
   voted: boolean;
   voted_at: string | null;
   not_voting_reason_id: string | null;
@@ -101,6 +106,9 @@ function toVoter(row: VoterRow): ElectionDayVoter {
     rideCompleted: row.ride_completed,
     rideCompletedAt: row.ride_completed_at,
     reminderAt: row.reminder_at,
+    reminderClosedAt: row.reminder_closed_at,
+    reminderClosedReason: row.reminder_closed_reason as ReminderClosedReason | null,
+    reminderClosedBy: row.reminder_closed_by,
     voted: row.voted,
     votedAt: row.voted_at,
     notVotingReasonId: row.not_voting_reason_id,
@@ -130,6 +138,32 @@ function toRideStatusEvent(row: RideStatusEventRow): RideStatusEvent {
     from: row.from_arranged,
     to: row.to_arranged,
     at: row.created_at,
+  };
+}
+
+type ReminderEventRow = {
+  id: string;
+  contact_id: string | null;
+  contact_name: string;
+  coordinator: string;
+  event_type: string;
+  reminder_at: string | null;
+  reason: string | null;
+  actor_name: string | null;
+  created_at: string;
+};
+
+function toReminderEvent(row: ReminderEventRow): ReminderEvent {
+  return {
+    id: row.id,
+    contactId: row.contact_id ?? "",
+    contactName: row.contact_name,
+    coordinator: row.coordinator,
+    eventType: row.event_type as ReminderEvent["eventType"],
+    reminderAt: row.reminder_at,
+    reason: row.reason as ReminderEvent["reason"],
+    actorName: row.actor_name,
+    createdAt: row.created_at,
   };
 }
 
@@ -404,44 +438,130 @@ export class SupabaseElectionDayApi {
     return deadline;
   }
 
+  /** Reminder Lifecycle v1: goes through the `election_day_set_reminder` RPC
+   * (not the plain `updateVoter` REST-patch path) so creating/rescheduling a
+   * reminder is atomic with logging a 'rescheduled' event for any
+   * previously-open reminder - a race-prone client-side read-modify-write
+   * couldn't express that. The absolute ISO timestamp is still computed
+   * client-side exactly like before. */
   async setReminder(
     id: string,
-    minutesFromNow: number | null,
+    minutesFromNow: number,
+    actorName: string,
   ): Promise<ElectionDayVoter> {
-    const reminderAt =
-      minutesFromNow === null
-        ? null
-        : new Date(Date.now() + minutesFromNow * 60_000).toISOString();
-    return this.updateVoter(id, { reminder_at: reminderAt });
+    const reminderAt = new Date(Date.now() + minutesFromNow * 60_000).toISOString();
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_set_reminder", {
+        p_id: id,
+        p_reminder_at: reminderAt,
+        p_actor_name: actorName,
+      }),
+    );
+    return toVoter(data[0]);
   }
 
-  async setReminderAt(id: string, at: string): Promise<ElectionDayVoter> {
-    return this.updateVoter(id, { reminder_at: at });
+  async setReminderAt(
+    id: string,
+    at: string,
+    actorName: string,
+  ): Promise<ElectionDayVoter> {
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_set_reminder", {
+        p_id: id,
+        p_reminder_at: at,
+        p_actor_name: actorName,
+      }),
+    );
+    return toVoter(data[0]);
   }
 
-  async setVoted(id: string, voted: boolean): Promise<ElectionDayVoter> {
-    return this.updateVoter(id, {
-      voted,
-      voted_at: voted ? new Date().toISOString() : null,
-    });
+  /** Reminder Lifecycle v1: explicit "mark handled" - closes the currently
+   * open reminder (`reminderClosedReason: "handled"`) via the
+   * `election_day_close_reminder` RPC. Idempotent no-op if none is open. */
+  async closeReminder(id: string, actorName: string): Promise<ElectionDayVoter> {
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_close_reminder", {
+        p_id: id,
+        p_actor_name: actorName,
+      }),
+    );
+    return toVoter(data[0]);
   }
 
-  /** Plain REST update via the same `updateVoter` path as `setVoted`/
-   * `setPhone`/`setNotes` - no RPC, since `election_day_voters`' RLS is
-   * already permissive. Does NOT touch `voted`/`voted_at` - the reason is
-   * purely additive metadata, and by product decision is never cleared
-   * automatically (not even when `voted` is later set to `true`
-   * elsewhere) - only an explicit call with `reasonId: null` clears it. */
+  /** Reminder Lifecycle v1: explicit cancel - closes the currently open
+   * reminder (`reminderClosedReason: "cancelled"`) via the
+   * `election_day_cancel_reminder` RPC. Idempotent no-op if none is open. */
+  async cancelReminder(id: string, actorName: string): Promise<ElectionDayVoter> {
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_cancel_reminder", {
+        p_id: id,
+        p_actor_name: actorName,
+      }),
+    );
+    return toVoter(data[0]);
+  }
+
+  /** Reminder Lifecycle v1: goes through the `election_day_set_voted` RPC
+   * (not the plain `updateVoter` REST-patch path this used before) so
+   * setting voted/voted_at is atomic with closing any currently open
+   * reminder (`reminderClosedReason: "voted"`) - only when `voted = true`;
+   * un-voting never touches reminder state. */
+  async setVoted(
+    id: string,
+    voted: boolean,
+    actorName: string,
+  ): Promise<ElectionDayVoter> {
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_set_voted", {
+        p_id: id,
+        p_voted: voted,
+        p_actor_name: actorName,
+      }),
+    );
+    return toVoter(data[0]);
+  }
+
+  /** Reminder Lifecycle v1: goes through the `election_day_set_non_voting_reason`
+   * RPC (previously a plain REST update via `updateVoter`, back when RLS
+   * permissiveness alone was enough) so setting the reason is atomic with
+   * closing any currently open reminder (`reminderClosedReason:
+   * "case_closed"`) - only when the newly-set reason's `requiresFollowUp` is
+   * `false`; a reason with `requiresFollowUp: true`, or clearing the reason
+   * entirely, leaves the reminder untouched. Still does NOT touch
+   * `voted`/`voted_at` - the reason is purely additive metadata, and by
+   * product decision is never cleared automatically (not even when `voted`
+   * is later set to `true` elsewhere) - only an explicit call with
+   * `reasonId: null` clears it. */
   async setNonVotingReason(
     id: string,
     reasonId: string | null,
     setByName: string | null,
   ): Promise<ElectionDayVoter> {
-    return this.updateVoter(id, {
-      not_voting_reason_id: reasonId,
-      not_voting_reason_set_at: reasonId ? new Date().toISOString() : null,
-      not_voting_reason_set_by: reasonId ? setByName : null,
-    });
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_set_non_voting_reason", {
+        p_id: id,
+        p_reason_id: reasonId,
+        p_actor_name: setByName,
+      }),
+    );
+    return toVoter(data[0]);
+  }
+
+  /** Reminder Lifecycle v1: full create/close/cancel/reschedule history for
+   * one contact's reminder, newest first. Plain PostgREST select (not an
+   * RPC) - RLS on `election_day_reminder_events` is permissive for reads,
+   * same as every other Election Day table, and this is bounded to one
+   * contact's own history (never large), so no `.range()` paging is
+   * needed. */
+  async listReminderEvents(contactId: string): Promise<ReminderEvent[]> {
+    const data = unwrapArray<ReminderEventRow[]>(
+      await supabase
+        .from("election_day_reminder_events")
+        .select("*")
+        .eq("contact_id", contactId)
+        .order("created_at", { ascending: false }),
+    );
+    return data.map(toReminderEvent);
   }
 
   /** These two go through a dedicated RPC (not the `updateVoter` REST-patch

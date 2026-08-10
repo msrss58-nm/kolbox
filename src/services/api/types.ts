@@ -9,6 +9,7 @@ import type {
   NonVotingReason,
   PermissionUser,
   PollingStation,
+  ReminderEvent,
   RideCoordinator,
   RideStatusEvent,
   TrendPoint,
@@ -186,14 +187,33 @@ export interface ApiClient {
   listRideStatusEvents(): Promise<RideStatusEvent[]>;
   getElectionDayDeadline(): Promise<string | null>;
   setElectionDayDeadline(deadline: string | null): Promise<string | null>;
-  /** `minutesFromNow: null` cancels an existing reminder. */
-  setReminder(id: string, minutesFromNow: number | null): Promise<ElectionDayVoter>;
+  /** Creates or reschedules a reminder `minutesFromNow` minutes from now.
+   * Reminder Lifecycle v1: cancellation is a dedicated method now
+   * (`cancelReminder`) - this no longer accepts `null` to mean "cancel".
+   * `actorName` is the signed-in session's display name, written to the
+   * audit trail - see `setNonVotingReason`'s comment below for why it's
+   * passed in explicitly rather than read from session state here. */
+  setReminder(
+    id: string,
+    minutesFromNow: number,
+    actorName: string,
+  ): Promise<ElectionDayVoter>;
   /** Sets a reminder for an arbitrary absolute time (the "קביעת שעה" custom
    * picker) - `at` is a full ISO timestamp, written to `reminderAt` as-is,
-   * never derived via a minutes-offset from `Date.now()`. Cancelling a
-   * reminder (of either kind) still goes through `setReminder(id, null)`. */
-  setReminderAt(id: string, at: string): Promise<ElectionDayVoter>;
-  setVoted(id: string, voted: boolean): Promise<ElectionDayVoter>;
+   * never derived via a minutes-offset from `Date.now()`. */
+  setReminderAt(id: string, at: string, actorName: string): Promise<ElectionDayVoter>;
+  /** Reminder Lifecycle v1: explicit "mark handled" - closes the currently
+   * open reminder with `reminderClosedReason: "handled"`. Idempotent no-op
+   * if no reminder is currently open. */
+  closeReminder(id: string, actorName: string): Promise<ElectionDayVoter>;
+  /** Reminder Lifecycle v1: explicit cancel - closes the currently open
+   * reminder with `reminderClosedReason: "cancelled"`. Idempotent no-op if
+   * no reminder is currently open. */
+  cancelReminder(id: string, actorName: string): Promise<ElectionDayVoter>;
+  /** Reminder Lifecycle v1: setting `voted = true` also atomically closes any
+   * currently open reminder with `reminderClosedReason: "voted"` -
+   * un-voting (`voted = false`) never touches reminder state. */
+  setVoted(id: string, voted: boolean, actorName: string): Promise<ElectionDayVoter>;
   /** `reasonId: null` clears the reason. `setByName` is the signed-in
    * session's display name (or `null` with no session), written to the
    * denormalized `notVotingReasonSetBy` for future reporting - passed in
@@ -203,12 +223,21 @@ export interface ApiClient {
    * `api` singleton. Setting/changing the reason does not itself touch
    * `voted` - and setting `voted = true` does NOT clear this field either
    * (product decision - kept for history/future reports, the UI just stops
-   * offering it for editing while voted = true). */
+   * offering it for editing while voted = true). Reminder Lifecycle v1: if
+   * the newly-set reason's `requiresFollowUp` is `false`, also atomically
+   * closes any currently open reminder with `reminderClosedReason:
+   * "case_closed"` - a reason with `requiresFollowUp: true`, or clearing the
+   * reason entirely, leaves the reminder untouched. */
   setNonVotingReason(
     id: string,
     reasonId: string | null,
     setByName: string | null,
   ): Promise<ElectionDayVoter>;
+  /** Reminder Lifecycle v1: full create/close/cancel/reschedule history for
+   * one contact's reminder, newest first - powers an audit/history view.
+   * Distinct from the latest-only `reminderClosedAt`/`reminderClosedReason`/
+   * `reminderClosedBy` fields on `ElectionDayVoter` itself. */
+  listReminderEvents(contactId: string): Promise<ReminderEvent[]>;
   incrementCallAttempts(id: string): Promise<ElectionDayVoter>;
   extendCallAttemptsThreshold(id: string): Promise<ElectionDayVoter>;
   setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter>;

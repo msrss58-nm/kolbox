@@ -57,6 +57,9 @@ export interface Database {
           ride_completed: boolean;
           ride_completed_at: string | null;
           reminder_at: string | null;
+          reminder_closed_at: string | null;
+          reminder_closed_reason: string | null;
+          reminder_closed_by: string | null;
           voted: boolean;
           voted_at: string | null;
           not_voting_reason_id: string | null;
@@ -85,6 +88,9 @@ export interface Database {
           ride_completed?: boolean;
           ride_completed_at?: string | null;
           reminder_at?: string | null;
+          reminder_closed_at?: string | null;
+          reminder_closed_reason?: string | null;
+          reminder_closed_by?: string | null;
           voted?: boolean;
           voted_at?: string | null;
           not_voting_reason_id?: string | null;
@@ -132,6 +138,50 @@ export interface Database {
         Relationships: [
           {
             foreignKeyName: "election_day_ride_status_events_contact_id_fkey";
+            columns: ["contact_id"];
+            isOneToOne: false;
+            referencedRelation: "election_day_voters";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+
+      /** Reminder Lifecycle v1: audit log of every reminder create/close/
+       * cancel/reschedule on an `election_day_voters` row - written only by
+       * the `election_day_set_reminder`/`close_reminder`/`cancel_reminder`/
+       * `set_voted`/`set_non_voting_reason` RPCs below, never by a direct
+       * client insert. Denormalizes contact_name/coordinator like
+       * `election_day_ride_status_events` so the log reads correctly even if
+       * the contact is later removed by a re-import. */
+      election_day_reminder_events: {
+        Row: {
+          id: string;
+          contact_id: string | null;
+          contact_name: string;
+          coordinator: string;
+          event_type: string;
+          reminder_at: string | null;
+          reason: string | null;
+          actor_name: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          contact_id?: string | null;
+          contact_name: string;
+          coordinator: string;
+          event_type: string;
+          reminder_at?: string | null;
+          reason?: string | null;
+          actor_name?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["election_day_reminder_events"]["Insert"]
+        >;
+        Relationships: [
+          {
+            foreignKeyName: "election_day_reminder_events_contact_id_fkey";
             columns: ["contact_id"];
             isOneToOne: false;
             referencedRelation: "election_day_voters";
@@ -474,6 +524,44 @@ export interface Database {
        * decision dialog. */
       election_day_extend_call_attempts_threshold: {
         Args: { p_id: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Reminder Lifecycle v1: creates or reschedules a reminder. Atomic - if
+       * one was already open, logs a 'rescheduled' event for it before
+       * creating the new one. */
+      election_day_set_reminder: {
+        Args: { p_id: string; p_reminder_at: string; p_actor_name: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Reminder Lifecycle v1: explicit "mark handled" (reason='handled').
+       * Idempotent no-op if no reminder is currently open. */
+      election_day_close_reminder: {
+        Args: { p_id: string; p_actor_name: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Reminder Lifecycle v1: explicit cancel (reason='cancelled').
+       * Idempotent no-op if no reminder is currently open. */
+      election_day_cancel_reminder: {
+        Args: { p_id: string; p_actor_name: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Reminder Lifecycle v1: replaces the old plain-PATCH `setVoted`. Sets
+       * voted/voted_at, and atomically closes any open reminder
+       * (reason='voted') only when p_voted = true - un-voting never touches
+       * reminder state. */
+      election_day_set_voted: {
+        Args: { p_id: string; p_voted: boolean; p_actor_name: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Reminder Lifecycle v1: replaces the old plain-PATCH
+       * `setNonVotingReason`. Sets the reason fields, and atomically closes
+       * any open reminder (reason='case_closed') only if the reason's
+       * requires_follow_up = false; otherwise the reminder is untouched.
+       * p_reason_id may be null (clears the reason); p_actor_name may be
+       * null (no signed-in session), mirroring `not_voting_reason_set_by`'s
+       * existing nullability. */
+      election_day_set_non_voting_reason: {
+        Args: { p_id: string; p_reason_id: string | null; p_actor_name: string | null };
         Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
       };
     };

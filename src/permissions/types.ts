@@ -46,6 +46,12 @@ export type Permission =
   | "voter.viewCoordinator"
   | "voter.viewNotes"
   | "voter.viewReminderStatus"
+  // Reminder Lifecycle v1: gates the contact modal's collapsible
+  // "היסטוריית תזכורות" audit-trail section (created/closed/cancelled/
+  // rescheduled events) - distinct from `voter.viewReminderStatus` (the
+  // current-state badge/label), since a role could plausibly see the live
+  // status without being trusted with the full history, or vice versa.
+  | "voter.viewReminderHistory"
   | "voter.viewRideStatus"
   | "voter.viewVotedStatus";
 

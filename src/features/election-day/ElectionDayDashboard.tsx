@@ -7,7 +7,6 @@ import {
   CircleCheckBig,
   Clock,
   Handshake,
-  ListTodo,
   PhoneMissed,
   RefreshCw,
   Users,
@@ -148,6 +147,7 @@ export function ElectionDayDashboard({
   nonVotingReasonReport,
   onOpenReasonReport,
   closedReasonBreakdown,
+  closedRemindersToday,
   loaded,
 }: {
   stats: ElectionDayStats;
@@ -163,6 +163,10 @@ export function ElectionDayDashboard({
   nonVotingReasonReport: NonVotingReasonReportRow[];
   onOpenReasonReport: (reasonId: string) => void;
   closedReasonBreakdown: ClosedReasonBreakdownRow[];
+  /** Reminder Lifecycle v1 - count of reminders closed today (see
+   * `useElectionDay.ts`'s `closedRemindersToday`), feeds row 3's
+   * `closedToday` tile (replaces the old `notYetHandled` tile). */
+  closedRemindersToday: number;
   loaded: boolean;
 }) {
   const followUpText = ELECTION_DAY_TEXT.dashboard.followUp;
@@ -270,10 +274,10 @@ export function ElectionDayDashboard({
               value={followUpBreakdown.reminderWaiting}
             />
             <ElectionDayStatTile
-              icon={ListTodo}
+              icon={CircleCheckBig}
               tone="info"
-              label={followUpText.notYetHandled}
-              value={followUpBreakdown.notYetHandled}
+              label={followUpText.closedToday}
+              value={closedRemindersToday}
             />
           </div>
         </div>

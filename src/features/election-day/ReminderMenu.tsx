@@ -23,6 +23,7 @@ export function ReminderMenu({
   reminderAt,
   onSelect,
   onSelectCustom,
+  label = ELECTION_DAY_TEXT.reminder.button,
 }: {
   /** The contact's current reminder timestamp (or `null`) - only used to
    * default the custom picker to the existing reminder when one is already
@@ -30,6 +31,13 @@ export function ReminderMenu({
   reminderAt: string | null;
   onSelect: (minutes: (typeof REMINDER_MINUTES_OPTIONS)[number]) => void;
   onSelectCustom: (at: Date) => void;
+  /** Reminder Lifecycle v1: the trigger button's label - defaults to the
+   * plain "תזכורת" (fresh reminder), but `ElectionDayContactModal` passes
+   * `reminder.rescheduleButton` ("קבע תזכורת חדשה") instead once a reminder
+   * is already outstanding (future/due), since this same menu is reused for
+   * both "set" and "reschedule". Purely a label override - the menu's own
+   * options/wiring are unchanged either way. */
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
@@ -80,7 +88,7 @@ export function ReminderMenu({
         className="w-full bg-[#f59f00] text-white hover:bg-[#e08e00] active:bg-[#c97e00]"
         onClick={() => setOpen((o) => !o)}
       >
-        ⏰ {ELECTION_DAY_TEXT.reminder.button}
+        ⏰ {label}
       </Button>
 
       {open && (

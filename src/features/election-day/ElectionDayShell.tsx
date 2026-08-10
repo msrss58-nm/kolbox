@@ -127,7 +127,9 @@ export function ElectionDayShell() {
         onSetReminderAt={(contact, at) =>
           void electionDay.setReminderAt(contact.id, at.toISOString())
         }
-        onCancelReminder={(contact) => void electionDay.setReminder(contact.id, null)}
+        onCancelReminder={(contact) => void electionDay.cancelReminder(contact.id)}
+        onCloseReminder={(contact) => void electionDay.closeReminder(contact.id)}
+        onLoadReminderEvents={(contactId) => electionDay.listReminderEvents(contactId)}
         onToggleVoted={(contact, voted) => void electionDay.setVoted(contact.id, voted)}
         onSetNonVotingReason={(id, reasonId) =>
           void electionDay.setNonVotingReason(id, reasonId)

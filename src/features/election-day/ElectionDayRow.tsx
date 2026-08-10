@@ -4,7 +4,7 @@ import { usePermissions } from "../../permissions/usePermissions";
 import type { ElectionDayVoter, NonVotingReason } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { ElectionDayColumnDef } from "./electionDayRowColumns";
-import { isReminderActive } from "./reminderStatus";
+import { isReminderActive, isReminderDue } from "./reminderStatus";
 import { VotedBadge } from "./VotedBadge";
 
 /** `null` if the voter has no reason set, or the reason was deleted since
@@ -49,9 +49,12 @@ function DesktopCell({
           <span className="truncate">
             {contact.firstName} {contact.lastName}
           </span>
-          {showReminderBadge && isReminderActive(contact.reminderAt) && (
+          {showReminderBadge && isReminderActive(contact) && (
             <BellRing
-              className="size-3.5 shrink-0 text-amber-500"
+              className={cn(
+                "size-3.5 shrink-0",
+                isReminderDue(contact) ? "text-rose-500" : "text-amber-500",
+              )}
               aria-label={ELECTION_DAY_TEXT.reminder.badge}
             />
           )}
@@ -129,7 +132,7 @@ export function ElectionDayRow({
   const reasonName = showVotedStatus
     ? resolveReasonName(contact.notVotingReasonId, nonVotingReasons)
     : null;
-  const reminderActive = showReminderBadge && isReminderActive(contact.reminderAt);
+  const reminderActive = showReminderBadge && isReminderActive(contact);
 
   return (
     <button
@@ -170,7 +173,13 @@ export function ElectionDayRow({
             >
               {contact.firstName} {contact.lastName}
               {reminderActive && (
-                <BellRing className="size-3.5 shrink-0 text-amber-500" aria-hidden />
+                <BellRing
+                  className={cn(
+                    "size-3.5 shrink-0",
+                    isReminderDue(contact) ? "text-rose-500" : "text-amber-500",
+                  )}
+                  aria-hidden
+                />
               )}
             </p>
             <p className="mt-0.5 text-xs text-slate-500">

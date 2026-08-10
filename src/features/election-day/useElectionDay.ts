@@ -30,7 +30,8 @@ import { resolveFollowUpStatus, type FollowUpStatus } from "./followUpStatus";
 import { buildClosedReasonBreakdown } from "./closedReasonBreakdown";
 import { buildNonVotingReasonReport } from "./nonVotingReasonReport";
 import { formatReminderDisplay } from "./reminderDisplay";
-import { buildFollowUpBreakdown } from "./followUpBreakdown";
+import { buildFollowUpBreakdown, buildClosedRemindersToday } from "./followUpBreakdown";
+import { resolveReminderLifecycleState } from "./reminderLifecycle";
 import { buildRideStatusBreakdown } from "./rideStatusBreakdown";
 import { buildAttentionAlerts } from "./attentionAlerts";
 import { buildTurnoutPaceSeries } from "./turnoutPace";
@@ -435,6 +436,15 @@ export function useElectionDay(isBootstrap: boolean) {
     [scopedContacts, reasonsById],
   );
 
+  // Dashboard's "closed reminders today" tile - reads current-state fields
+  // only (no events-table join), same "hot path stays fast" reasoning as
+  // `closedReasonBreakdown` above. See `followUpBreakdown.ts` for the exact
+  // local-calendar-day definition of "today".
+  const closedRemindersToday = useMemo(
+    () => buildClosedRemindersToday(scopedContacts ?? []),
+    [scopedContacts],
+  );
+
   const rideStatusBreakdown = useMemo(
     () => buildRideStatusBreakdown(scopedContacts ?? []),
     [scopedContacts],
@@ -663,29 +673,26 @@ export function useElectionDay(isBootstrap: boolean) {
   );
 
   const { run: runSetReminder } = useAsyncAction(
-    (id: string, minutes: number | null) => api.setReminder(id, minutes),
+    (id: string, minutes: number, actorName: string) =>
+      api.setReminder(id, minutes, actorName),
     {
       successMessage: (_contact, _id, minutes) =>
-        minutes === null
-          ? ELECTION_DAY_TEXT.reminder.toast.cancelled
-          : ELECTION_DAY_TEXT.reminder.toast.set(
-              ELECTION_DAY_TEXT.reminder.options[
-                minutes as keyof typeof ELECTION_DAY_TEXT.reminder.options
-              ],
-            ),
+        ELECTION_DAY_TEXT.reminder.toast.set(
+          ELECTION_DAY_TEXT.reminder.options[
+            minutes as keyof typeof ELECTION_DAY_TEXT.reminder.options
+          ],
+        ),
     },
   );
 
   const setReminderRaw = useCallback(
-    async (id: string, minutes: number | null) => {
-      const updated = await runSetReminder(id, minutes);
+    async (id: string, minutes: number) => {
+      const updated = await runSetReminder(id, minutes, sessionUser?.name ?? "");
       if (updated) applyContactUpdate(updated);
       return updated;
     },
-    [runSetReminder, applyContactUpdate],
+    [runSetReminder, applyContactUpdate, sessionUser],
   );
-  // Also covers "cancel reminder" - callers pass `minutes: null` for that,
-  // same guarded function, same `voter.manageReminder` permission.
   const setReminder = guardedAction(
     "voter.manageReminder",
     setReminderRaw,
@@ -696,7 +703,7 @@ export function useElectionDay(isBootstrap: boolean) {
   // full ISO timestamp (never a minutes-offset), written to `reminderAt`
   // as-is. Same permission/guard/state-update shape as `setReminder`.
   const { run: runSetReminderAt } = useAsyncAction(
-    (id: string, at: string) => api.setReminderAt(id, at),
+    (id: string, at: string, actorName: string) => api.setReminderAt(id, at, actorName),
     {
       successMessage: (_contact, _id, at: string) =>
         ELECTION_DAY_TEXT.reminder.toast.setAt(formatReminderDisplay(at)),
@@ -705,11 +712,11 @@ export function useElectionDay(isBootstrap: boolean) {
 
   const setReminderAtRaw = useCallback(
     async (id: string, at: string) => {
-      const updated = await runSetReminderAt(id, at);
+      const updated = await runSetReminderAt(id, at, sessionUser?.name ?? "");
       if (updated) applyContactUpdate(updated);
       return updated;
     },
-    [runSetReminderAt, applyContactUpdate],
+    [runSetReminderAt, applyContactUpdate, sessionUser],
   );
   const setReminderAt = guardedAction(
     "voter.manageReminder",
@@ -717,8 +724,51 @@ export function useElectionDay(isBootstrap: boolean) {
     "setReminderAt",
   );
 
+  // Cancel: the reminder is dropped without being counted as "handled" - a
+  // real persisted event (`reminderClosedReason: "cancelled"`), distinct
+  // from `closeReminder` below. Replaces the old "reuse setReminder(id,
+  // null)" pattern, which silently discarded the reminder with no audit
+  // trail and no way to tell "cancelled" apart from "never set".
+  const { run: runCancelReminder } = useAsyncAction(
+    (id: string, actorName: string) => api.cancelReminder(id, actorName),
+    { successMessage: ELECTION_DAY_TEXT.reminder.toast.cancelled },
+  );
+  const cancelReminderRaw = useCallback(
+    async (id: string) => {
+      const updated = await runCancelReminder(id, sessionUser?.name ?? "");
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runCancelReminder, applyContactUpdate, sessionUser],
+  );
+  const cancelReminder = guardedAction(
+    "voter.manageReminder",
+    cancelReminderRaw,
+    "cancelReminder",
+  );
+
+  // Close: marks a reminder as handled (`reminderClosedReason: "handled"`,
+  // set by the RPC) - the "✓ סמן כטופל" action on a DUE reminder.
+  const { run: runCloseReminder } = useAsyncAction(
+    (id: string, actorName: string) => api.closeReminder(id, actorName),
+    { successMessage: ELECTION_DAY_TEXT.reminder.toast.closed },
+  );
+  const closeReminderRaw = useCallback(
+    async (id: string) => {
+      const updated = await runCloseReminder(id, sessionUser?.name ?? "");
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runCloseReminder, applyContactUpdate, sessionUser],
+  );
+  const closeReminder = guardedAction(
+    "voter.manageReminder",
+    closeReminderRaw,
+    "closeReminder",
+  );
+
   const { run: runSetVoted } = useAsyncAction(
-    (id: string, voted: boolean) => api.setVoted(id, voted),
+    (id: string, voted: boolean, actorName: string) => api.setVoted(id, voted, actorName),
     {
       successMessage: (contact) =>
         contact.voted
@@ -729,11 +779,11 @@ export function useElectionDay(isBootstrap: boolean) {
 
   const setVotedRaw = useCallback(
     async (id: string, voted: boolean) => {
-      const updated = await runSetVoted(id, voted);
+      const updated = await runSetVoted(id, voted, sessionUser?.name ?? "");
       if (updated) applyContactUpdate(updated);
       return updated;
     },
-    [runSetVoted, applyContactUpdate],
+    [runSetVoted, applyContactUpdate, sessionUser],
   );
   const setVoted = guardedAction("voter.markVoted", setVotedRaw, "setVoted");
 
@@ -1119,38 +1169,55 @@ export function useElectionDay(isBootstrap: boolean) {
     "cancelRideCoordination",
   );
 
-  // Polls for due reminders and fires a toast for each (clearing it so it
-  // doesn't repeat) - only while this tab is open, no browser-notification
-  // permission involved. Reads the latest contacts via a ref so the interval
-  // itself never needs to be torn down/recreated when the list changes.
+  // Polls for freshly-DUE reminders and fires a one-time toast for each -
+  // only while this tab is open, no browser-notification permission
+  // involved. Reads the latest contacts via a ref so the interval itself
+  // never needs to be torn down/recreated when the list changes.
+  //
+  // FUTURE -> DUE is now a pure read-time computation
+  // (`resolveReminderLifecycleState`) - `reminderAt` is never written here,
+  // nothing is ever nulled. That means this effect can no longer rely on
+  // "the field went away" to avoid re-toasting every 15s forever, so it
+  // dedupes in-memory instead: `toastedRef` holds `${contact.id}:${reminderAt}`
+  // keys already toasted. A RESCHEDULED reminder (a new `reminderAt` value)
+  // gets a fresh key and can toast again once it later becomes due - the
+  // explicit product requirement. This set grows unboundedly over a very
+  // long session (never evicted) - an accepted, deliberately simple
+  // tradeoff for an internal tool, matching this same effect's existing
+  // `contactsRef` simplicity tradeoff; not worth over-engineering eviction
+  // logic for a single election-day shift.
   const contactsRef = useRef(scopedContacts);
   useEffect(() => {
     contactsRef.current = scopedContacts;
   }, [scopedContacts]);
 
+  const toastedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const checkReminders = () => {
-      // A role that can't see reminder status shouldn't have one silently
-      // cleared, or a toast revealing a voter's name/coordinator, in the
-      // background - not a guardedAction denial (nothing was attempted),
-      // just a visibility gate on an automatic process.
+      // A role that can't see reminder status shouldn't have a toast
+      // revealing a voter's name/coordinator in the background - not a
+      // guardedAction denial (nothing was attempted, nothing is written),
+      // just a visibility gate on an automatic, fully read-only process.
       if (!can("voter.viewReminderStatus")) return;
+      const now = new Date();
       const due = (contactsRef.current ?? []).filter(
-        (c) => c.reminderAt && new Date(c.reminderAt).getTime() <= Date.now(),
+        (c) => resolveReminderLifecycleState(c, now) === "due",
       );
       for (const c of due) {
+        const key = `${c.id}:${c.reminderAt}`;
+        if (toastedRef.current.has(key)) continue;
+        toastedRef.current.add(key);
         toast.info(
           ELECTION_DAY_TEXT.reminder.toast.due(
             `${c.firstName} ${c.lastName}`,
             c.coordinator,
           ),
         );
-        void api.setReminder(c.id, null).then(applyContactUpdate);
       }
     };
     const id = setInterval(checkReminders, 15_000);
     return () => clearInterval(id);
-  }, [applyContactUpdate, can]);
+  }, [can]);
 
   return {
     contacts: pagedContacts,
@@ -1189,6 +1256,7 @@ export function useElectionDay(isBootstrap: boolean) {
     reloadNonVotingReasons,
     nonVotingReasonReport,
     closedReasonBreakdown,
+    closedRemindersToday,
     showUnvotedOnly,
     setShowUnvotedOnly,
     followUpFilter,
@@ -1216,6 +1284,9 @@ export function useElectionDay(isBootstrap: boolean) {
     setRideArranged,
     setReminder,
     setReminderAt,
+    cancelReminder,
+    closeReminder,
+    listReminderEvents: (contactId: string) => api.listReminderEvents(contactId),
     setVoted,
     setNonVotingReason,
     setRideCompleted,

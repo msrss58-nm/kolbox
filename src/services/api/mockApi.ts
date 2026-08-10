@@ -8,6 +8,7 @@ import type {
   NonVotingReason,
   PermissionUser,
   PollingStation,
+  ReminderEvent,
   RideCoordinator,
   RideStatusEvent,
   TrendPoint,
@@ -483,6 +484,9 @@ export class MockApi implements ApiClient {
       rideCompleted: false,
       rideCompletedAt: null,
       reminderAt: null,
+      reminderClosedAt: null,
+      reminderClosedReason: null,
+      reminderClosedBy: null,
       voted: false,
       votedAt: null,
       notVotingReasonId: null,
@@ -559,17 +563,18 @@ export class MockApi implements ApiClient {
     return [...this.rideStatusEvents].reverse();
   }
 
-  async setReminder(
-    id: string,
-    minutesFromNow: number | null,
-  ): Promise<ElectionDayVoter> {
+  /** Reminder Lifecycle v1: creating/rescheduling a reminder resets any
+   * previous closure metadata - mirrors `election_day_set_reminder`'s
+   * behavior (no in-memory reminder-events log is maintained here, see this
+   * class's own doc comment on `listReminderEvents`). */
+  async setReminder(id: string, minutesFromNow: number): Promise<ElectionDayVoter> {
     await latency();
     const contact = this.electionDayVoters.find((v) => v.id === id);
     if (!contact) throw new Error("רשומה לא נמצאה");
-    contact.reminderAt =
-      minutesFromNow === null
-        ? null
-        : new Date(Date.now() + minutesFromNow * 60_000).toISOString();
+    contact.reminderAt = new Date(Date.now() + minutesFromNow * 60_000).toISOString();
+    contact.reminderClosedAt = null;
+    contact.reminderClosedReason = null;
+    contact.reminderClosedBy = null;
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     return contact;
   }
@@ -579,20 +584,75 @@ export class MockApi implements ApiClient {
     const contact = this.electionDayVoters.find((v) => v.id === id);
     if (!contact) throw new Error("רשומה לא נמצאה");
     contact.reminderAt = at;
+    contact.reminderClosedAt = null;
+    contact.reminderClosedReason = null;
+    contact.reminderClosedBy = null;
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     return contact;
   }
 
-  async setVoted(id: string, voted: boolean): Promise<ElectionDayVoter> {
+  /** Reminder Lifecycle v1: explicit "mark handled". Idempotent no-op if no
+   * reminder is currently open - mirrors `election_day_close_reminder`. */
+  async closeReminder(id: string, actorName: string): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    if (contact.reminderAt !== null) {
+      contact.reminderAt = null;
+      contact.reminderClosedAt = new Date().toISOString();
+      contact.reminderClosedReason = "handled";
+      contact.reminderClosedBy = actorName;
+      saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    }
+    return contact;
+  }
+
+  /** Reminder Lifecycle v1: explicit cancel. Idempotent no-op if no reminder
+   * is currently open - mirrors `election_day_cancel_reminder`. */
+  async cancelReminder(id: string, actorName: string): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    if (contact.reminderAt !== null) {
+      contact.reminderAt = null;
+      contact.reminderClosedAt = new Date().toISOString();
+      contact.reminderClosedReason = "cancelled";
+      contact.reminderClosedBy = actorName;
+      saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    }
+    return contact;
+  }
+
+  /** Reminder Lifecycle v1: setting `voted = true` also closes any currently
+   * open reminder (`reason: "voted"`) - un-voting never touches reminder
+   * state. Mirrors `election_day_set_voted`. */
+  async setVoted(
+    id: string,
+    voted: boolean,
+    actorName: string,
+  ): Promise<ElectionDayVoter> {
     await latency();
     const contact = this.electionDayVoters.find((v) => v.id === id);
     if (!contact) throw new Error("רשומה לא נמצאה");
     contact.voted = voted;
     contact.votedAt = voted ? new Date().toISOString() : null;
+    if (voted && contact.reminderAt !== null) {
+      contact.reminderAt = null;
+      contact.reminderClosedAt = new Date().toISOString();
+      contact.reminderClosedReason = "voted";
+      contact.reminderClosedBy = actorName;
+    }
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     return contact;
   }
 
+  /** Reminder Lifecycle v1: if the newly-set reason's `requiresFollowUp` is
+   * `false`, also closes any currently open reminder (`reason:
+   * "case_closed"`) - mirrors `election_day_set_non_voting_reason`. Since
+   * `this.nonVotingReasons` is never actually populated in the running app
+   * (see that field's own doc comment - Election Day always delegates to
+   * `SupabaseElectionDayApi`), this lookup is here for behavioral parity
+   * only and will typically find nothing. */
   async setNonVotingReason(
     id: string,
     reasonId: string | null,
@@ -604,8 +664,28 @@ export class MockApi implements ApiClient {
     contact.notVotingReasonId = reasonId;
     contact.notVotingReasonSetAt = reasonId ? new Date().toISOString() : null;
     contact.notVotingReasonSetBy = reasonId ? setByName : null;
+    const reason = reasonId
+      ? this.nonVotingReasons.find((r) => r.id === reasonId)
+      : undefined;
+    if (reason && !reason.requiresFollowUp && contact.reminderAt !== null) {
+      contact.reminderAt = null;
+      contact.reminderClosedAt = new Date().toISOString();
+      contact.reminderClosedReason = "case_closed";
+      contact.reminderClosedBy = setByName;
+    }
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     return contact;
+  }
+
+  /** Reminder Lifecycle v1: no consumer reads mock reminder-event history
+   * today (Election Day always delegates to `SupabaseElectionDayApi` in the
+   * real app - see `nonVotingReasons`' field comment for the same pattern) -
+   * an empty array is the simplest correct choice rather than maintaining a
+   * parallel in-memory events log nothing reads. Deliberate scope-limiting
+   * decision, not an oversight. */
+  async listReminderEvents(): Promise<ReminderEvent[]> {
+    await latency();
+    return [];
   }
 
   async incrementCallAttempts(id: string): Promise<ElectionDayVoter> {

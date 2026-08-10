@@ -104,6 +104,16 @@ export interface ElectionDayVoter {
   rideCompleted: boolean; // the actual ride happened (reported by the driver, marked in the ride-coordination table)
   rideCompletedAt: string | null; // ISO timestamp
   reminderAt: string | null; // ISO timestamp - when a follow-up reminder should fire
+  /** Reminder Lifecycle v1: set only when the currently/most-recently held
+   * reminder above was explicitly closed out (handled/voted/case_closed) or
+   * cancelled - `reminderAt` itself is cleared at that point, these 3 fields
+   * are what's left to explain why. All three are null while a reminder is
+   * open (or none was ever set). See `ReminderEvent` below for the full
+   * history (including 'created'/'rescheduled'), not just the latest
+   * closure. */
+  reminderClosedAt: string | null; // ISO timestamp
+  reminderClosedReason: ReminderClosedReason | null;
+  reminderClosedBy: string | null; // denormalized actor name, not a verified identity
   voted: boolean;
   votedAt: string | null; // ISO timestamp
   /** סיבת אי-הצבעה - only meaningful while voted = false, but NOT cleared
@@ -115,6 +125,33 @@ export interface ElectionDayVoter {
   notVotingReasonSetBy: string | null; // denormalized PermissionUser name, not a FK
   callAttempts: number; // raw click count on the call button, monotonic, never reset
   callAttemptsThreshold: number; // next call_attempts value that triggers the decision dialog, starts at 3, +3 per "keep trying" choice
+}
+
+/** Reminder Lifecycle v1: why a reminder is no longer open. 'handled' is an
+ * explicit manual close; 'voted' and 'case_closed' are closures automatically
+ * triggered as a side effect of `setVoted(true)`/`setNonVotingReason` (see
+ * `ElectionDayApi`); 'cancelled' is an explicit cancel (distinct from
+ * 'handled' - both close the reminder, but mean different things to a
+ * coordinator reviewing history). */
+export type ReminderClosedReason = "handled" | "voted" | "case_closed" | "cancelled";
+
+/** A single lifecycle event on an `ElectionDayVoter`'s reminder - powers the
+ * audit/history view (mirrors `RideStatusEvent`'s role for ride-arranged
+ * toggles). Denormalizes name/coordinator so the log reads correctly even if
+ * the contact is later removed by a re-import. Unlike `ElectionDayVoter`'s
+ * own `reminderClosedAt`/`reminderClosedReason`/`reminderClosedBy` (which
+ * only ever reflect the latest closure), this is the full history, including
+ * 'created' and 'rescheduled' entries. */
+export interface ReminderEvent {
+  id: string;
+  contactId: string;
+  contactName: string;
+  coordinator: string;
+  eventType: "created" | "closed" | "cancelled" | "rescheduled";
+  reminderAt: string | null;
+  reason: "handled" | "voted" | "case_closed" | null;
+  actorName: string | null;
+  createdAt: string; // ISO timestamp
 }
 
 /** סיבת אי-הצבעה - a dynamic, fully CRUD-managed catalog entry ("ניהול סיבות

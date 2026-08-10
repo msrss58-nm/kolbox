@@ -31,6 +31,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "voter.viewCoordinator": "צפייה באחראי",
   "voter.viewNotes": "צפייה בהערות",
   "voter.viewReminderStatus": "צפייה בסטטוס תזכורת",
+  "voter.viewReminderHistory": "צפייה בהיסטוריית תזכורות",
   "voter.viewRideStatus": "צפייה בסטטוס הסעה",
   "voter.viewVotedStatus": "צפייה בסטטוס הצבעה",
 };
@@ -254,9 +255,13 @@ export const ELECTION_DAY_TEXT = {
     followUp: {
       title: "מה דורש טיפול עכשיו",
       callAttempts2Plus: "ניסיונות חיוג 2+",
-      reminderDue: "תזכורת הגיעה",
-      reminderWaiting: "ממתינים לתזכורת",
+      reminderDue: "תזכורות לטיפול עכשיו",
+      reminderWaiting: "תזכורות עתידיות",
       notYetHandled: "לא טופלו עדיין",
+      /** Reminder Lifecycle v1 - replaces the `notYetHandled` tile in
+       * `ElectionDayDashboard.tsx`'s row 3 (see `useElectionDay.ts`'s
+       * `closedRemindersToday`). */
+      closedToday: "תזכורות שנסגרו",
     },
     /** Row 4 - ride pipeline counts (see `rideStatusBreakdown.ts`). */
     rideStatus: {
@@ -367,6 +372,17 @@ export const ELECTION_DAY_TEXT = {
     /** `formatted` is `formatReminderDisplay(reminderAt)`'s output (e.g.
      * "בשעה 22:00" or "ב-17/08/2026 בשעה 22:00"). */
     activeLabel: (formatted: string) => `תזכורת ${formatted}`,
+    /** Reminder Lifecycle v1: shown instead of `activeLabel` once the
+     * reminder's time has passed (state === "due") - see
+     * `reminderLifecycle.ts`. */
+    dueLabel: "הגיע מועד התזכורת",
+    /** Reminder Lifecycle v1: closes an outstanding (future or due)
+     * reminder via `onCloseReminder` - only offered while due. */
+    closeButton: "סמן כטופל",
+    /** Reminder Lifecycle v1: relabels the reschedule action once a
+     * reminder is already outstanding (future or due) - wired to the same
+     * `ReminderMenu` as a fresh reminder, unchanged. */
+    rescheduleButton: "קבע תזכורת חדשה",
     options: {
       15: "15 דקות",
       30: "30 דקות",
@@ -380,6 +396,32 @@ export const ELECTION_DAY_TEXT = {
       cancelled: "התזכורת בוטלה",
       due: (name: string, coordinator: string) =>
         `תזכורת: זמן ליצור קשר עם ${name} (${coordinator})`,
+      /** Reminder Lifecycle v1 - fired by `onCloseReminder`'s success
+       * handler in `useElectionDay.ts`. */
+      closed: "התזכורת סומנה כטופלה",
+    },
+    /** Reminder Lifecycle v1: the collapsible per-contact audit trail in
+     * `ElectionDayContactModal.tsx`, gated by `voter.viewReminderHistory`. */
+    history: {
+      sectionTitle: "היסטוריית תזכורות",
+      empty: "אין היסטוריית תזכורות",
+      eventLabel: {
+        created: "תזכורת נקבעה",
+        closed: "תזכורת נסגרה",
+        cancelled: "תזכורת בוטלה",
+        rescheduled: "תזכורת נדחתה",
+      },
+      reasonLabel: {
+        handled: "טופל ידנית",
+        voted: "הבוחר הצביע",
+        case_closed: "התיק נסגר",
+      },
+      /** `name` is `ReminderEvent.actorName` - denormalized, audit-only
+       * informational text, NOT a verified/authenticated identity (mirrors
+       * this app's existing security model for `PermissionUser`, which has
+       * no real backing identity - see CLAUDE.md). Only rendered when
+       * `actorName` is non-null; never shown as a fallback "unknown" line. */
+      actorPrefix: (name: string) => `על ידי ${name}`,
     },
   },
 
