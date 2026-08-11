@@ -71,6 +71,7 @@ export interface CoordinatorBreakdown {
 export type ElectionDaySortKey = "city" | "status";
 export type SortDir = "asc" | "desc";
 export type RideStatusFilterValue = "arranged" | "notArranged";
+export type VoteStatusFilterValue = "notVoted" | "voted";
 
 /** Where a contact sits in the ride-coordination table's pipeline - lower
  * numbers surface first (least progressed, most in need of attention). */
@@ -180,20 +181,33 @@ export function useElectionDay(isBootstrap: boolean) {
   const [cityFilter, setCityFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<RideStatusFilterValue[]>([]);
   const [reasonFilter, setReasonFilter] = useState<string[]>([]);
-  const [showUnvotedOnly, setShowUnvotedOnly] = useState(false);
-  // Coordinator worklist filter (additive - does not replace
-  // `showUnvotedOnly`, which stays exactly as-is). Defaults to "remaining"
-  // only, matching the worklist's default "what still needs attention" view.
-  // Typed as `FollowUpStatus[]` (not a loose `string[]`) - same pattern as
-  // `statusFilter`/`RideStatusFilterValue[]` above.
+  const [voteStatusFilter, setVoteStatusFilterRaw] = useState<VoteStatusFilterValue[]>([
+    "notVoted",
+  ]);
+  // Coordinator worklist filter. Defaults to "remaining" only, matching the
+  // worklist's default "what still needs attention" view - unchanged from
+  // before `voteStatusFilter` existed. Typed as `FollowUpStatus[]` (not a
+  // loose `string[]`) - same pattern as `statusFilter`/`RideStatusFilterValue[]`
+  // above.
   const [followUpFilter, setFollowUpFilter] = useState<FollowUpStatus[]>(["remaining"]);
+  // `voteStatusFilter`'s own setter, wrapped so selecting "voted" exclusively
+  // (not "all", not the notVoted+voted interim state while toggling) also
+  // clears `followUpFilter` - "remaining" never includes voted contacts
+  // (`resolveFollowUpStatus`), so leaving it at its default would silently
+  // zero out the very results the user just asked to see. One-directional by
+  // design: going back to "notVoted" does NOT restore "remaining" - once
+  // cleared, it stays cleared until the user picks it again themselves, so
+  // there's no surprising state jumping back on its own.
+  const setVoteStatusFilter = useCallback((values: VoteStatusFilterValue[]) => {
+    setVoteStatusFilterRaw(values);
+    if (values.length === 1 && values[0] === "voted") setFollowUpFilter([]);
+  }, []);
   const hasActiveFilters =
     debouncedSearch.trim() !== "" ||
     coordinatorFilter.length > 0 ||
     cityFilter.length > 0 ||
     statusFilter.length > 0 ||
-    reasonFilter.length > 0 ||
-    showUnvotedOnly;
+    reasonFilter.length > 0;
 
   // A single atomic { key, dir } state - toggling both from one updater
   // avoids the unreliable pattern of calling setState from inside another
@@ -244,7 +258,10 @@ export function useElectionDay(isBootstrap: boolean) {
       base = base.filter(
         (c) => c.notVotingReasonId && reasonFilter.includes(c.notVotingReasonId),
       );
-    if (showUnvotedOnly) base = base.filter((c) => !c.voted);
+    if (voteStatusFilter.length)
+      base = base.filter((c) =>
+        voteStatusFilter.includes(c.voted ? "voted" : "notVoted"),
+      );
     if (followUpFilter.length > 0)
       base = base.filter((c) =>
         followUpFilter.includes(resolveFollowUpStatus(c, reasonsById)),
@@ -269,7 +286,7 @@ export function useElectionDay(isBootstrap: boolean) {
     cityFilter,
     statusFilter,
     reasonFilter,
-    showUnvotedOnly,
+    voteStatusFilter,
     followUpFilter,
     reasonsById,
     sortBy,
@@ -312,7 +329,7 @@ export function useElectionDay(isBootstrap: boolean) {
       string[],
       RideStatusFilterValue[],
       string[],
-      boolean,
+      VoteStatusFilterValue[],
       FollowUpStatus[],
       ElectionDaySortKey | null,
       SortDir,
@@ -323,7 +340,7 @@ export function useElectionDay(isBootstrap: boolean) {
     cityFilter,
     statusFilter,
     reasonFilter,
-    showUnvotedOnly,
+    voteStatusFilter,
     followUpFilter,
     sortBy,
     sortDir,
@@ -334,7 +351,7 @@ export function useElectionDay(isBootstrap: boolean) {
     trackedQuery[2] !== cityFilter ||
     trackedQuery[3] !== statusFilter ||
     trackedQuery[4] !== reasonFilter ||
-    trackedQuery[5] !== showUnvotedOnly ||
+    trackedQuery[5] !== voteStatusFilter ||
     trackedQuery[6] !== followUpFilter ||
     trackedQuery[7] !== sortBy ||
     trackedQuery[8] !== sortDir;
@@ -345,7 +362,7 @@ export function useElectionDay(isBootstrap: boolean) {
       cityFilter,
       statusFilter,
       reasonFilter,
-      showUnvotedOnly,
+      voteStatusFilter,
       followUpFilter,
       sortBy,
       sortDir,
@@ -1257,8 +1274,8 @@ export function useElectionDay(isBootstrap: boolean) {
     nonVotingReasonReport,
     closedReasonBreakdown,
     closedRemindersToday,
-    showUnvotedOnly,
-    setShowUnvotedOnly,
+    voteStatusFilter,
+    setVoteStatusFilter,
     followUpFilter,
     setFollowUpFilter,
     sortBy,

@@ -1,6 +1,5 @@
 import { X } from "lucide-react";
 import { Accordion } from "../../components/ui/Accordion";
-import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Field";
 import { Pagination } from "../../components/ui/Pagination";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
@@ -34,14 +33,6 @@ export function ElectionDayVotersPage() {
                 </button>
               )}
             </div>
-
-            <Button
-              type="button"
-              variant={electionDay.showUnvotedOnly ? "primary" : "secondary"}
-              onClick={() => electionDay.setShowUnvotedOnly((v) => !v)}
-            >
-              📞 {ELECTION_DAY_TEXT.voted.showUnvotedOnly}
-            </Button>
           </div>
 
           {/* Collapsed by default (product spec: "אזור סינון מתקפל") - a
@@ -69,6 +60,8 @@ export function ElectionDayVotersPage() {
                       onReasonFilterChange={electionDay.setReasonFilter}
                       followUpFilter={electionDay.followUpFilter}
                       onFollowUpFilterChange={electionDay.setFollowUpFilter}
+                      voteStatusFilter={electionDay.voteStatusFilter}
+                      onVoteStatusFilterChange={electionDay.setVoteStatusFilter}
                     />
                   </div>
                 ),

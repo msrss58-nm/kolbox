@@ -179,6 +179,18 @@ export const ELECTION_DAY_TEXT = {
     all: "כל הערים",
   },
 
+  /** Voter's own voted/not-voted state - reuses the same `voted` field as
+   * every other voted-status UI, not a new concept. Replaces the old
+   * standalone `showUnvotedOnly` toggle button. */
+  voteStatusFilter: {
+    label: "סטטוס הצבעה",
+    all: "הכול",
+    options: {
+      notVoted: "לא הצביע",
+      voted: "הצביע",
+    },
+  },
+
   statusFilter: {
     label: "סטטוס הסעה",
     all: "כל הסטטוסים",
@@ -190,8 +202,7 @@ export const ELECTION_DAY_TEXT = {
   },
 
   /** Coordinator worklist filter ("מצב טיפול") - built on top of
-   * `followUpStatus.ts`'s `FollowUpStatus`. Additive to the existing
-   * `showUnvotedOnly` toggle, not a replacement for it. */
+   * `followUpStatus.ts`'s `FollowUpStatus`. */
   followUpFilter: {
     label: "מצב טיפול",
     all: "כל המצבים",
@@ -352,7 +363,6 @@ export const ELECTION_DAY_TEXT = {
       notVoted: "הסימון בוטל",
       reasonSet: "סיבת אי-ההצבעה נשמרה",
     },
-    showUnvotedOnly: "הצג רק מי שטרם הצביע",
     /** Shown only while voted = false - the reason is never cleared when
      * voted flips to true (kept for history/reports), it just stops being
      * offered for editing (see useElectionDay.ts's setNonVotingReason). */

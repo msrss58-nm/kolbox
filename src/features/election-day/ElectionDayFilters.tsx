@@ -3,11 +3,16 @@ import { PermissionGuard } from "../../permissions/PermissionGuard";
 import type { NonVotingReason } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { FollowUpStatus } from "./followUpStatus";
-import type { RideStatusFilterValue } from "./useElectionDay";
+import type { RideStatusFilterValue, VoteStatusFilterValue } from "./useElectionDay";
 
 const STATUS_OPTIONS: { value: RideStatusFilterValue; label: string }[] = [
   { value: "arranged", label: ELECTION_DAY_TEXT.status.arranged },
   { value: "notArranged", label: ELECTION_DAY_TEXT.status.notArranged },
+];
+
+const VOTE_STATUS_OPTIONS: { value: VoteStatusFilterValue; label: string }[] = [
+  { value: "notVoted", label: ELECTION_DAY_TEXT.voteStatusFilter.options.notVoted },
+  { value: "voted", label: ELECTION_DAY_TEXT.voteStatusFilter.options.voted },
 ];
 
 const FOLLOW_UP_OPTIONS: { value: FollowUpStatus; label: string }[] = [
@@ -30,6 +35,8 @@ export function ElectionDayFilters({
   onReasonFilterChange,
   followUpFilter,
   onFollowUpFilterChange,
+  voteStatusFilter,
+  onVoteStatusFilterChange,
 }: {
   coordinators: string[];
   coordinatorFilter: string[];
@@ -44,6 +51,8 @@ export function ElectionDayFilters({
   onReasonFilterChange: (values: string[]) => void;
   followUpFilter: FollowUpStatus[];
   onFollowUpFilterChange: (values: FollowUpStatus[]) => void;
+  voteStatusFilter: VoteStatusFilterValue[];
+  onVoteStatusFilterChange: (values: VoteStatusFilterValue[]) => void;
 }) {
   return (
     <>
@@ -56,13 +65,19 @@ export function ElectionDayFilters({
           className="md:w-52"
         />
       </PermissionGuard>
-      <MultiSelectDropdown
-        emptyLabel={ELECTION_DAY_TEXT.cityFilter.all}
-        options={cities.map((c) => ({ value: c, label: c }))}
-        selected={cityFilter}
-        onChange={onCityFilterChange}
-        className="md:w-52"
-      />
+      {/* Same gate as the reason/follow-up filters below - it filters on the
+       * same voted-status field they're derived from. */}
+      <PermissionGuard permission="voter.viewVotedStatus">
+        <MultiSelectDropdown
+          emptyLabel={ELECTION_DAY_TEXT.voteStatusFilter.all}
+          options={VOTE_STATUS_OPTIONS}
+          selected={voteStatusFilter}
+          onChange={(values) =>
+            onVoteStatusFilterChange(values as VoteStatusFilterValue[])
+          }
+          className="md:w-52"
+        />
+      </PermissionGuard>
       <PermissionGuard permission="voter.viewRideStatus">
         <MultiSelectDropdown
           emptyLabel={ELECTION_DAY_TEXT.statusFilter.all}
@@ -95,6 +110,13 @@ export function ElectionDayFilters({
           className="md:w-52"
         />
       </PermissionGuard>
+      <MultiSelectDropdown
+        emptyLabel={ELECTION_DAY_TEXT.cityFilter.all}
+        options={cities.map((c) => ({ value: c, label: c }))}
+        selected={cityFilter}
+        onChange={onCityFilterChange}
+        className="md:w-52"
+      />
     </>
   );
 }
