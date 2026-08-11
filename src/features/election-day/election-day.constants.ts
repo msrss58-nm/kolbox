@@ -376,7 +376,7 @@ export const ELECTION_DAY_TEXT = {
      * offered for editing (see useElectionDay.ts's setNonVotingReason). */
     reasonLabel: "סיבת אי-הצבעה",
     reasonPlaceholder: "בחרו סיבה (אופציונלי)",
-    reasonNoneOption: "ללא סיבה",
+    reasonNoneOption: "בחר סיבה",
   },
 
   reminder: {
