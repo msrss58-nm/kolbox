@@ -274,6 +274,14 @@ export const ELECTION_DAY_TEXT = {
        * `closedRemindersToday`). */
       closedToday: "תזכורות שנסגרו",
     },
+    /** Drill-down list for `followUp.callAttempts2Plus` - same underlying
+     * data (`buildCallAttemptsWatchlist`), never a different set/count. */
+    callAttemptsWatchlist: {
+      title: "בוחרים עם 2+ ניסיונות חיוג",
+      empty: "אין כרגע בוחרים עם 2+ ניסיונות חיוג",
+      noCoordinator: "ללא אחראי",
+      attemptsBadge: (count: number) => `${count} ניסיונות`,
+    },
     /** Row 4 - ride pipeline counts (see `rideStatusBreakdown.ts`). */
     rideStatus: {
       title: "הסעות",

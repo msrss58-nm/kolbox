@@ -9,6 +9,32 @@ export interface FollowUpBreakdown {
   reminderWaiting: number;
 }
 
+export interface CallAttemptsWatchlistRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  coordinator: string;
+  callAttempts: number;
+}
+
+/**
+ * Single source of truth for "בוחר עם 2+ ניסיונות חיוג" - still on the
+ * coordinator worklist (`resolveFollowUpStatus === "remaining"`) and at or
+ * past the configured call-attempts threshold. Both the `callAttempts2Plus`
+ * KPI tally below and `buildCallAttemptsWatchlist`'s drill-down rows read
+ * through this exact check, so a future threshold/definition change happens
+ * in one place and the two can never disagree.
+ */
+export function isCallAttempts2Plus(
+  contact: ElectionDayVoter,
+  reasonsById: ReadonlyMap<string, NonVotingReason>,
+): boolean {
+  return (
+    resolveFollowUpStatus(contact, reasonsById) === "remaining" &&
+    contact.callAttempts >= APP_CONFIG.electionDayAttentionCallAttemptsThreshold
+  );
+}
+
 /**
  * Dashboard row 3 ("מה דורש טיפול עכשיו"): partitions every contact whose
  * `resolveFollowUpStatus` is `"remaining"` into 3 mutually-exclusive buckets,
@@ -32,7 +58,7 @@ export function buildFollowUpBreakdown(
   for (const c of contacts) {
     if (resolveFollowUpStatus(c, reasonsById) !== "remaining") continue;
 
-    if (c.callAttempts >= APP_CONFIG.electionDayAttentionCallAttemptsThreshold) {
+    if (isCallAttempts2Plus(c, reasonsById)) {
       breakdown.callAttempts2Plus++;
     } else {
       const state = resolveReminderLifecycleState(c, now);
@@ -42,6 +68,37 @@ export function buildFollowUpBreakdown(
   }
 
   return breakdown;
+}
+
+/**
+ * Dashboard "בוחרים עם 2+ ניסיונות חיוג" card - the exact same contacts
+ * `FollowUpBreakdown.callAttempts2Plus` counts (`isCallAttempts2Plus` above),
+ * just returned as rows instead of a tally, so the card can never show a
+ * different set or total than the KPI tile next to it. Sorted by call
+ * attempts descending (deterministic tie-break by name) - highest-attention
+ * voters first, never random order.
+ */
+export function buildCallAttemptsWatchlist(
+  contacts: readonly ElectionDayVoter[],
+  reasonsById: ReadonlyMap<string, NonVotingReason>,
+): CallAttemptsWatchlistRow[] {
+  const rows: CallAttemptsWatchlistRow[] = [];
+
+  for (const c of contacts) {
+    if (!isCallAttempts2Plus(c, reasonsById)) continue;
+    rows.push({
+      id: c.id,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      coordinator: c.coordinator,
+      callAttempts: c.callAttempts,
+    });
+  }
+
+  return rows.sort((a, b) => {
+    if (b.callAttempts !== a.callAttempts) return b.callAttempts - a.callAttempts;
+    return (a.lastName + a.firstName).localeCompare(b.lastName + b.firstName, "he");
+  });
 }
 
 /**

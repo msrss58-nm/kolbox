@@ -29,6 +29,8 @@ export function ElectionDayDashboardPage() {
         nonVotingReasonReport={electionDay.nonVotingReasonReport}
         onOpenReasonReport={setReportReasonId}
         closedReasonBreakdown={electionDay.closedReasonBreakdown}
+        callAttemptsWatchlist={electionDay.callAttemptsWatchlist}
+        onOpenVoter={electionDay.openContact}
         loaded={electionDay.loaded}
       />
 

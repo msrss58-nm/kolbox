@@ -30,7 +30,11 @@ import { resolveFollowUpStatus, type FollowUpStatus } from "./followUpStatus";
 import { buildClosedReasonBreakdown } from "./closedReasonBreakdown";
 import { buildNonVotingReasonReport } from "./nonVotingReasonReport";
 import { formatReminderDisplay } from "./reminderDisplay";
-import { buildFollowUpBreakdown, buildClosedRemindersToday } from "./followUpBreakdown";
+import {
+  buildFollowUpBreakdown,
+  buildClosedRemindersToday,
+  buildCallAttemptsWatchlist,
+} from "./followUpBreakdown";
 import { resolveReminderLifecycleState } from "./reminderLifecycle";
 import { buildRideStatusBreakdown } from "./rideStatusBreakdown";
 import { buildAttentionAlerts } from "./attentionAlerts";
@@ -460,6 +464,13 @@ export function useElectionDay(isBootstrap: boolean) {
   const closedRemindersToday = useMemo(
     () => buildClosedRemindersToday(scopedContacts ?? []),
     [scopedContacts],
+  );
+
+  // Dashboard "בוחרים עם 2+ ניסיונות חיוג" card - same filter as
+  // `followUpBreakdown.callAttempts2Plus` above, returned as rows.
+  const callAttemptsWatchlist = useMemo(
+    () => buildCallAttemptsWatchlist(scopedContacts ?? [], reasonsById),
+    [scopedContacts, reasonsById],
   );
 
   const rideStatusBreakdown = useMemo(
@@ -1274,6 +1285,7 @@ export function useElectionDay(isBootstrap: boolean) {
     nonVotingReasonReport,
     closedReasonBreakdown,
     closedRemindersToday,
+    callAttemptsWatchlist,
     voteStatusFilter,
     setVoteStatusFilter,
     followUpFilter,

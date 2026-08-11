@@ -27,11 +27,12 @@ import { PermissionGuard } from "../../permissions/PermissionGuard";
 import type { ElectionDayVoter } from "../../types";
 import { AttentionAlertsCard } from "./AttentionAlertsCard";
 import type { AttentionAlertRow } from "./attentionAlerts";
+import { CallAttemptsWatchlistCard } from "./CallAttemptsWatchlistCard";
 import type { ClosedReasonBreakdownRow } from "./closedReasonBreakdown";
 import { CoordinatorPerformanceTable } from "./CoordinatorPerformanceTable";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayStatTile } from "./ElectionDayStatTile";
-import type { FollowUpBreakdown } from "./followUpBreakdown";
+import type { CallAttemptsWatchlistRow, FollowUpBreakdown } from "./followUpBreakdown";
 import type { NonVotingReasonReportRow } from "./nonVotingReasonReport";
 import { NonVotingReasonsReportCard } from "./NonVotingReasonsReportCard";
 import { RideCoordinationTable } from "./RideCoordinationTable";
@@ -148,6 +149,8 @@ export function ElectionDayDashboard({
   onOpenReasonReport,
   closedReasonBreakdown,
   closedRemindersToday,
+  callAttemptsWatchlist,
+  onOpenVoter,
   loaded,
 }: {
   stats: ElectionDayStats;
@@ -167,6 +170,10 @@ export function ElectionDayDashboard({
    * `useElectionDay.ts`'s `closedRemindersToday`), feeds row 3's
    * `closedToday` tile (replaces the old `notYetHandled` tile). */
   closedRemindersToday: number;
+  /** "בוחרים עם 2+ ניסיונות חיוג" card - same rows the `callAttempts2Plus`
+   * KPI tile counts (see `followUpBreakdown.ts`). */
+  callAttemptsWatchlist: CallAttemptsWatchlistRow[];
+  onOpenVoter: (id: string) => void;
   loaded: boolean;
 }) {
   const followUpText = ELECTION_DAY_TEXT.dashboard.followUp;
@@ -332,6 +339,10 @@ export function ElectionDayDashboard({
             onOpenReasonReport={onOpenReasonReport}
           />
         </PermissionGuard>
+        <CallAttemptsWatchlistCard
+          rows={callAttemptsWatchlist}
+          onOpenVoter={onOpenVoter}
+        />
       </div>
     </div>
   );
