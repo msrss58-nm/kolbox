@@ -85,6 +85,7 @@ type VoterRow = {
   not_voting_reason_set_by: string | null;
   call_attempts: number;
   call_attempts_threshold: number;
+  last_call_attempt_at: string | null;
 };
 
 function toVoter(row: VoterRow): ElectionDayVoter {
@@ -116,6 +117,7 @@ function toVoter(row: VoterRow): ElectionDayVoter {
     notVotingReasonSetBy: row.not_voting_reason_set_by,
     callAttempts: row.call_attempts,
     callAttemptsThreshold: row.call_attempts_threshold,
+    lastCallAttemptAt: row.last_call_attempt_at,
   };
 }
 

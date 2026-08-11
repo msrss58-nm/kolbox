@@ -92,6 +92,7 @@ export function ElectionDayContactModal({
   onSetPhone,
   settingPhone,
   onIncrementCallAttempts,
+  incrementingCallAttempts,
   onExtendCallAttemptsThreshold,
 }: {
   contact: ElectionDayVoter | null;
@@ -121,6 +122,11 @@ export function ElectionDayContactModal({
    * to the updated voter so the caller can tell whether the threshold was
    * just reached. */
   onIncrementCallAttempts: (id: string) => Promise<ElectionDayVoter | undefined>;
+  /** UI-level defense-in-depth against rapid double-click while an increment
+   * request is in flight - the DB-side WHERE guard on
+   * election_day_increment_call_attempts is the actual source of truth,
+   * this just avoids firing a redundant request. */
+  incrementingCallAttempts: boolean;
   onExtendCallAttemptsThreshold: (id: string) => Promise<ElectionDayVoter | undefined>;
 }) {
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
@@ -251,7 +257,7 @@ export function ElectionDayContactModal({
                 <div className="flex flex-col items-stretch gap-1">
                   <Button
                     className="w-full bg-[#00a400] text-white hover:bg-[#008f00] active:bg-[#007a00] disabled:bg-slate-200 disabled:text-slate-400"
-                    disabled={!contact.phone}
+                    disabled={!contact.phone || incrementingCallAttempts}
                     onClick={() => {
                       if (!contact.phone) return;
                       // Navigation is immediate/synchronous - the attempt

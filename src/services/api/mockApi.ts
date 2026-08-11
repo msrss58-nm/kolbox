@@ -494,6 +494,7 @@ export class MockApi implements ApiClient {
       notVotingReasonSetBy: null,
       callAttempts: 0,
       callAttemptsThreshold: 3,
+      lastCallAttemptAt: null,
     }));
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     // A fresh import is a new ride-list for the day - last time's log no longer applies.
@@ -692,8 +693,14 @@ export class MockApi implements ApiClient {
     await latency();
     const contact = this.electionDayVoters.find((v) => v.id === id);
     if (!contact) throw new Error("רשומה לא נמצאה");
-    contact.callAttempts += 1;
-    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    // Server-side quota guard mirror (see election_day_increment_call_attempts):
+    // once the quota is reached, return the row unchanged rather than
+    // incrementing past callAttemptsThreshold.
+    if (contact.callAttempts < contact.callAttemptsThreshold) {
+      contact.callAttempts += 1;
+      contact.lastCallAttemptAt = new Date().toISOString();
+      saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    }
     return contact;
   }
 
@@ -701,8 +708,13 @@ export class MockApi implements ApiClient {
     await latency();
     const contact = this.electionDayVoters.find((v) => v.id === id);
     if (!contact) throw new Error("רשומה לא נמצאה");
-    contact.callAttemptsThreshold += 3;
-    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    // Server-side quota guard mirror (see election_day_extend_call_attempts_threshold):
+    // extension is only valid while the quota has actually been reached -
+    // a duplicate/concurrent extend request returns the row unchanged.
+    if (contact.callAttempts === contact.callAttemptsThreshold) {
+      contact.callAttemptsThreshold += 3;
+      saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    }
     return contact;
   }
 

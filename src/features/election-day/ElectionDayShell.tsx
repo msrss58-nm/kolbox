@@ -139,6 +139,7 @@ export function ElectionDayShell() {
         onSetPhone={electionDay.setPhone}
         settingPhone={electionDay.settingPhone}
         onIncrementCallAttempts={electionDay.incrementCallAttempts}
+        incrementingCallAttempts={electionDay.incrementingCallAttempts}
         onExtendCallAttemptsThreshold={electionDay.extendCallAttemptsThreshold}
       />
     </AppShell>

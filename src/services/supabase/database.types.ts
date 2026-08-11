@@ -67,6 +67,7 @@ export interface Database {
           not_voting_reason_set_by: string | null;
           call_attempts: number;
           call_attempts_threshold: number;
+          last_call_attempt_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -98,6 +99,7 @@ export interface Database {
           not_voting_reason_set_by?: string | null;
           call_attempts?: number;
           call_attempts_threshold?: number;
+          last_call_attempt_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -513,15 +515,20 @@ export interface Database {
           sort_order: number;
         }[];
       };
-      /** Call Attempts Counter: atomically increments call_attempts by 1.
-       * Fired on every call-button click. */
+      /** Call Attempts Counter: atomically increments call_attempts by 1 and
+       * stamps last_call_attempt_at, but only while call_attempts <
+       * call_attempts_threshold (server-side quota guard) - fired on every
+       * call-button click. Returns the row unchanged (no error) once the
+       * quota is already reached. */
       election_day_increment_call_attempts: {
         Args: { p_id: string };
         Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
       };
       /** Call Attempts Counter: atomically advances call_attempts_threshold
-       * by 3. Fired when the user chooses "keep trying" from the no-answer
-       * decision dialog. */
+       * by 3, but only while call_attempts = call_attempts_threshold
+       * (server-side guard against duplicate/concurrent extension). Fired
+       * when the user chooses "keep trying" from the no-answer decision
+       * dialog. Returns the row unchanged (no error) once already extended. */
       election_day_extend_call_attempts_threshold: {
         Args: { p_id: string };
         Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];

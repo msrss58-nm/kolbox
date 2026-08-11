@@ -6,6 +6,18 @@ import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { CallAttemptsWatchlistRow } from "./followUpBreakdown";
 
 const text = ELECTION_DAY_TEXT.dashboard.callAttemptsWatchlist;
+const callAttemptsText = ELECTION_DAY_TEXT.callAttempts;
+
+/** Same "he-IL", hour/minute-only formatting already used for a plain local
+ * clock time elsewhere (RefreshRow in ElectionDayDashboard.tsx,
+ * reminderDisplay.ts) - no new timezone/formatting logic. */
+function formatLastAttempt(iso: string | null): string {
+  if (!iso) return text.noLastAttempt;
+  return new Date(iso).toLocaleTimeString("he-IL", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 /**
  * Dashboard "בוחרים עם 2+ ניסיונות חיוג" - the drill-down behind
@@ -66,9 +78,14 @@ export function CallAttemptsWatchlistCard({
                     </p>
                   )}
                 </div>
-                <span className="shrink-0 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold tabular-nums text-rose-700">
-                  {text.attemptsBadge(row.callAttempts)}
-                </span>
+                <div className="flex shrink-0 flex-col items-end gap-0.5">
+                  <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold tabular-nums text-rose-700">
+                    {callAttemptsText.count(row.callAttempts, row.callAttemptsThreshold)}
+                  </span>
+                  <span className="text-[11px] tabular-nums text-slate-400" dir="ltr">
+                    {formatLastAttempt(row.lastCallAttemptAt)}
+                  </span>
+                </div>
               </button>
             </li>
           ))}

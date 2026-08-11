@@ -15,6 +15,8 @@ export interface CallAttemptsWatchlistRow {
   lastName: string;
   coordinator: string;
   callAttempts: number;
+  callAttemptsThreshold: number;
+  lastCallAttemptAt: string | null;
 }
 
 /**
@@ -92,6 +94,8 @@ export function buildCallAttemptsWatchlist(
       lastName: c.lastName,
       coordinator: c.coordinator,
       callAttempts: c.callAttempts,
+      callAttemptsThreshold: c.callAttemptsThreshold,
+      lastCallAttemptAt: c.lastCallAttemptAt,
     });
   }
 

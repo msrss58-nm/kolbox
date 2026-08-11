@@ -280,7 +280,8 @@ export const ELECTION_DAY_TEXT = {
       title: "בוחרים עם 2+ ניסיונות חיוג",
       empty: "אין כרגע בוחרים עם 2+ ניסיונות חיוג",
       noCoordinator: "ללא אחראי",
-      attemptsBadge: (count: number) => `${count} ניסיונות`,
+      /** "ניסיון אחרון" placeholder when lastCallAttemptAt is null. */
+      noLastAttempt: "—",
     },
     /** Row 4 - ride pipeline counts (see `rideStatusBreakdown.ts`). */
     rideStatus: {

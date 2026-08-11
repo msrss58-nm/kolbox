@@ -904,9 +904,8 @@ export function useElectionDay(isBootstrap: boolean) {
   // permission as the call button itself (rather than a dedicated
   // permission) - whoever can see/dial the phone number is exactly who can
   // record an attempt against it.
-  const { run: runIncrementCallAttempts } = useAsyncAction((id: string) =>
-    api.incrementCallAttempts(id),
-  );
+  const { run: runIncrementCallAttempts, busy: incrementingCallAttempts } =
+    useAsyncAction((id: string) => api.incrementCallAttempts(id));
   const incrementCallAttemptsRaw = useCallback(
     async (id: string) => {
       const updated = await runIncrementCallAttempts(id);
@@ -1323,6 +1322,7 @@ export function useElectionDay(isBootstrap: boolean) {
     setPhone,
     settingPhone,
     incrementCallAttempts,
+    incrementingCallAttempts,
     extendCallAttemptsThreshold,
     toggleRideRequested,
     cancelRideCoordination,
