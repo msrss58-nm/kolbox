@@ -184,7 +184,7 @@ export const ELECTION_DAY_TEXT = {
    * standalone `showUnvotedOnly` toggle button. */
   voteStatusFilter: {
     label: "סטטוס הצבעה",
-    all: "הכול",
+    all: "סטטוס הצבעה",
     options: {
       notVoted: "לא הצביע",
       voted: "הצביע",
@@ -193,7 +193,7 @@ export const ELECTION_DAY_TEXT = {
 
   statusFilter: {
     label: "סטטוס הסעה",
-    all: "כל הסטטוסים",
+    all: "סטטוס הסעה",
   },
 
   reasonFilter: {
