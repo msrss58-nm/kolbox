@@ -48,7 +48,7 @@ export interface Database {
           house_number: number;
           city: string;
           phone: string | null;
-          coordinator: string;
+          coordinator: string | null;
           notes: string;
           ride_requested: boolean;
           ride_requested_at: string | null;
@@ -80,7 +80,7 @@ export interface Database {
           house_number?: number;
           city?: string;
           phone?: string | null;
-          coordinator: string;
+          coordinator?: string | null;
           notes?: string;
           ride_requested?: boolean;
           ride_requested_at?: string | null;
@@ -439,7 +439,7 @@ export interface Database {
             house_number: number;
             city: string;
             phone: string | null;
-            coordinator: string;
+            coordinator: string | null;
           }[];
         };
         Returns: number;

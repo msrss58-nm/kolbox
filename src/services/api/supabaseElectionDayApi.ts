@@ -66,7 +66,7 @@ type VoterRow = {
   house_number: number;
   city: string;
   phone: string | null;
-  coordinator: string;
+  coordinator: string | null;
   notes: string;
   ride_requested: boolean;
   ride_requested_at: string | null;
@@ -98,7 +98,13 @@ function toVoter(row: VoterRow): ElectionDayVoter {
     houseNumber: row.house_number,
     city: row.city,
     phone: row.phone,
-    coordinator: row.coordinator,
+    // election_day_voters.coordinator is nullable since Coordinator
+    // Allocation Management Phase 1 (a voter may be imported with no
+    // coordinator) - coerced to "" here, the app's pre-existing sentinel for
+    // "no coordinator" already relied on by nonVotingReasonReport.ts and
+    // others, so every existing ElectionDayVoter.coordinator consumer stays
+    // unchanged.
+    coordinator: row.coordinator ?? "",
     notes: row.notes,
     rideRequested: row.ride_requested,
     rideRequestedAt: row.ride_requested_at,
@@ -280,6 +286,18 @@ async function callNonVotingReasonRpc<T>(
   return result.data as T;
 }
 
+/** Coordinator Allocation Management Phase 2: election_day_import_voters now
+ * raises the same kind of small, stable English error code as the role/
+ * reason RPCs (ALLOCATION_ACTIVITY_STARTED) once a re-import is blocked -
+ * translated here, once, mirroring `mapRoleRpcErrorMessage`/
+ * `mapNonVotingReasonRpcErrorMessage` exactly. */
+function mapImportRpcErrorMessage(message: string): string {
+  if (message.includes("ALLOCATION_ACTIVITY_STARTED")) {
+    return "לא ניתן להעלות מחדש את מאגר הבוחרים לאחר שהחלה פעילות הקצאות. החלפת מאגר היא פעולה נפרדת.";
+  }
+  return message;
+}
+
 /**
  * Election Day's Supabase-backed data access - implements exactly the
  * election-day slice of `ApiClient` (see `src/services/api/index.ts`, which
@@ -307,7 +325,7 @@ export class SupabaseElectionDayApi {
         coordinator: r.coordinator,
       })),
     });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(mapImportRpcErrorMessage(error.message));
     return { count: data as number };
   }
 

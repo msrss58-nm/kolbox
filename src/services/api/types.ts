@@ -78,7 +78,7 @@ export interface NewElectionDayVoter {
   houseNumber: number;
   city: string;
   phone: string | null;
-  coordinator: string;
+  coordinator: string | null;
 }
 
 export interface NewRideCoordinator {

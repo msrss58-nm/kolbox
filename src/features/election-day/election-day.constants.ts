@@ -101,7 +101,7 @@ export const ELECTION_DAY_TEXT = {
   import: {
     button: "טען קובץ בוחרים",
     columnsHint:
-      "עמודות נדרשות: שם פרטי, שם משפחה, אחראי (טלפון/רחוב/מס' בית/עיר אופציונליים)",
+      "עמודות נדרשות: שם פרטי, שם משפחה (אחראי/טלפון/רחוב/מס' בית/עיר אופציונליים)",
     confirmTitle: "החלפת רשימת הבוחרים",
     confirmMessage:
       "הייבוא יחליף לחלוטין את רשימת אנשי הקשר הקיימת - כולל כל סימוני ההצבעה וסטטוס ההסעות שכבר נרשמו היום. פעולה זו אינה הפיכה.",
@@ -111,7 +111,7 @@ export const ELECTION_DAY_TEXT = {
         rejected === 0
           ? `נטענו ${imported} אנשי קשר`
           : `נטענו ${imported} מתוך ${total} אנשי קשר - ${rejected} נדחו, ראו פירוט למטה`,
-      missingColumns: "לא זוהו כל העמודות הנדרשות (שם פרטי / שם משפחה / אחראי) בקובץ",
+      missingColumns: "לא זוהו כל העמודות הנדרשות (שם פרטי / שם משפחה) בקובץ",
       empty: "הקובץ ריק",
     },
     summary: {
@@ -120,7 +120,6 @@ export const ELECTION_DAY_TEXT = {
       rejected: (n: number) => `נדחו: ${n}`,
       reasons: {
         missingName: "חסר שם פרטי/משפחה",
-        missingCoordinator: "חסר אחראי",
         duplicate: "כפילות (זהה לרשומה קודמת בקובץ)",
       },
       downloadButton: "⬇️ הורדת רשומות שנדחו",

@@ -95,7 +95,7 @@ export interface ElectionDayVoter {
   houseNumber: number;
   city: string;
   phone: string | null; // optional - a voter without a phone is still a legitimate record
-  coordinator: string; // אחראי הסעה - free text, set at import time
+  coordinator: string; // אחראי הסעה - free text, set at import time; "" = not yet assigned (see toVoter's mapping from a nullable DB column)
   notes: string; // free-text notes, autosaved from the contact modal
   rideRequested: boolean; // the voter needs a ride - noted before any driver is involved
   rideRequestedAt: string | null; // ISO timestamp

@@ -51,12 +51,11 @@ function parseHouseNumber(raw: string): number {
 }
 
 /** Why a row didn't make it into the imported list. Deliberately does NOT
- * include a "missing phone" reason - a voter without a phone is a legitimate
- * record (product decision) and is always imported, never rejected. */
-export type ElectionDayImportRejectionReason =
-  | "missingName"
-  | "missingCoordinator"
-  | "duplicate";
+ * include a "missing phone" or "missing coordinator" reason - a voter
+ * without a phone, or without a coordinator (assignment happens afterwards
+ * via Coordinator Allocation Management, not at import time), is still a
+ * legitimate record and is always imported, never rejected. */
+export type ElectionDayImportRejectionReason = "missingName" | "duplicate";
 
 export interface ElectionDayImportRejectedRow {
   row: number; // 1-indexed among the sheet's data rows (header excluded)
@@ -64,7 +63,7 @@ export interface ElectionDayImportRejectedRow {
   firstName: string;
   lastName: string;
   phone: string;
-  coordinator: string;
+  coordinator: string | null;
 }
 
 export interface ElectionDayImportResult {
@@ -77,10 +76,12 @@ export interface ElectionDayImportResult {
  * converts every row into a `NewElectionDayVoter`, or records exactly why it
  * was rejected instead. Throws with a user-facing message only if a required
  * column can't be found at all, or the sheet has no data rows whatsoever -
- * a row-level rejection (missing name/coordinator, or a duplicate) never
- * throws, it's recorded in `rejected` so the caller can report/export it.
- * Street/house number/city/phone are optional - the row is still useful for
- * a home visit or a driver pickup even without them. */
+ * a row-level rejection (missing name, or a duplicate) never throws, it's
+ * recorded in `rejected` so the caller can report/export it.
+ * Street/house number/city/phone/coordinator are optional - the row is still
+ * useful (and importable) even without them; a coordinator-less voter is
+ * assigned afterwards via Coordinator Allocation Management, not at import
+ * time. */
 export function parseElectionDaySheet(sheet: ParsedSheet): ElectionDayImportResult {
   const cols = {
     masad: detectColumn(sheet.headers, "masad"),
@@ -93,11 +94,7 @@ export function parseElectionDaySheet(sheet: ParsedSheet): ElectionDayImportResu
     coordinator: detectColumn(sheet.headers, "coordinator"),
   };
 
-  if (
-    cols.firstName === undefined ||
-    cols.lastName === undefined ||
-    cols.coordinator === undefined
-  ) {
+  if (cols.firstName === undefined || cols.lastName === undefined) {
     throw new Error(ELECTION_DAY_TEXT.import.toast.missingColumns);
   }
   if (sheet.rows.length === 0) throw new Error(ELECTION_DAY_TEXT.import.toast.empty);
@@ -118,24 +115,16 @@ export function parseElectionDaySheet(sheet: ParsedSheet): ElectionDayImportResu
     const rowNumber = i + 1;
     const firstName = cell(row, cols.firstName);
     const lastName = cell(row, cols.lastName);
-    const coordinator = cell(row, cols.coordinator);
+    // Blank cell, or the column doesn't exist in this file at all - both
+    // resolve to a real `null`, never an empty string or the literal text
+    // "null" (see NewElectionDayVoter.coordinator).
+    const coordinator = cell(row, cols.coordinator) || null;
     const phoneDigits = normalizeIsraeliPhone(cell(row, cols.phone));
 
     if (!firstName || !lastName) {
       rejected.push({
         row: rowNumber,
         reason: "missingName",
-        firstName,
-        lastName,
-        phone: phoneDigits,
-        coordinator,
-      });
-      return;
-    }
-    if (!coordinator) {
-      rejected.push({
-        row: rowNumber,
-        reason: "missingCoordinator",
         firstName,
         lastName,
         phone: phoneDigits,

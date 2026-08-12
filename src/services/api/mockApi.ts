@@ -475,6 +475,10 @@ export class MockApi implements ApiClient {
     await latency();
     this.electionDayVoters = rows.map((r) => ({
       ...r,
+      // ElectionDayVoter.coordinator stays a plain string - "" is this app's
+      // existing sentinel for "no coordinator" (see toVoter's identical
+      // coercion in supabaseElectionDayApi.ts).
+      coordinator: r.coordinator ?? "",
       id: `edv-${crypto.randomUUID().slice(0, 8)}`,
       notes: "",
       rideRequested: false,
