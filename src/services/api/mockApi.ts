@@ -4,6 +4,7 @@ import type {
   CityBreakdown,
   Classification,
   ClassificationEvent,
+  Coordinator,
   ElectionDayVoter,
   NonVotingReason,
   PermissionUser,
@@ -21,7 +22,12 @@ import { BUILT_IN_ROLE_SEED } from "../../permissions/builtInRoleSeed";
 import type { RoleRecord } from "../../permissions/types";
 import { loadJson, removeKey, saveJson } from "../storage/localStore";
 import type {
+  AllocationAssignment,
   ApiClient,
+  ApplyInitialAllocationResult,
+  CoordinatorAction,
+  EndCoordinatorActivityMode,
+  EndCoordinatorActivityResult,
   ImportRow,
   ImportSummary,
   NewActivist,
@@ -33,6 +39,7 @@ import type {
   NewVoter,
   NonVotingReasonUpdate,
   Paged,
+  RebalanceAssignmentsResult,
   RoleUpdate,
   VoterQuery,
 } from "./types";
@@ -82,6 +89,17 @@ export class MockApi implements ApiClient {
    * so this never actually backs the running UI. Not persisted, reset on
    * every reload. */
   private nonVotingReasons: NonVotingReason[];
+  /** Coordinator Allocation Management: interface compliance only, same
+   * reasoning as `roles`/`nonVotingReasons` above - Election Day always
+   * delegates to `SupabaseElectionDayApi`. A minimal, non-persisted,
+   * deterministic in-memory mirror of the 4 real RPCs' shape - NOT a second
+   * copy of their full server-side validation (cross-column name-collision
+   * invariant, per-coordinator participation locks, advisory-lock
+   * concurrency, exact locked-id pinning). Good enough to keep `MockApi`
+   * type-checking as `ApiClient` and behave sanely if ever exercised
+   * directly (e.g. a future unit test); never treat this as a security or
+   * business-rule reference for the real RPCs. */
+  private coordinators: Coordinator[];
 
   constructor() {
     this.data = loadJson<Dataset>(STORE_KEY) ?? generateDataset();
@@ -92,6 +110,7 @@ export class MockApi implements ApiClient {
     this.permissionUsers = loadJson<StoredPermissionUser[]>(PERMISSION_USERS_KEY) ?? [];
     this.roles = [...BUILT_IN_ROLE_SEED];
     this.nonVotingReasons = [];
+    this.coordinators = [];
   }
 
   /** Debounced persistence - mutations land in localStorage at most every `persistDebounceMs`. */
@@ -966,5 +985,220 @@ export class MockApi implements ApiClient {
       })
       .filter((r): r is NonVotingReason => r !== null);
     return [...this.nonVotingReasons];
+  }
+
+  /** Interface compliance only (see `coordinators`' field comment) - mirrors
+   * the real RPCs' 2-step server-side re-auth (bcrypt-equivalent plaintext
+   * compare against this store, then the actor role's
+   * `electionDay.manageCoordinatorAllocation`), same pattern as
+   * `resetPermissionUserPassword` above. */
+  private authorizeCoordinatorActor(actorId: string, actorPassword: string): void {
+    const actor = this.permissionUsers.find((u) => u.id === actorId);
+    if (!actor || actor.password !== actorPassword) {
+      throw new Error("הסיסמה שהזנת אינה נכונה");
+    }
+    const actorRole = this.roles.find((r) => r.id === actor.roleId);
+    if (!actorRole?.permissions.includes("electionDay.manageCoordinatorAllocation")) {
+      throw new Error("אין לך הרשאה לבצע פעולה זו");
+    }
+  }
+
+  /** A voter still "remaining" (transferable) per this mock's simplified
+   * mirror of `resolveFollowUpStatus`'s "remaining" branch - `nonVotingReasons`
+   * is always empty in `MockApi` (interface compliance only, see that
+   * field's comment), so any `notVotingReasonId` is always unresolvable and
+   * therefore always fails open to "still requires follow-up", same
+   * direction as the real `election_day_voter_is_remaining` SQL helper -
+   * this collapses to a plain `!voted` check here. */
+  private isRemainingVoter(v: ElectionDayVoter): boolean {
+    return !v.voted;
+  }
+
+  async listCoordinators(): Promise<Coordinator[]> {
+    await latency();
+    return [...this.coordinators];
+  }
+
+  /** Interface compliance only - a minimal, non-persisted mirror of
+   * `election_day_manage_coordinators`'s add/edit/remove/link/relink/unlink
+   * shape, not its full validation (no cross-column name-collision
+   * invariant, no per-coordinator participation lock). */
+  async manageCoordinators(
+    actorId: string,
+    actorPassword: string,
+    actions: CoordinatorAction[],
+  ): Promise<Coordinator[]> {
+    await latency();
+    this.authorizeCoordinatorActor(actorId, actorPassword);
+    const now = new Date().toISOString();
+    for (const a of actions) {
+      if (a.action === "add") {
+        if (!a.displayName?.trim()) throw new Error("יש להזין שם תקין לרכז");
+        this.coordinators.push({
+          id: `coord-${crypto.randomUUID().slice(0, 8)}`,
+          displayName: a.displayName.trim(),
+          status: "active",
+          linkedAssignmentName: null,
+          createdAt: now,
+          endedAt: null,
+        });
+      } else if (a.action === "edit") {
+        const c = this.coordinators.find((x) => x.id === a.coordinatorId);
+        if (!c) throw new Error("הרכז לא נמצא");
+        if (!a.displayName?.trim()) throw new Error("יש להזין שם תקין לרכז");
+        c.displayName = a.displayName.trim();
+      } else if (a.action === "remove") {
+        if (!this.coordinators.some((x) => x.id === a.coordinatorId)) {
+          throw new Error("הרכז לא נמצא");
+        }
+        this.coordinators = this.coordinators.filter((x) => x.id !== a.coordinatorId);
+      } else if (a.action === "link" || a.action === "relink") {
+        const c = this.coordinators.find((x) => x.id === a.coordinatorId);
+        if (!c) throw new Error("הרכז לא נמצא");
+        if (!a.linkedAssignmentName?.trim()) throw new Error("נתוני הקישור אינם תקינים");
+        c.linkedAssignmentName = a.linkedAssignmentName.trim();
+      } else if (a.action === "unlink") {
+        const c = this.coordinators.find((x) => x.id === a.coordinatorId);
+        if (!c) throw new Error("הרכז לא נמצא");
+        c.linkedAssignmentName = null;
+      } else {
+        throw new Error("פעולה לא מוכרת");
+      }
+    }
+    return [...this.coordinators];
+  }
+
+  /** Interface compliance only - distributes every currently-unassigned
+   * voter (`coordinator === ""`, this app's sentinel - see
+   * `ElectionDayVoter.coordinator`'s own comment) across the given
+   * coordinators in array order, deterministically. Not a full mirror of
+   * the real RPC's row-locking/count-revalidation. */
+  async applyInitialAllocation(
+    actorId: string,
+    actorPassword: string,
+    assignments: AllocationAssignment[],
+  ): Promise<ApplyInitialAllocationResult> {
+    await latency();
+    this.authorizeCoordinatorActor(actorId, actorPassword);
+    const unassigned = this.electionDayVoters.filter((v) => v.coordinator === "");
+    const sumQuantities = assignments.reduce((sum, a) => sum + a.quantity, 0);
+    if (unassigned.length === 0) throw new Error("אין בוחרים לא-מוקצים כרגע");
+    if (sumQuantities !== unassigned.length) {
+      throw new Error(
+        "כמות ההקצאה אינה תואמת את מספר הבוחרים הלא-מוקצים בפועל - רעננו ונסו שוב",
+      );
+    }
+    let cursor = 0;
+    for (const a of assignments) {
+      const coordinator = this.coordinators.find((c) => c.id === a.coordinatorId);
+      if (!coordinator) throw new Error("הרכז לא נמצא");
+      for (let i = 0; i < a.quantity; i++) {
+        unassigned[cursor].coordinator = coordinator.displayName;
+        cursor++;
+      }
+    }
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return {
+      operationId: `op-${crypto.randomUUID().slice(0, 8)}`,
+      allocatedCount: unassigned.length,
+      remainingUnassignedCount: 0,
+    };
+  }
+
+  /** Interface compliance only - transfers `quantity` "remaining" voters
+   * (see `isRemainingVoter`) from each source coordinator to each
+   * destination coordinator, in array order. Not a full mirror of the real
+   * RPC's row-locking/count-revalidation/exact-id pinning. */
+  async rebalanceAssignments(
+    actorId: string,
+    actorPassword: string,
+    sources: AllocationAssignment[],
+    destinations: AllocationAssignment[],
+  ): Promise<RebalanceAssignmentsResult> {
+    await latency();
+    this.authorizeCoordinatorActor(actorId, actorPassword);
+    const transferred: ElectionDayVoter[] = [];
+    for (const s of sources) {
+      const source = this.coordinators.find((c) => c.id === s.coordinatorId);
+      if (!source) throw new Error("הרכז לא נמצא");
+      const names = [source.displayName, source.linkedAssignmentName].filter(
+        (n): n is string => n !== null,
+      );
+      const eligible = this.electionDayVoters.filter(
+        (v) => names.includes(v.coordinator) && this.isRemainingVoter(v),
+      );
+      if (eligible.length < s.quantity) {
+        throw new Error("אין מספיק בוחרים זמינים אצל הרכז המקור - רעננו ונסו שוב");
+      }
+      transferred.push(...eligible.slice(0, s.quantity));
+    }
+    let cursor = 0;
+    for (const d of destinations) {
+      const destination = this.coordinators.find((c) => c.id === d.coordinatorId);
+      if (!destination) throw new Error("הרכז לא נמצא");
+      for (let i = 0; i < d.quantity && cursor < transferred.length; i++, cursor++) {
+        transferred[cursor].coordinator = destination.displayName;
+      }
+    }
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return {
+      operationId: `op-${crypto.randomUUID().slice(0, 8)}`,
+      transferredCount: transferred.length,
+    };
+  }
+
+  /** Interface compliance only - moves every "remaining" voter of
+   * `coordinatorId` either to `targetCoordinatorId` (`mode: "transfer"`) or
+   * split evenly across every other active coordinator (`mode:
+   * "equal_split"`), then marks the source `status: "ended"`. Not a full
+   * mirror of the real RPC's row-locking/last-active-coordinator guard
+   * ordering/exact-id pinning. */
+  async endCoordinatorActivity(
+    actorId: string,
+    actorPassword: string,
+    coordinatorId: string,
+    mode: EndCoordinatorActivityMode,
+    targetCoordinatorId: string | null,
+  ): Promise<EndCoordinatorActivityResult> {
+    await latency();
+    this.authorizeCoordinatorActor(actorId, actorPassword);
+    const source = this.coordinators.find((c) => c.id === coordinatorId);
+    if (!source) throw new Error("הרכז לא נמצא");
+    const names = [source.displayName, source.linkedAssignmentName].filter(
+      (n): n is string => n !== null,
+    );
+    const remaining = this.electionDayVoters.filter(
+      (v) => names.includes(v.coordinator) && this.isRemainingVoter(v),
+    );
+
+    if (mode === "transfer") {
+      const target = this.coordinators.find((c) => c.id === targetCoordinatorId);
+      if (!target || target.id === source.id) {
+        throw new Error("יש לבחור רכז יעד תקין, שאינו הרכז המסיים עצמו");
+      }
+      for (const v of remaining) v.coordinator = target.displayName;
+    } else {
+      const otherActive = this.coordinators.filter(
+        (c) => c.status === "active" && c.id !== source.id,
+      );
+      if (remaining.length > 0 && otherActive.length === 0) {
+        throw new Error(
+          "לא ניתן לסיים את פעילות הרכז האחרון הפעיל כל עוד יש לו בוחרים שנותרו לטיפול",
+        );
+      }
+      remaining.forEach((v, i) => {
+        v.coordinator = otherActive[i % otherActive.length].displayName;
+      });
+    }
+
+    source.status = "ended";
+    source.endedAt = new Date().toISOString();
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return {
+      operationId: `op-${crypto.randomUUID().slice(0, 8)}`,
+      transferredCount: remaining.length,
+      endedCoordinatorId: source.id,
+      endedCoordinatorDisplayName: source.displayName,
+    };
   }
 }

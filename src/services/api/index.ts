@@ -102,9 +102,21 @@ export const api: ApiClient = {
   deleteNonVotingReason: (...args) => electionDayApi.deleteNonVotingReason(...args),
   reorderNonVotingReasons: (...args) => electionDayApi.reorderNonVotingReasons(...args),
 
-  // election day - live cross-device sync (Supabase Realtime)
+  // election day - coordinator allocation management (Supabase-backed,
+  // listCoordinators is a plain SELECT, the other 4 are RPC-only)
+  listCoordinators: (...args) => electionDayApi.listCoordinators(...args),
+  manageCoordinators: (...args) => electionDayApi.manageCoordinators(...args),
+  applyInitialAllocation: (...args) => electionDayApi.applyInitialAllocation(...args),
+  rebalanceAssignments: (...args) => electionDayApi.rebalanceAssignments(...args),
+  endCoordinatorActivity: (...args) => electionDayApi.endCoordinatorActivity(...args),
+
+  // election day - live cross-device sync (Supabase Realtime). Two separate
+  // methods/channels, deliberately not one shared method - see
+  // subscribeToCoordinatorChanges's own doc comment in ./types.ts.
   subscribeToElectionDayChanges: (...args) =>
     electionDayApi.subscribeToElectionDayChanges(...args),
+  subscribeToCoordinatorChanges: (...args) =>
+    electionDayApi.subscribeToCoordinatorChanges(...args),
 };
 
 export type * from "./types";

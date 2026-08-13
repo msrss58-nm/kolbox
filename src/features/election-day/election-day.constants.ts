@@ -23,6 +23,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "electionDay.manageRideCoordinators": "ניהול אחראי הסעות",
   "electionDay.manageRolesAndPermissions": "ניהול תפקידים והרשאות",
   "electionDay.manageNonVotingReasons": "ניהול סיבות אי-הצבעה",
+  "electionDay.manageCoordinatorAllocation": "ניהול הקצאות ביום הבחירות",
   "app.accessFullNavigation": "גישה לתפריט הראשי המלא",
   "voter.viewName": "צפייה בשם",
   "voter.viewAddress": "צפייה בכתובת",
@@ -668,6 +669,19 @@ export const ELECTION_DAY_TEXT = {
       deactivated: "הסיבה הושבתה",
       reordered: "הסדר נשמר",
       invalid: "יש להזין שם לסיבה",
+    },
+  },
+
+  /** Coordinator Allocation Management (Phase 4 data layer only - the
+   * "ניהול הקצאות" screen itself is Phase 5). Only the toast text the
+   * mutation hook (`useCoordinatorAllocation.ts`) needs today; field
+   * labels/placeholders/dialog copy belong to Phase 5. */
+  coordinatorAllocation: {
+    toast: {
+      coordinatorsSaved: "הרכזים עודכנו",
+      initialAllocationApplied: "ההקצאה הראשונית בוצעה",
+      rebalanced: "האיזון מחדש בוצע",
+      coordinatorEnded: "פעילות הרכז הסתיימה",
     },
   },
 

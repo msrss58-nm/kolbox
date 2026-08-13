@@ -1,4 +1,9 @@
 import {
+  mapCoordinatorAllocationRpcErrorMessage,
+  toAllocationAssignmentPayload,
+  toCoordinatorActionPayload,
+} from "./coordinatorAllocationMapping";
+import {
   normalizeNonVotingReasonRecord,
   type RawNonVotingReasonRow,
 } from "./nonVotingReasonMapper";
@@ -6,6 +11,7 @@ import { normalizeRoleRecord, type RawRoleRow } from "../../permissions/roleReco
 import type { RoleRecord } from "../../permissions/types";
 import { supabase } from "../supabase/client";
 import type {
+  Coordinator,
   ElectionDayVoter,
   NonVotingReason,
   PermissionUser,
@@ -15,12 +21,18 @@ import type {
   RideStatusEvent,
 } from "../../types";
 import type {
+  AllocationAssignment,
+  ApplyInitialAllocationResult,
+  CoordinatorAction,
+  EndCoordinatorActivityMode,
+  EndCoordinatorActivityResult,
   NewElectionDayVoter,
   NewNonVotingReason,
   NewPermissionUser,
   NewRideCoordinator,
   NewRole,
   NonVotingReasonUpdate,
+  RebalanceAssignmentsResult,
   RoleUpdate,
 } from "./types";
 
@@ -189,6 +201,33 @@ function toPermissionUser(row: PermissionUserRpcRow): PermissionUser {
   };
 }
 
+type CoordinatorRow = {
+  id: string;
+  display_name: string;
+  status: string;
+  linked_assignment_name: string | null;
+  created_at: string;
+  ended_at: string | null;
+};
+
+/** `status` is a plain `text` column in the DB (`check (status in ('active',
+ * 'ended'))` - enforced there, not by a Postgres enum type) - coerced here
+ * rather than trusted as-is, same caution as `reminder_closed_reason`/
+ * `event_type` elsewhere in this file. An unrecognized value (should not
+ * happen given the DB constraint) falls back to `"active"` - the safer
+ * direction for a coordinator, since `"ended"` disables further allocation
+ * against it. */
+function toCoordinator(row: CoordinatorRow): Coordinator {
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    status: row.status === "ended" ? "ended" : "active",
+    linkedAssignmentName: row.linked_assignment_name,
+    createdAt: row.created_at,
+    endedAt: row.ended_at,
+  };
+}
+
 /** Dynamic Roles & Permissions Phase 2: the 4 role-management RPCs
  * (create/update/delete/clone) raise a small set of stable, English error
  * codes (`ROLE_HAS_ASSIGNED_USERS`, `CANNOT_REMOVE_LAST_PERMISSION_HOLDER`,
@@ -296,6 +335,21 @@ function mapImportRpcErrorMessage(message: string): string {
     return "לא ניתן להעלות מחדש את מאגר הבוחרים לאחר שהחלה פעילות הקצאות. החלפת מאגר היא פעולה נפרדת.";
   }
   return message;
+}
+
+// Coordinator Allocation Management Phase 3/4: error mapping + payload
+// shaping for the 4 allocation RPCs live in `coordinatorAllocationMapping.ts`
+// (imported at the top of this file), not inline here - that module has no
+// dependency on the Supabase client, so it's directly Node-importable by
+// `scripts/smoke-coordinator-allocation.ts` (the real implementation, never
+// a pinned copy that could silently drift from it).
+async function callCoordinatorAllocationRpc<T>(
+  promise: PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<T> {
+  const result = await promise;
+  if (result.error)
+    throw new Error(mapCoordinatorAllocationRpcErrorMessage(result.error.message));
+  return result.data as T;
 }
 
 /**
@@ -806,11 +860,144 @@ export class SupabaseElectionDayApi {
     return data.map(normalizeNonVotingReasonRecord);
   }
 
-  /** Live cross-device sync for the two Realtime-enabled tables (see the
-   * "election_day_realtime" migration). Deliberately just triggers a
-   * refetch (`onChange`) rather than merging partial payloads into local
-   * state - simpler and safer than hand-rolled diffing for this internal
-   * tool's scale. */
+  /** Coordinator Allocation Management Phase 1: a plain SELECT, not an RPC -
+   * `election_day_coordinators` has a public SELECT policy (see
+   * database.types.ts's comment), unlike the RPC-only permission-users/roles
+   * tables. Ordered `created_at asc, id asc` (same deterministic ordering
+   * the business RPCs themselves use for equal-split destination ranges) so
+   * a consumer relying on stable coordinator order (e.g. a future equal-
+   * split preview) sees the same order the server would compute against. */
+  async listCoordinators(): Promise<Coordinator[]> {
+    const data = unwrapArray<CoordinatorRow[]>(
+      await supabase
+        .from("election_day_coordinators")
+        .select("*")
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true }),
+    );
+    return data.map(toCoordinator);
+  }
+
+  /** Atomic batch add/edit/remove/link/relink/unlink - see
+   * `election_day_manage_coordinators`'s own comment for the full per-action
+   * shape/rules. `actorPassword` is forwarded to the RPC call and never
+   * otherwise touched (not logged, not cached) by this method. */
+  async manageCoordinators(
+    actorId: string,
+    actorPassword: string,
+    actions: CoordinatorAction[],
+  ): Promise<Coordinator[]> {
+    const data = await callCoordinatorAllocationRpc<CoordinatorRow[]>(
+      supabase.rpc("election_day_manage_coordinators", {
+        p_actor_id: actorId,
+        p_actor_password: actorPassword,
+        p_actions: actions.map(toCoordinatorActionPayload),
+      }),
+    );
+    return data.map(toCoordinator);
+  }
+
+  /** One-time distribution of every currently-unassigned voter - the server
+   * is the sole source of truth for which voters actually get allocated,
+   * this method sends only coordinator/quantity pairs, never a voter id. */
+  async applyInitialAllocation(
+    actorId: string,
+    actorPassword: string,
+    assignments: AllocationAssignment[],
+  ): Promise<ApplyInitialAllocationResult> {
+    const data = await callCoordinatorAllocationRpc<
+      {
+        operation_id: string;
+        allocated_count: number;
+        remaining_unassigned_count: number;
+      }[]
+    >(
+      supabase.rpc("election_day_apply_initial_allocation", {
+        p_actor_id: actorId,
+        p_actor_password: actorPassword,
+        p_assignments: assignments.map(toAllocationAssignmentPayload),
+      }),
+    );
+    const row = data[0];
+    return {
+      operationId: row.operation_id,
+      allocatedCount: row.allocated_count,
+      remainingUnassignedCount: row.remaining_unassigned_count,
+    };
+  }
+
+  /** Mid-day transfer of "remaining" voters from source coordinators to
+   * destination coordinators, by quantity only. */
+  async rebalanceAssignments(
+    actorId: string,
+    actorPassword: string,
+    sources: AllocationAssignment[],
+    destinations: AllocationAssignment[],
+  ): Promise<RebalanceAssignmentsResult> {
+    const data = await callCoordinatorAllocationRpc<
+      { operation_id: string; transferred_count: number }[]
+    >(
+      supabase.rpc("election_day_rebalance_assignments", {
+        p_actor_id: actorId,
+        p_actor_password: actorPassword,
+        p_sources: sources.map(toAllocationAssignmentPayload),
+        p_destinations: destinations.map(toAllocationAssignmentPayload),
+      }),
+    );
+    const row = data[0];
+    return { operationId: row.operation_id, transferredCount: row.transferred_count };
+  }
+
+  /** Ends one active coordinator's activity - `targetCoordinatorId` is
+   * required for `"transfer"`, ignored (sent as `null`) for
+   * `"equal_split"`. */
+  async endCoordinatorActivity(
+    actorId: string,
+    actorPassword: string,
+    coordinatorId: string,
+    mode: EndCoordinatorActivityMode,
+    targetCoordinatorId: string | null,
+  ): Promise<EndCoordinatorActivityResult> {
+    const data = await callCoordinatorAllocationRpc<
+      {
+        operation_id: string;
+        transferred_count: number;
+        ended_coordinator_id: string;
+        ended_coordinator_display_name: string;
+      }[]
+    >(
+      supabase.rpc("election_day_end_coordinator_activity", {
+        p_actor_id: actorId,
+        p_actor_password: actorPassword,
+        p_coordinator_id: coordinatorId,
+        p_mode: mode,
+        p_target_coordinator_id: mode === "transfer" ? targetCoordinatorId : null,
+      }),
+    );
+    const row = data[0];
+    return {
+      operationId: row.operation_id,
+      transferredCount: row.transferred_count,
+      endedCoordinatorId: row.ended_coordinator_id,
+      endedCoordinatorDisplayName: row.ended_coordinator_display_name,
+    };
+  }
+
+  /** Live cross-device sync for `useElectionDay.ts`'s own contacts/events
+   * state (see the "election_day_realtime" migration). Deliberately just
+   * triggers a refetch (`onChange`) rather than merging partial payloads
+   * into local state - simpler and safer than hand-rolled diffing for this
+   * internal tool's scale.
+   *
+   * Scoped to exactly the 2 tables `useElectionDay.ts` itself reads
+   * (contacts/events) - `election_day_coordinators` is deliberately NOT
+   * listened to here, see `subscribeToCoordinatorChanges` below for why it
+   * has its own dedicated method/channel rather than being folded into this
+   * one. History tables (election_day_coordinator_operations/
+   * _operation_items) are deliberately NOT subscribed anywhere - they have
+   * zero client SELECT policies and no `ApiClient` read method exists for
+   * them (locked design - see task-plan.md/CLAUDE.md's Known Security
+   * Limitations). */
   subscribeToElectionDayChanges(onChange: () => void): () => void {
     const channel = supabase
       .channel("election-day-changes")
@@ -822,6 +1009,48 @@ export class SupabaseElectionDayApi {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "election_day_ride_status_events" },
+        onChange,
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }
+
+  /** Coordinator Allocation Management Phase 4: live cross-device sync for
+   * `useCoordinatorAllocation.ts`'s own coordinator roster - deliberately a
+   * SEPARATE method/channel from `subscribeToElectionDayChanges` above,
+   * not a 3rd `.on(...)` added to that one's channel.
+   *
+   * Why: `supabase-js`'s `RealtimeClient.channel(topic)` REUSES an existing
+   * channel object when called again with the same topic string (see its
+   * own doc comment - "if a channel with the same topic already exists it
+   * will be returned instead of creating a duplicate connection"), and
+   * `RealtimeChannel.on(...)` throws once `.subscribe()` has already been
+   * called on that channel ("cannot add `postgres_changes` callbacks for
+   * ... after `subscribe()`"). `useElectionDay` and `useCoordinatorAllocation`
+   * are two independent hooks, each running its own mount effect - if both
+   * called a single shared method using one hardcoded channel name, the
+   * hook whose effect runs second would receive the SAME already-subscribed
+   * channel object back from `supabase.channel(...)` and its own `.on(...)`
+   * registration would throw synchronously inside its effect. Worse, since
+   * both hooks would then hold a reference to the literal same channel
+   * object, either hook unmounting first would call `removeChannel` on that
+   * shared object and tear down the other's subscription too - confirmed
+   * against the installed `@supabase/realtime-js` source
+   * (`RealtimeClient.removeChannel`/`RealtimeChannel.teardown` operate on
+   * the channel instance, not per-caller). A distinct channel name per
+   * subscriber sidesteps this identity-sharing entirely - each hook gets
+   * its own channel object, its own independent join, and its own
+   * independent, safe `removeChannel` cleanup that can never affect the
+   * other's. */
+  subscribeToCoordinatorChanges(onChange: () => void): () => void {
+    const channel = supabase
+      .channel("election-day-coordinator-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "election_day_coordinators" },
         onChange,
       )
       .subscribe();

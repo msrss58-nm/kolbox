@@ -184,6 +184,26 @@ export interface RideCoordinator {
   phone: string;
 }
 
+/** Coordinator Allocation Management: "today's coordinators" for one
+ * election day - a fresh entity created/ended per election day, distinct
+ * from `RideCoordinator` (the unrelated, permanent driver roster) and from
+ * `ElectionDayVoter.coordinator` (the free-text column this entity's
+ * `displayName`/`linkedAssignmentName` maps onto, but is never a foreign key
+ * to - see `election_day_coordinators_table.sql`). Never deleted once it has
+ * participated in an operation - `status` flips to `"ended"` instead. */
+export interface Coordinator {
+  id: string;
+  displayName: string;
+  status: "active" | "ended";
+  /** Explicit-only manual link to a pre-existing `ElectionDayVoter.coordinator`
+   * string (e.g. a name that arrived pre-assigned from an Excel import) -
+   * `null` until a manager deliberately links it. Never inferred by
+   * name-matching. */
+  linkedAssignmentName: string | null;
+  createdAt: string; // ISO timestamp
+  endedAt: string | null; // ISO timestamp
+}
+
 /** Election Day's local user/manager roster ("ניהול הרשאות משתמשים") - a
  * simple directory, not a real login/auth system. Never carries a
  * password/hash - creation-only input types (see `NewPermissionUser` in

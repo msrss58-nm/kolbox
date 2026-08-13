@@ -19,6 +19,19 @@ import type { RoleRecord } from "./types";
  *   the Node smoke tests, plus a dedicated test
  *   (`scripts/smoke-role-seed-parity.ts`) that parses the migration SQL
  *   itself and asserts these arrays never drift out of sync with it.
+ *
+ * Because this is frozen to Phase 0's literal migration text (parity-checked
+ * against it, not against the live catalog), it does NOT include permissions
+ * added to `election_day_roles` after Phase 0 via a later migration's raw
+ * `UPDATE ... array_append(...)` - `electionDay.manageNonVotingReasons` and
+ * `voter.viewReminderHistory` are two real precedents already missing here
+ * for exactly that reason (see CLAUDE.md's "Known Security Limitations").
+ * `electionDay.manageCoordinatorAllocation` (Coordinator Allocation
+ * Management Phase 4) is a third: adding it to `ALL_PERMISSIONS` makes it
+ * exist in the code catalog, but does NOT, by itself, grant it to any
+ * persisted Production role, including manager - that requires a dedicated
+ * backfill migration mirroring the two precedents above, deliberately not
+ * created in Phase 4 (see that phase's own report).
  */
 export const BUILT_IN_ROLE_SEED: readonly RoleRecord[] = [
   {

@@ -36,6 +36,15 @@ export type Permission =
   // the reason rides on the existing voter.markVoted (the same action that
   // already gates the voted/not-voted toggle itself).
   | "electionDay.manageNonVotingReasons"
+  // Coordinator Allocation Management: gates the "ניהול הקצאות" screen
+  // (Phase 5 - not yet built) and, server-side, the 4 actor-password-
+  // authenticated allocation RPCs themselves (election_day_manage_coordinators
+  // / apply_initial_allocation / rebalance_assignments /
+  // end_coordinator_activity - see the Phase 3 migrations). V1 default: only
+  // the built-in manager role is meant to hold this - see
+  // `builtInRoleSeed.ts`'s comment for why that seed does NOT actually grant
+  // it to any persisted Production role.
+  | "electionDay.manageCoordinatorAllocation"
   // navigation scope (outside Election Day entirely)
   | "app.accessFullNavigation"
   // field-level view permissions

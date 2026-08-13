@@ -24,6 +24,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   "electionDay.manageRideCoordinators",
   "electionDay.manageRolesAndPermissions",
   "electionDay.manageNonVotingReasons",
+  "electionDay.manageCoordinatorAllocation",
   "app.accessFullNavigation",
   "voter.viewName",
   "voter.viewAddress",

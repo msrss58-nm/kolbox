@@ -5,6 +5,7 @@ import type {
   CityBreakdown,
   Classification,
   ClassificationEvent,
+  Coordinator,
   ElectionDayVoter,
   NonVotingReason,
   PermissionUser,
@@ -118,6 +119,60 @@ export interface NewNonVotingReason {
 
 export interface NonVotingReasonUpdate extends NewNonVotingReason {
   id: string;
+}
+
+/** Coordinator Allocation Management: one batch action for
+ * `election_day_manage_coordinators`. Which fields are meaningful depends on
+ * `action` (mirrors the RPC's own per-action shape - see the migration):
+ * - `add`: `displayName` required.
+ * - `edit`: `coordinatorId` + `displayName` required.
+ * - `remove`: `coordinatorId` required.
+ * - `link` / `relink`: `coordinatorId` + `linkedAssignmentName` required.
+ * - `unlink`: `coordinatorId` required.
+ * The API layer validates nothing client-side beyond shape - every real
+ * business rule (activity locks, name-collision invariant, participation
+ * locks) is enforced server-side and surfaces as a stable error code. */
+export interface CoordinatorAction {
+  action: "add" | "edit" | "remove" | "link" | "relink" | "unlink";
+  coordinatorId?: string;
+  displayName?: string;
+  linkedAssignmentName?: string;
+}
+
+/** Coordinator Allocation Management: one `{coordinator, quantity}` pair -
+ * shared shape for initial-allocation assignments and rebalance sources/
+ * destinations. `quantity` semantics (>= 0 vs > 0) are enforced server-side,
+ * not by this type. */
+export interface AllocationAssignment {
+  coordinatorId: string;
+  quantity: number;
+}
+
+/** Return contract of `election_day_apply_initial_allocation`.
+ * `remainingUnassignedCount` is always 0 on success - every currently-
+ * unassigned voter is allocated by construction (see the RPC's own
+ * comment) - kept as an explicit field rather than assumed, since a future
+ * RPC revision could change that. */
+export interface ApplyInitialAllocationResult {
+  operationId: string;
+  allocatedCount: number;
+  remainingUnassignedCount: number;
+}
+
+/** Return contract of `election_day_rebalance_assignments`. */
+export interface RebalanceAssignmentsResult {
+  operationId: string;
+  transferredCount: number;
+}
+
+export type EndCoordinatorActivityMode = "transfer" | "equal_split";
+
+/** Return contract of `election_day_end_coordinator_activity`. */
+export interface EndCoordinatorActivityResult {
+  operationId: string;
+  transferredCount: number;
+  endedCoordinatorId: string;
+  endedCoordinatorDisplayName: string;
 }
 
 /**
@@ -313,13 +368,74 @@ export interface ApiClient {
    * exactly once. */
   reorderNonVotingReasons(orderedIds: string[]): Promise<NonVotingReason[]>;
 
+  // election day - coordinator allocation management (Phase 3 RPC core).
+  // "Today's coordinators" - distinct from the permanent `RideCoordinator`
+  // roster above. A direct SELECT is allowed (see database.types.ts) since
+  // a coordinator row carries no secret; every write goes through one of
+  // the 4 actor-password-authenticated RPCs below.
+  listCoordinators(): Promise<Coordinator[]>;
+  /** Atomic batch add/edit/remove/link/relink/unlink. Re-authenticates
+   * `actorId`/`actorPassword` server-side (never persisted by any caller of
+   * this method) and requires `electionDay.manageCoordinatorAllocation`.
+   * Returns the full current coordinator roster on success. */
+  manageCoordinators(
+    actorId: string,
+    actorPassword: string,
+    actions: CoordinatorAction[],
+  ): Promise<Coordinator[]>;
+  /** One-time distribution of every currently-unassigned voter across the
+   * given active coordinators, by quantity only - the server (never this
+   * layer, never the caller) chooses which voters. */
+  applyInitialAllocation(
+    actorId: string,
+    actorPassword: string,
+    assignments: AllocationAssignment[],
+  ): Promise<ApplyInitialAllocationResult>;
+  /** Mid-day transfer of "remaining" voters from source coordinators to
+   * destination coordinators, by quantity only. */
+  rebalanceAssignments(
+    actorId: string,
+    actorPassword: string,
+    sources: AllocationAssignment[],
+    destinations: AllocationAssignment[],
+  ): Promise<RebalanceAssignmentsResult>;
+  /** Ends one active coordinator's activity, moving its remaining voters per
+   * `mode`. `targetCoordinatorId` is required for `"transfer"`, ignored for
+   * `"equal_split"`. */
+  endCoordinatorActivity(
+    actorId: string,
+    actorPassword: string,
+    coordinatorId: string,
+    mode: EndCoordinatorActivityMode,
+    targetCoordinatorId: string | null,
+  ): Promise<EndCoordinatorActivityResult>;
+
   /**
    * Optional live cross-device sync for Election Day's ride-coordination
    * data - calls `onChange` whenever a contact or ride-status event changes
    * on another device/tab. Implementations that don't support Realtime
    * (e.g. MockApi) simply don't implement this; callers must feature-detect
    * (`api.subscribeToElectionDayChanges?.(...)`) rather than assume it
-   * exists. Returns an unsubscribe function.
+   * exists. Returns an unsubscribe function. Owned exclusively by
+   * `useElectionDay.ts` - see `subscribeToCoordinatorChanges` below for why
+   * the coordinator roster deliberately does NOT also flow through this
+   * same method/channel.
    */
   subscribeToElectionDayChanges?(onChange: () => void): () => void;
+  /**
+   * Optional live cross-device sync for the coordinator roster - calls
+   * `onChange` whenever `election_day_coordinators` changes on another
+   * device/tab. A deliberately SEPARATE method/channel from
+   * `subscribeToElectionDayChanges` above, not a 3rd table folded into it -
+   * two independent hooks (`useElectionDay`/`useCoordinatorAllocation`)
+   * each own their own subscription lifecycle, and `supabase-js` reuses a
+   * channel object by topic name across calls, so sharing one method/name
+   * between two independently-mounted/unmounted hooks would let either
+   * hook's cleanup tear down the other's subscription (see
+   * `SupabaseElectionDayApi.subscribeToCoordinatorChanges`'s own comment for
+   * the full mechanism). Feature-detect the same way
+   * (`api.subscribeToCoordinatorChanges?.(...)`). Returns an unsubscribe
+   * function.
+   */
+  subscribeToCoordinatorChanges?(onChange: () => void): () => void;
 }

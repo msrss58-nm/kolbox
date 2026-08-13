@@ -281,6 +281,37 @@ export interface Database {
         Relationships: [];
       };
 
+      /** Coordinator Allocation Management (Phase 1). RLS-enabled with a
+       * public SELECT policy (unlike election_day_permission_users/
+       * election_day_roles) - a coordinator row carries no secret, so a
+       * direct client SELECT is allowed; INSERT/UPDATE/DELETE have zero
+       * client policies, all writes go through the SECURITY DEFINER RPCs
+       * below (Phase 3). No FK from election_day_voters.coordinator to this
+       * table's id, by design - linked_assignment_name is an explicit-only
+       * manual bridge, never auto-matched. */
+      election_day_coordinators: {
+        Row: {
+          id: string;
+          display_name: string;
+          status: string;
+          linked_assignment_name: string | null;
+          created_at: string;
+          ended_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          display_name: string;
+          status?: string;
+          linked_assignment_name?: string | null;
+          created_at?: string;
+          ended_at?: string | null;
+        };
+        Update: Partial<
+          Database["public"]["Tables"]["election_day_coordinators"]["Insert"]
+        >;
+        Relationships: [];
+      };
+
       /** Dynamic Non-Voting Reasons (Phase 0). RLS-enabled, zero policies -
        * never queried directly by the client. All access goes through the
        * `election_day_list_non_voting_reasons`/create/update/set_active/
@@ -570,6 +601,88 @@ export interface Database {
       election_day_set_non_voting_reason: {
         Args: { p_id: string; p_reason_id: string | null; p_actor_name: string | null };
         Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Coordinator Allocation Management, Phase 3. Atomic batch of
+       * add/edit/remove/link/unlink/relink actions - re-authenticates the
+       * actor (bcrypt) and requires electionDay.manageCoordinatorAllocation,
+       * mirroring election_day_reset_permission_user_password's pattern.
+       * p_actions is a jsonb array of
+       * {action, coordinator_id?, display_name?, linked_assignment_name?}
+       * (see the migration for the exact per-action shape). Returns the full
+       * current coordinator roster. Raises UNAUTHORIZED / FORBIDDEN /
+       * NO_ACTIONS / INVALID_COORDINATOR_NAME / COORDINATOR_NOT_FOUND /
+       * DISPLAY_NAME_LOCKED / COORDINATOR_LOCKED /
+       * COORDINATOR_NAME_COLLISION / INVALID_LINK /
+       * ASSIGNMENT_ALREADY_LINKED / INVALID_ACTION. */
+      election_day_manage_coordinators: {
+        Args: { p_actor_id: string; p_actor_password: string; p_actions: Json };
+        Returns: Database["public"]["Tables"]["election_day_coordinators"]["Row"][];
+      };
+      /** Coordinator Allocation Management, Phase 3. One-time distribution of
+       * every currently-unassigned voter (coordinator IS NULL) across the
+       * given active coordinators, by quantity only - the server chooses
+       * which voters (created_at/id ascending), never the client.
+       * p_assignments is a jsonb array of {coordinator_id, quantity}. Raises
+       * UNAUTHORIZED / FORBIDDEN / INVALID_ASSIGNMENT_SHAPE /
+       * NEGATIVE_QUANTITY / DUPLICATE_COORDINATOR_IN_ASSIGNMENTS /
+       * NO_MEANINGFUL_ASSIGNMENT / COORDINATOR_NOT_FOUND /
+       * COORDINATOR_NOT_ACTIVE / NO_UNASSIGNED_VOTERS /
+       * ALLOCATION_COUNT_MISMATCH. remaining_unassigned_count in the return
+       * row is always 0 by construction (every locked unassigned voter is
+       * allocated on success). */
+      election_day_apply_initial_allocation: {
+        Args: { p_actor_id: string; p_actor_password: string; p_assignments: Json };
+        Returns: {
+          operation_id: string;
+          allocated_count: number;
+          remaining_unassigned_count: number;
+        }[];
+      };
+      /** Coordinator Allocation Management, Phase 3. Mid-day transfer of
+       * "remaining" voters (election_day_voter_is_remaining - mirrors
+       * resolveFollowUpStatus's "remaining" branch) from source coordinators
+       * to destination coordinators, by quantity only. p_sources/
+       * p_destinations are jsonb arrays of {coordinator_id, quantity}.
+       * SUM(sources) must equal SUM(destinations); a coordinator cannot be
+       * both a source and a destination in the same call. Raises
+       * UNAUTHORIZED / FORBIDDEN / INVALID_ASSIGNMENT_SHAPE /
+       * NON_POSITIVE_QUANTITY / DUPLICATE_COORDINATOR_IN_SOURCES /
+       * DUPLICATE_COORDINATOR_IN_DESTINATIONS / SOURCE_DESTINATION_OVERLAP /
+       * REBALANCE_SUM_MISMATCH / COORDINATOR_NOT_FOUND /
+       * COORDINATOR_NOT_ACTIVE / REBALANCE_SOURCE_INSUFFICIENT. */
+      election_day_rebalance_assignments: {
+        Args: {
+          p_actor_id: string;
+          p_actor_password: string;
+          p_sources: Json;
+          p_destinations: Json;
+        };
+        Returns: { operation_id: string; transferred_count: number }[];
+      };
+      /** Coordinator Allocation Management, Phase 3. Ends one active
+       * coordinator's activity - mode='transfer' moves every "remaining"
+       * voter to one required active non-self p_target_coordinator_id;
+       * mode='equal_split' splits them evenly across every other active
+       * coordinator (p_target_coordinator_id ignored). Always marks the
+       * source status='ended' on success (never deleted) and always writes
+       * an operation row naming it as subject, even with 0 items moved.
+       * Raises UNAUTHORIZED / FORBIDDEN / INVALID_MODE / INVALID_TARGET /
+       * COORDINATOR_NOT_FOUND / COORDINATOR_NOT_ACTIVE / TARGET_NOT_FOUND /
+       * TARGET_NOT_ACTIVE / LAST_ACTIVE_COORDINATOR. */
+      election_day_end_coordinator_activity: {
+        Args: {
+          p_actor_id: string;
+          p_actor_password: string;
+          p_coordinator_id: string;
+          p_mode: string;
+          p_target_coordinator_id: string | null;
+        };
+        Returns: {
+          operation_id: string;
+          transferred_count: number;
+          ended_coordinator_id: string;
+          ended_coordinator_display_name: string;
+        }[];
       };
     };
     Enums: Record<string, never>;
