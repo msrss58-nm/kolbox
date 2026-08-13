@@ -6,9 +6,11 @@ import { reportPermissionDenied } from "../../permissions/permissionAudit";
 import { useRoleCatalogStore } from "../../permissions/roleCatalogStore";
 import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
-import { api } from "../../services/api";
+import { api, ElectionDayReauthError } from "../../services/api";
 import type { NewRole, RoleUpdate } from "../../services/api";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { useElectionDayReauthProof } from "./electionDayReauthProof";
+import { useElectionDayReauth } from "./useElectionDayReauth";
 
 /**
  * Dynamic Roles & Permissions Phase 2: owns the "תפקידים" management
@@ -42,11 +44,33 @@ export function useRoleManagement() {
     };
   }
 
+  // Security Hardening (Reauth): the shared gate for this hook's 4 role-
+  // management mutations - see `useElectionDayReauth.ts`'s own doc comment
+  // for the full flow. `reauthDialog` is rendered by `RoleManagementPanel.tsx`.
+  const reauth = useElectionDayReauth();
+
   const fetchRoles = useCallback(() => api.listElectionDayRoles(), []);
   const { data: roles, reload: reloadRoles } = useAsyncData(fetchRoles);
 
+  // Security Hardening (Reauth): each `runXRole` action below reads the
+  // currently-cached proof directly from the store (rather than taking it
+  // as an argument) - by the time it runs, `reauth.gate` (in the guarded
+  // top-level function further down) has already guaranteed a valid proof
+  // is cached. On the RPC's own `UNAUTHORIZED`, the stale proof is cleared
+  // here before the error propagates to `useAsyncAction`'s normal toast
+  // handling - same pattern as `useElectionDay.ts`'s admin mutations.
   const { run: runCreateRole, busy: creatingRole } = useAsyncAction(
-    (input: NewRole) => api.createRole(input),
+    async (input: NewRole) => {
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        return await api.createRole(proof, input);
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
+      }
+    },
     { successMessage: ELECTION_DAY_TEXT.rolesManager.toast.created },
   );
   const createRoleRaw = useCallback(
@@ -62,12 +86,30 @@ export function useRoleManagement() {
   );
   const createRole = guardedAction(
     "electionDay.manageRolesAndPermissions",
-    createRoleRaw,
+    (input: NewRole) =>
+      reauth.gate(
+        {
+          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
+          summary: ELECTION_DAY_TEXT.reauth.dialogs.createRole,
+          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
+        },
+        () => createRoleRaw(input),
+      ),
     "createRole",
   );
 
   const { run: runUpdateRole, busy: updatingRole } = useAsyncAction(
-    (input: RoleUpdate) => api.updateRole(input),
+    async (input: RoleUpdate) => {
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        return await api.updateRole(proof, input);
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
+      }
+    },
     { successMessage: ELECTION_DAY_TEXT.rolesManager.toast.updated },
   );
   const updateRoleRaw = useCallback(
@@ -83,7 +125,15 @@ export function useRoleManagement() {
   );
   const updateRole = guardedAction(
     "electionDay.manageRolesAndPermissions",
-    updateRoleRaw,
+    (input: RoleUpdate) =>
+      reauth.gate(
+        {
+          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
+          summary: ELECTION_DAY_TEXT.reauth.dialogs.updateRole(input.name),
+          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
+        },
+        () => updateRoleRaw(input),
+      ),
     "updateRole",
   );
 
@@ -93,8 +143,16 @@ export function useRoleManagement() {
   // in useElectionDay.ts).
   const { run: runDeleteRole, busy: deletingRole } = useAsyncAction(
     async (id: string) => {
-      await api.deleteRole(id);
-      return true;
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        await api.deleteRole(proof, id);
+        return true;
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
+      }
     },
     { successMessage: ELECTION_DAY_TEXT.rolesManager.toast.deleted },
   );
@@ -110,12 +168,32 @@ export function useRoleManagement() {
   );
   const deleteRole = guardedAction(
     "electionDay.manageRolesAndPermissions",
-    deleteRoleRaw,
+    (id: string) => {
+      const targetName = (roles ?? []).find((r) => r.id === id)?.name ?? "";
+      return reauth.gate(
+        {
+          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
+          summary: ELECTION_DAY_TEXT.reauth.dialogs.deleteRole(targetName),
+          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
+        },
+        () => deleteRoleRaw(id),
+      );
+    },
     "deleteRole",
   );
 
   const { run: runCloneRole, busy: cloningRole } = useAsyncAction(
-    (input: { id: string; newName: string }) => api.cloneRole(input.id, input.newName),
+    async (input: { id: string; newName: string }) => {
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        return await api.cloneRole(proof, input.id, input.newName);
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
+      }
+    },
     { successMessage: ELECTION_DAY_TEXT.rolesManager.toast.cloned },
   );
   const cloneRoleRaw = useCallback(
@@ -131,7 +209,17 @@ export function useRoleManagement() {
   );
   const cloneRole = guardedAction(
     "electionDay.manageRolesAndPermissions",
-    cloneRoleRaw,
+    (id: string, newName: string) => {
+      const sourceName = (roles ?? []).find((r) => r.id === id)?.name ?? "";
+      return reauth.gate(
+        {
+          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
+          summary: ELECTION_DAY_TEXT.reauth.dialogs.cloneRole(sourceName),
+          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
+        },
+        () => cloneRoleRaw(id, newName),
+      );
+    },
     "cloneRole",
   );
 
@@ -146,6 +234,10 @@ export function useRoleManagement() {
     updateRole,
     deleteRole,
     cloneRole,
+    // Security Hardening (Reauth): the shared password-reauth dialog for
+    // this hook's 4 gated mutations - `null` while no reauth is pending.
+    // Rendered by `RoleManagementPanel.tsx`.
+    reauthDialog: reauth.reauthDialog,
   };
 }
 

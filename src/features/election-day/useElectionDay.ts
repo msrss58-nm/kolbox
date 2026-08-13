@@ -8,7 +8,7 @@ import { whatsAppShareHref } from "../../lib/phone";
 import { reportPermissionDenied } from "../../permissions/permissionAudit";
 import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
-import { api } from "../../services/api";
+import { api, ElectionDayReauthError } from "../../services/api";
 import type { NewPermissionUser, NewRideCoordinator } from "../../services/api";
 import {
   exportElectionDayVotersToExcel,
@@ -18,6 +18,8 @@ import {
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDaySession } from "./electionDaySession";
+import { useElectionDayReauthProof } from "./electionDayReauthProof";
+import { useElectionDayReauth } from "./useElectionDayReauth";
 import { resolveVisibleContacts } from "./electionDayScope";
 import { matchesElectionDaySearch } from "./electionDaySearch";
 import {
@@ -89,11 +91,14 @@ function ridePipelineStage(c: ElectionDayVoter): number {
  * ride-status mutation, and the countdown deadline - so `ElectionDayPage`
  * stays a thin view.
  *
- * @param isBootstrap - from `ElectionDayGuard`'s Outlet context: true only
- * while the `PermissionUser` roster is empty and no one is signed in. Used
- * exclusively to allow `addPermissionUser` (create the first account) - see
- * that function below. Not a role, not passed to anything else. */
-export function useElectionDay(isBootstrap: boolean) {
+ * Security Hardening (Reauth): this hook no longer takes an `isBootstrap`
+ * parameter - `addPermissionUser` below carries no bootstrap exception of
+ * any kind (one briefly existed, both here and server-side, and was
+ * explicitly removed). `ElectionDayPermissionsPage` reads `isBootstrap`
+ * directly from `ElectionDayShell`'s own outlet-context re-export instead,
+ * purely to decide whether to render a static setup-required state - never
+ * to widen what this hook's handlers are allowed to do. */
+export function useElectionDay() {
   const { can, role, catalogStatus, roles } = usePermissions();
 
   /** Every mutation exposed by this hook goes through this - checks
@@ -116,6 +121,14 @@ export function useElectionDay(isBootstrap: boolean) {
       return action(...args);
     };
   }
+
+  // Security Hardening (Reauth): the shared gate for the 4 admin/import
+  // mutations this hook owns (addPermissionUser/deletePermissionUser/
+  // resetPermissionUserPassword/importFile) - see useElectionDayReauth.ts's
+  // own doc comment for the full flow. `reauthDialog` is rendered once, by
+  // ElectionDayShell.tsx (which already renders this hook's other shared
+  // dialog, ElectionDayContactModal).
+  const reauth = useElectionDayReauth();
 
   const fetchContacts = useCallback(() => api.listElectionDayVoters(), []);
   const {
@@ -521,14 +534,33 @@ export function useElectionDay(isBootstrap: boolean) {
   const [lastImportSummary, setLastImportSummary] =
     useState<ElectionDayImportResult | null>(null);
 
+  // Security Hardening (Reauth): the actual `importElectionDayVoters` call
+  // reads the currently-cached proof directly from the store (rather than
+  // having it threaded in as an argument) - by the time this action runs,
+  // `reauth.gate` (see `importFileRaw` below) has already guaranteed a
+  // valid proof is cached, either because one already was, or because the
+  // gate's own dialog just obtained and cached a fresh one. On the RPC's own
+  // `UNAUTHORIZED` (the proof was rejected server-side - expired/revoked
+  // mid-flow), the stale proof is cleared here before the error propagates
+  // to this `useAsyncAction`'s normal toast handling - see
+  // `useElectionDayReauth.ts`'s doc comment for why this deliberately does
+  // NOT auto-retry the import itself.
   const { run: runImport, busy: importing } = useAsyncAction(
     async (file: File) => {
       const sheet = file.name.toLowerCase().endsWith(".json")
         ? await parseJsonFile(file)
         : await parseSpreadsheet(file);
       const parsed = parseElectionDaySheet(sheet);
-      const { count } = await api.importElectionDayVoters(parsed.imported);
-      return { ...parsed, count };
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        const { count } = await api.importElectionDayVoters(proof, parsed.imported);
+        return { ...parsed, count };
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
+      }
     },
     {
       successMessage: (result) =>
@@ -542,7 +574,14 @@ export function useElectionDay(isBootstrap: boolean) {
 
   const importFileRaw = useCallback(
     async (file: File) => {
-      const result = await runImport(file);
+      const result = await reauth.gate(
+        {
+          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
+          summary: ELECTION_DAY_TEXT.reauth.dialogs.importVoters,
+          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
+        },
+        () => runImport(file),
+      );
       if (result) {
         setLastImportSummary(result);
         reloadContacts();
@@ -550,7 +589,7 @@ export function useElectionDay(isBootstrap: boolean) {
       }
       return result;
     },
-    [runImport, reloadContacts, reloadEvents],
+    [reauth, runImport, reloadContacts, reloadEvents],
   );
   const importFile = guardedAction("electionDay.import", importFileRaw, "importFile");
 
@@ -1000,8 +1039,27 @@ export function useElectionDay(isBootstrap: boolean) {
     "deleteRideCoordinator",
   );
 
+  // Security Hardening (Reauth): reads the currently-cached proof directly
+  // from the store rather than taking it as an argument - same reasoning as
+  // `runImport`/`runDeletePermissionUser`. No bootstrap fallback of any
+  // kind - `election_day_create_permission_user_v2` has no empty-roster
+  // exception (removed, see the Security Phase 1 audit), so `addPermissionUser`
+  // below always goes through `reauth.gate` first and this always runs with
+  // a real, freshly-verified proof. The very first account (fresh install /
+  // local test bootstrap) is created out-of-band, never through this path -
+  // see `ElectionDayPermissionsPage`'s setup-required state.
   const { run: runAddPermissionUser } = useAsyncAction(
-    (input: NewPermissionUser) => api.createPermissionUser(input),
+    async (input: NewPermissionUser) => {
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        return await api.createPermissionUser(proof, input);
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
+      }
+    },
     { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.added },
   );
 
@@ -1013,45 +1071,44 @@ export function useElectionDay(isBootstrap: boolean) {
     },
     [runAddPermissionUser, reloadPermissionUsers],
   );
-  // `permissionUsers` here is the raw fetched value (not the `?? []` default
-  // used in the returned object below) so "still loading" is never confused
-  // with "genuinely empty" - same distinction `ElectionDayGuard` makes.
-  const rosterStillEmpty = permissionUsers !== null && permissionUsers.length === 0;
-  // The one deliberate exception in the whole permission model: creating the
-  // very first `PermissionUser` is allowed with no session at all, but only
-  // while `isBootstrap` (no session *and* the roster was empty when the page
-  // loaded - see `ElectionDayGuard`) *and* the roster is still empty right
-  // now. That second, live check is what makes the exception self-cancel
-  // after the first account is created - `isBootstrap` alone wouldn't, since
-  // it doesn't change again until the next full page load. This is not a
-  // role-based grant - every other permission still resolves through `can`
-  // exactly as it does everywhere else, and `deletePermissionUser` below
-  // deliberately has no such exception.
-  const addPermissionUser = useCallback(
-    async (input: NewPermissionUser) => {
-      const allowed = can("electionDay.manageUsers") || (isBootstrap && rosterStillEmpty);
-      if (!allowed) {
-        reportPermissionDenied({
-          role,
-          permission: "electionDay.manageUsers",
-          context: "addPermissionUser",
-        });
-        toast.error(ELECTION_DAY_TEXT.permissionDenied);
-        return undefined;
-      }
-      return addPermissionUserRaw(input);
-    },
-    [can, role, isBootstrap, rosterStillEmpty, addPermissionUserRaw],
+  // Security Hardening (Reauth): plain `guardedAction`, no bootstrap
+  // widening of any kind - identical shape to `deletePermissionUser` below.
+  // A denied session never sees a mutation attempted, let alone a call with
+  // an empty/synthetic proof.
+  const addPermissionUser = guardedAction(
+    "electionDay.manageUsers",
+    (input: NewPermissionUser) =>
+      reauth.gate(
+        {
+          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
+          summary: ELECTION_DAY_TEXT.reauth.dialogs.addPermissionUser(input.name),
+          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
+        },
+        () => addPermissionUserRaw(input),
+      ),
+    "addPermissionUser",
   );
 
   // Wrapped to resolve to an explicit `true` sentinel on success (the
   // underlying `api.deletePermissionUser` resolves void, otherwise
   // indistinguishable from a blocked/failed call) - same pattern as
-  // `useRoleManagement.ts`'s `deleteRole`.
+  // `useRoleManagement.ts`'s `deleteRole`. Security Hardening (Reauth): reads
+  // the cached proof from the store, same pattern as `runAddPermissionUser`
+  // above - `deletePermissionUser` below carries no bootstrap exception, so
+  // a session (and therefore an eventual valid proof) always exists by the
+  // time this runs.
   const { run: runDeletePermissionUser, busy: deletingPermissionUser } = useAsyncAction(
     async (id: string) => {
-      await api.deletePermissionUser(id);
-      return true;
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        await api.deletePermissionUser(proof, id);
+        return true;
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
+      }
     },
     { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.deleted },
   );
@@ -1076,45 +1133,55 @@ export function useElectionDay(isBootstrap: boolean) {
   );
   const deletePermissionUser = guardedAction(
     "electionDay.manageUsers",
-    deletePermissionUserRaw,
+    (id: string) => {
+      const targetName = (permissionUsers ?? []).find((u) => u.id === id)?.name ?? "";
+      return reauth.gate(
+        {
+          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
+          summary: ELECTION_DAY_TEXT.reauth.dialogs.deletePermissionUser(targetName),
+          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
+        },
+        () => deletePermissionUserRaw(id),
+      );
+    },
     "deletePermissionUser",
   );
 
   // No `successMessage` - the dialog itself shows the success toast (needs
   // the target user's name, which this hook layer doesn't carry), same
   // division of responsibility documented in `ResetPasswordDialog.tsx`.
-  // `actorId` is this session's own id, never client-typed - the acting
-  // manager only re-enters their own PASSWORD (`actorPassword`, collected by
-  // the dialog); the RPC itself re-authenticates that password server-side
-  // and derives `reset_by` from the verified actor row, not from any text
-  // this layer sends. The `!sessionUser` branch is unreachable in practice
-  // (guardedAction's `can("electionDay.manageUsers")` check below already
-  // requires a resolved session - see usePermissions.ts's
+  // Security Hardening (Reauth): the acting manager's own password is no
+  // longer collected by this dialog/handler at all - it's supplied once,
+  // up front, by the shared `reauth.gate` flow (see `resetPermissionUserPassword`
+  // below), and the RPC re-authenticates that password server-side via the
+  // resulting proof, deriving `reset_by` from the verified actor - not from
+  // any text this layer sends. The `!sessionUser` branch is unreachable in
+  // practice (guardedAction's `can("electionDay.manageUsers")` check below
+  // already requires a resolved session - see usePermissions.ts's
   // `sessionUser?.roleId ?? null`) - kept only so this closure never needs a
   // non-null assertion on `sessionUser`.
   const { run: runResetPermissionUserPassword } = useAsyncAction(
-    (targetId: string, newPassword: string, actorPassword: string) => {
+    async (targetId: string, newPassword: string) => {
       if (!sessionUser) {
         return Promise.reject(new Error(ELECTION_DAY_TEXT.permissionDenied));
       }
-      return api.resetPermissionUserPassword(
-        sessionUser.id,
-        actorPassword,
-        targetId,
-        newPassword,
-      );
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        return await api.resetPermissionUserPassword(proof, targetId, newPassword);
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
+      }
     },
   );
   // No bootstrap exception here (unlike `addPermissionUser` above) - resetting
   // a password is never needed to stand up the very first account, so this is
   // a plain `can(...)` check like every other mutation.
   const resetPermissionUserPasswordRaw = useCallback(
-    async (targetId: string, newPassword: string, actorPassword: string) => {
-      const result = await runResetPermissionUserPassword(
-        targetId,
-        newPassword,
-        actorPassword,
-      );
+    async (targetId: string, newPassword: string) => {
+      const result = await runResetPermissionUserPassword(targetId, newPassword);
       if (result) reloadPermissionUsers();
       return result;
     },
@@ -1122,7 +1189,19 @@ export function useElectionDay(isBootstrap: boolean) {
   );
   const resetPermissionUserPassword = guardedAction(
     "electionDay.manageUsers",
-    resetPermissionUserPasswordRaw,
+    (targetId: string, newPassword: string) => {
+      const targetName =
+        (permissionUsers ?? []).find((u) => u.id === targetId)?.name ?? "";
+      return reauth.gate(
+        {
+          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
+          summary:
+            ELECTION_DAY_TEXT.reauth.dialogs.resetPermissionUserPassword(targetName),
+          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
+        },
+        () => resetPermissionUserPasswordRaw(targetId, newPassword),
+      );
+    },
     "resetPermissionUserPassword",
   );
 
@@ -1336,6 +1415,10 @@ export function useElectionDay(isBootstrap: boolean) {
     deletingPermissionUser,
     resetPermissionUserPassword,
     roles,
+    // Security Hardening (Reauth): the shared password-reauth dialog for
+    // this hook's 4 gated mutations - `null` while no reauth is pending.
+    // Rendered once by `ElectionDayShell.tsx`.
+    reauthDialog: reauth.reauthDialog,
   };
 }
 

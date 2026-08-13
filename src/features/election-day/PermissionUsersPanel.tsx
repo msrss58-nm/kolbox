@@ -37,7 +37,7 @@ export function PermissionUsersPanel({
    * succeeded, same "undefined on failure" contract as `onAdd`. */
   onDelete: (id: string) => Promise<unknown>;
   deleting: boolean;
-  onReset: (id: string, newPassword: string, actorPassword: string) => Promise<unknown>;
+  onReset: (id: string, newPassword: string) => Promise<unknown>;
   /** `electionDay.manageUsers` (widened by the same bootstrap exception
    * `addPermissionUser` itself applies) - Add/Reset/Delete are all gated by
    * this one permission in `useElectionDay.ts`, so one flag controls all

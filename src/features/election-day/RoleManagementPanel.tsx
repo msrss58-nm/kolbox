@@ -9,6 +9,7 @@ import { ALL_PERMISSIONS } from "../../permissions/permissionsMap";
 import type { Permission, RoleRecord, RoleScopeType } from "../../permissions/types";
 import type { NewRole, RoleUpdate } from "../../services/api";
 import type { PermissionUser } from "../../types";
+import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import {
   ELECTION_DAY_TEXT,
   PERMISSION_LABELS,
@@ -63,6 +64,7 @@ export function RoleManagementPanel({
     creatingRole,
     updatingRole,
     deletingRole,
+    reauthDialog,
   } = roleManagement;
 
   // `null` = list view, "new" = creating, a RoleRecord = editing that role.
@@ -270,6 +272,12 @@ export function RoleManagementPanel({
         }}
         onCancel={() => setPendingDeleteId(null)}
       />
+
+      {/* Security Hardening (Reauth): the shared password-reauth prompt for
+          create/update/delete/clone - reuses `AllocationPasswordDialog`'s
+          existing visual pattern, same as the coordinator-allocation
+          mutations already do. */}
+      {reauthDialog && <AllocationPasswordDialog {...reauthDialog} />}
     </>
   );
 }

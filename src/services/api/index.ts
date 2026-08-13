@@ -84,6 +84,10 @@ export const api: ApiClient = {
   verifyPermissionUserLogin: (...args) =>
     electionDayApi.verifyPermissionUserLogin(...args),
 
+  // election day - security hardening (reauth proof)
+  reauth: (...args) => electionDayApi.reauth(...args),
+  revokeReauthProof: (...args) => electionDayApi.revokeReauthProof(...args),
+
   // election day - dynamic role catalog (Phase 1, Supabase-backed, RPC-only)
   listElectionDayRoles: (...args) => electionDayApi.listElectionDayRoles(...args),
 
@@ -120,3 +124,7 @@ export const api: ApiClient = {
 };
 
 export type * from "./types";
+// Security Hardening (Reauth): a runtime class (not just a type), so it's a
+// plain named re-export rather than folded into the `export type *` above -
+// `useElectionDayReauth.ts` needs `instanceof` checks against it.
+export { ElectionDayReauthError } from "./supabaseElectionDayApi";

@@ -3,6 +3,7 @@ import { useRoleCatalogStore } from "../../permissions/roleCatalogStore";
 import { api } from "../../services/api";
 import { loadJson, removeKey, saveJson } from "../../services/storage/localStore";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { useElectionDayReauthProof } from "./electionDayReauthProof";
 
 const SESSION_KEY = "election-day-session-v1";
 
@@ -42,6 +43,16 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set) => ({
       name: match.name,
       roleId: match.roleId,
     };
+    // Security Hardening (Reauth): a successful login changes the signed-in
+    // actor - drop any reauth proof left over from a previous session (there
+    // shouldn't normally be one, since `logout()` below already clears it,
+    // but this login path is the other place the actor identity can change,
+    // so it clears defensively too rather than assuming the invariant always
+    // held). No revoke call here (unlike `logout()`) - a proof surviving
+    // from before this login was never valid for the newly-signed-in actor
+    // to use anyway, so there's nothing to notify the server about beyond
+    // what its own expiry already handles.
+    useElectionDayReauthProof.getState().clearProof();
     saveJson(SESSION_KEY, sessionUser);
     set({ user: sessionUser });
     // Kick off the role-catalog fetch immediately on a real, interactive
@@ -55,6 +66,13 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set) => ({
   },
 
   logout: () => {
+    // Security Hardening (Reauth): best-effort revoke of whatever proof is
+    // currently cached - fire-and-forget, never awaited, since
+    // `revokeReauthProof()` itself never throws (see its own doc comment)
+    // and logout must never be blocked or failed by a network hiccup here.
+    const { proof, clearProof } = useElectionDayReauthProof.getState();
+    if (proof) void api.revokeReauthProof(proof);
+    clearProof();
     removeKey(SESSION_KEY);
     set({ user: null });
   },

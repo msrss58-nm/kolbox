@@ -67,6 +67,16 @@ export const ELECTION_DAY_TEXT = {
     usersTab: "משתמשים",
     rolesTab: "תפקידים",
   },
+
+  /** Security Hardening (Reauth): rendered by `ElectionDayPermissionsPage`
+   * instead of the users/roles tabs while `isBootstrap` is true - the first
+   * PermissionUser can no longer be created through the normal in-app form
+   * (the proof-based `_v2` RPC has no empty-roster exception, by design).
+   * Deliberately non-technical - never mentions RPCs, proofs, or auth. */
+  bootstrapSetupRequired: {
+    title: "נדרשת הגדרה ראשונית",
+    hint: "לא ניתן ליצור את המשתמש הראשון מתוך הממשק הרגיל. יש לבצע הגדרה ראשונית מאובטחת לפני השימוש במערכת.",
+  },
   ridesPage: {
     coordinatorsTab: "אחראי הסעות",
     tableTab: "טבלת ההיסעים",
@@ -529,6 +539,36 @@ export const ELECTION_DAY_TEXT = {
     },
   },
 
+  /** Security Hardening (Reauth): shared copy for the 8 admin/import
+   * mutations gated by a short-lived server-verified re-auth proof
+   * (`election_day_reauth`) - reuses `AllocationPasswordDialog`'s existing
+   * visual pattern (mirrors `coordinatorAllocation.confirmDialog` above)
+   * rather than inventing new dialog chrome per surface. */
+  reauth: {
+    passwordLabel: "הסיסמה שלך",
+    showPasswordAriaLabel: "הצג סיסמה",
+    hidePasswordAriaLabel: "הסתר סיסמה",
+    cancelButton: "ביטול",
+    confirmButton: "אישור",
+    dialogTitle: "אימות מחדש נדרש",
+    dialogs: {
+      addPermissionUser: (name: string) =>
+        `כדי להוסיף את המשתמש "${name}" יש לאמת מחדש את הסיסמה שלך.`,
+      deletePermissionUser: (name: string) =>
+        `כדי למחוק את המשתמש "${name}" יש לאמת מחדש את הסיסמה שלך.`,
+      resetPermissionUserPassword: (name: string) =>
+        `כדי לאפס את הסיסמה של "${name}" יש לאמת מחדש את הסיסמה שלך.`,
+      createRole: "כדי ליצור תפקיד חדש יש לאמת מחדש את הסיסמה שלך.",
+      updateRole: (name: string) =>
+        `כדי לעדכן את התפקיד "${name}" יש לאמת מחדש את הסיסמה שלך.`,
+      deleteRole: (name: string) =>
+        `כדי למחוק את התפקיד "${name}" יש לאמת מחדש את הסיסמה שלך.`,
+      cloneRole: (name: string) =>
+        `כדי לשכפל את התפקיד "${name}" יש לאמת מחדש את הסיסמה שלך.`,
+      importVoters: "כדי לטעון את קובץ הבוחרים יש לאמת מחדש את הסיסמה שלך.",
+    },
+  },
+
   permissionsManager: {
     button: "ניהול הרשאות משתמשים",
     modalTitle: "הוסף משתמש",
@@ -576,7 +616,6 @@ export const ELECTION_DAY_TEXT = {
       dialogTitle: "איפוס סיסמה",
       dialogBody: (userName: string) =>
         `אתה עומד לאפס את הסיסמה עבור המשתמש:\n${userName}`,
-      actorPasswordLabel: "הסיסמה שלך לאישור הפעולה",
       newPasswordLabel: "סיסמה חדשה",
       confirmPasswordLabel: "אימות סיסמה חדשה",
       showPasswordAriaLabel: "הצג סיסמה",

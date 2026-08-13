@@ -22,16 +22,16 @@ export function ResetPasswordDialog({
    * remounted per user - see `NonVotingReasonDrillDownModal.tsx` for the same
    * nullable-target shape. */
   user: PermissionUser | null;
-  onReset: (
-    targetId: string,
-    newPassword: string,
-    actorPassword: string,
-  ) => Promise<unknown>;
+  /** Security Hardening (Reauth): no longer takes an `actorPassword` - the
+   * acting manager's own re-authentication is now handled once, up front,
+   * by the shared `AllocationPasswordDialog`-based reauth prompt (see
+   * `useElectionDay.ts`'s `resetPermissionUserPassword` / `ElectionDayShell.tsx`),
+   * which this dialog's submit triggers as needed rather than collecting a
+   * password field of its own. */
+  onReset: (targetId: string, newPassword: string) => Promise<unknown>;
 }) {
-  const [actorPassword, setActorPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showActorPassword, setShowActorPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -44,10 +44,8 @@ export function ResetPasswordDialog({
   const currentUserId = user?.id ?? null;
   if (currentUserId !== trackedUserId) {
     setTrackedUserId(currentUserId);
-    setActorPassword("");
     setNewPassword("");
     setConfirmPassword("");
-    setShowActorPassword(false);
     setShowNewPassword(false);
     setShowConfirmPassword(false);
   }
@@ -56,12 +54,7 @@ export function ResetPasswordDialog({
 
   const bothFilled = newPassword.trim() && confirmPassword.trim();
   const mismatch = Boolean(bothFilled && newPassword !== confirmPassword);
-  const disabled =
-    busy ||
-    !newPassword.trim() ||
-    !confirmPassword.trim() ||
-    !actorPassword.trim() ||
-    mismatch;
+  const disabled = busy || !newPassword.trim() || !confirmPassword.trim() || mismatch;
 
   const handleSubmit = async () => {
     if (disabled) return;
@@ -70,7 +63,10 @@ export function ResetPasswordDialog({
       // A blocked (no permission) or failed reset resolves to `undefined` -
       // the caller's guardedAction/useAsyncAction already toasted the
       // failure, so only a defined result gets its own success toast here.
-      const result = await onReset(user.id, newPassword, actorPassword);
+      // `onReset` may itself show a reauth password prompt first (see this
+      // component's own doc comment on `onReset`) - `await` here spans that
+      // whole flow, not just the RPC call.
+      const result = await onReset(user.id, newPassword);
       if (result !== undefined) {
         toast.success(text.toast.success(user.name));
         onClose();
@@ -86,35 +82,6 @@ export function ResetPasswordDialog({
         <p className="whitespace-pre-line text-sm text-slate-600">
           {text.dialogBody(user.name)}
         </p>
-
-        <Field label={text.actorPasswordLabel}>
-          <div className="flex gap-2">
-            <Input
-              type={showActorPassword ? "text" : "password"}
-              value={actorPassword}
-              onChange={(e) => setActorPassword(e.target.value)}
-              className="flex-1"
-              dir="ltr"
-              autoComplete="current-password"
-            />
-            <button
-              type="button"
-              onClick={() => setShowActorPassword((v) => !v)}
-              aria-label={
-                showActorPassword
-                  ? text.hidePasswordAriaLabel
-                  : text.showPasswordAriaLabel
-              }
-              className="touch-target grid shrink-0 place-items-center rounded-xl text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50"
-            >
-              {showActorPassword ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
-            </button>
-          </div>
-        </Field>
 
         <Field label={text.newPasswordLabel}>
           <div className="flex gap-2">

@@ -1,0 +1,97 @@
+// Security Phase 1 - focused regression guard for the bootstrap correction:
+// election_day_create_permission_user_v2 has no empty-roster exception
+// (server-side, verified separately via the runtime matrix against real
+// local Postgres), and the frontend must never call it - or the legacy v1
+// RPC - with an empty/synthetic proof during the bootstrap window either.
+// This project has no component-rendering test framework (no Vitest/Jest/
+// RTL - only Playwright, used for live-app smoke scripts), so this checks
+// the real, committed source directly: the exact bypass patterns that were
+// removed must stay absent, and the exact safe patterns that replaced them
+// must stay present. A silent regression (someone re-adding either bypass
+// later) fails this script.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const root = join(__dirname, "..");
+const read = (rel: string) => readFileSync(join(root, rel), "utf8");
+
+let failures = 0;
+function assert(condition: boolean, message: string) {
+  if (!condition) {
+    failures++;
+    console.error(`FAIL: ${message}`);
+  } else {
+    console.log(`PASS: ${message}`);
+  }
+}
+
+const useElectionDay = read("src/features/election-day/useElectionDay.ts");
+const permissionsPage = read("src/features/election-day/ElectionDayPermissionsPage.tsx");
+const supabaseApi = read("src/services/api/supabaseElectionDayApi.ts");
+const shell = read("src/features/election-day/ElectionDayShell.tsx");
+
+// 1. The removed bypass patterns must not be present anywhere in the hook.
+assert(
+  !useElectionDay.includes("isBootstrap && rosterStillEmpty"),
+  "useElectionDay.ts: no isBootstrap && rosterStillEmpty bypass condition",
+);
+assert(
+  !/if \(!sessionUser\) return addPermissionUserRaw/.test(useElectionDay),
+  "useElectionDay.ts: no !sessionUser skip-reauth branch in addPermissionUser",
+);
+assert(
+  !useElectionDay.includes("rosterStillEmpty"),
+  "useElectionDay.ts: rosterStillEmpty variable fully removed (dead bootstrap state)",
+);
+assert(
+  !/export function useElectionDay\(isBootstrap/.test(useElectionDay),
+  "useElectionDay.ts: hook no longer takes an isBootstrap parameter",
+);
+
+// 2. addPermissionUser must be uniformly gated via guardedAction, exactly
+// like deletePermissionUser (no bespoke bootstrap-widened allowed check).
+assert(
+  /const addPermissionUser = guardedAction\(\s*"electionDay\.manageUsers"/.test(
+    useElectionDay,
+  ),
+  "useElectionDay.ts: addPermissionUser uses plain guardedAction(\"electionDay.manageUsers\", ...)",
+);
+
+// 3. ElectionDayShell no longer threads isBootstrap into useElectionDay().
+assert(
+  /const electionDay = useElectionDay\(\);/.test(shell),
+  "ElectionDayShell.tsx: useElectionDay() called with no isBootstrap argument",
+);
+
+// 4. The permissions page must render a static setup-required state during
+// bootstrap, and canManageUsers must not be widened by isBootstrap anymore.
+assert(
+  /if \(electionDay\.isBootstrap\) \{/.test(permissionsPage),
+  "ElectionDayPermissionsPage.tsx: has an explicit isBootstrap early-return branch",
+);
+assert(
+  permissionsPage.includes("ELECTION_DAY_TEXT.bootstrapSetupRequired.title"),
+  "ElectionDayPermissionsPage.tsx: bootstrap branch renders the setup-required copy",
+);
+assert(
+  !permissionsPage.includes('can("electionDay.manageUsers") || electionDay.isBootstrap'),
+  "ElectionDayPermissionsPage.tsx: canManageUsers no longer widened by isBootstrap",
+);
+assert(
+  /const canManageUsers = can\("electionDay\.manageUsers"\);/.test(permissionsPage),
+  "ElectionDayPermissionsPage.tsx: canManageUsers is a plain, unwidened permission check",
+);
+
+// 5. Normal (non-bootstrap) admin creation must still go through the real
+// v2 RPC, unchanged, and never the legacy v1 name.
+assert(
+  supabaseApi.includes('supabase.rpc("election_day_create_permission_user_v2"'),
+  "supabaseElectionDayApi.ts: createPermissionUser still calls election_day_create_permission_user_v2",
+);
+assert(
+  !/supabase\.rpc\("election_day_create_permission_user"[,)]/.test(supabaseApi),
+  "supabaseElectionDayApi.ts: no frontend call to the legacy unauthenticated election_day_create_permission_user",
+);
+
+console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);
+process.exitCode = failures === 0 ? 0 : 1;

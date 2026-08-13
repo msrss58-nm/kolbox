@@ -475,6 +475,134 @@ export interface Database {
         };
         Returns: number;
       };
+      /** Security Hardening (Reauth) - hand-added ahead of the real
+       * `supabase gen types` regeneration (the migrations adding these
+       * function signatures were landing in parallel with this frontend
+       * change; regenerate this file for real once they're applied and this
+       * block can be dropped). Bcrypt-verifies p_actor_password against
+       * p_actor_id's own password_hash and returns a raw, opaque, short-
+       * lived proof token on success. Raises UNAUTHORIZED on a wrong
+       * password. */
+      election_day_reauth: {
+        Args: { p_actor_id: string; p_actor_password: string };
+        Returns: string;
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment on
+       * why this block is hand-added. Best-effort, idempotent proof
+       * revocation - never raises for an already-invalid proof. */
+      election_day_revoke_reauth_proof: {
+        Args: { p_proof: string };
+        Returns: undefined;
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment on
+       * why this block is hand-added. Replaces election_day_create_permission_user
+       * as the reachable creation path - takes p_reauth_proof as its first
+       * argument instead of accepting no caller identity at all. Raises
+       * UNAUTHORIZED/FORBIDDEN for an invalid proof/insufficient permission,
+       * on top of that RPC's existing business-error codes. */
+      election_day_create_permission_user_v2: {
+        Args: {
+          p_reauth_proof: string;
+          p_name: string;
+          p_password: string;
+          p_role_id: string;
+        };
+        Returns: { id: string; name: string; role_id: string }[];
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment.
+       * Replaces election_day_delete_permission_user. */
+      election_day_delete_permission_user_v2: {
+        Args: { p_reauth_proof: string; p_target_user_id: string };
+        Returns: undefined;
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment.
+       * Replaces election_day_reset_permission_user_password - the acting
+       * manager's identity now comes entirely from p_reauth_proof instead of
+       * this RPC taking p_actor_id/p_actor_password directly. */
+      election_day_reset_permission_user_password_v2: {
+        Args: {
+          p_reauth_proof: string;
+          p_target_user_id: string;
+          p_new_password: string;
+        };
+        Returns: { id: string; name: string; role_id: string }[];
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment.
+       * Replaces election_day_create_role. */
+      election_day_create_role_v2: {
+        Args: {
+          p_reauth_proof: string;
+          p_name: string;
+          p_description: string | null;
+          p_permissions: string[];
+          p_scope_type: string;
+        };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          permissions: string[];
+          scope_type: string;
+          scope_value: Json | null;
+        }[];
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment.
+       * Replaces election_day_update_role. */
+      election_day_update_role_v2: {
+        Args: {
+          p_reauth_proof: string;
+          p_role_id: string;
+          p_name: string;
+          p_description: string | null;
+          p_permissions: string[];
+          p_scope_type: string;
+        };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          permissions: string[];
+          scope_type: string;
+          scope_value: Json | null;
+        }[];
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment.
+       * Replaces election_day_delete_role. */
+      election_day_delete_role_v2: {
+        Args: { p_reauth_proof: string; p_role_id: string };
+        Returns: undefined;
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment.
+       * Replaces election_day_clone_role. */
+      election_day_clone_role_v2: {
+        Args: { p_reauth_proof: string; p_role_id: string; p_new_name: string };
+        Returns: {
+          id: string;
+          name: string;
+          description: string;
+          permissions: string[];
+          scope_type: string;
+          scope_value: Json | null;
+        }[];
+      };
+      /** Security Hardening (Reauth) - see election_day_reauth's comment.
+       * Replaces election_day_import_voters. */
+      election_day_import_voters_v2: {
+        Args: {
+          p_reauth_proof: string;
+          p_voters: {
+            masad: string;
+            first_name: string;
+            last_name: string;
+            street: string;
+            house_number: number;
+            city: string;
+            phone: string | null;
+            coordinator: string | null;
+          }[];
+        };
+        Returns: number;
+      };
       /** Dynamic Non-Voting Reasons: lists the full catalog (active and
        * inactive) ordered by sort_order. */
       election_day_list_non_voting_reasons: {

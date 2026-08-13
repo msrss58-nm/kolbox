@@ -228,7 +228,13 @@ export interface ApiClient {
   clearAll(): Promise<void>;
 
   // election day - independent ride-coordination dataset (see types.ts ElectionDayVoter)
-  importElectionDayVoters(rows: NewElectionDayVoter[]): Promise<{ count: number }>;
+  /** Security Hardening (Reauth): `proof` (from `reauth()`) is required -
+   * this destructive, whole-dataset mutation is one of the 8 admin/import
+   * RPCs no longer reachable by anyone holding only the anon key. */
+  importElectionDayVoters(
+    proof: string,
+    rows: NewElectionDayVoter[],
+  ): Promise<{ count: number }>;
   listElectionDayVoters(): Promise<ElectionDayVoter[]>;
   /** Clears the ride-list and its activity log (not the deadline). */
   clearElectionDayVoters(): Promise<void>;
@@ -307,21 +313,28 @@ export interface ApiClient {
 
   // election day - local user/manager permissions roster (no real auth)
   listPermissionUsers(): Promise<PermissionUser[]>;
-  deletePermissionUser(id: string): Promise<void>;
+  /** Security Hardening (Reauth): `proof` (from `reauth()`) is required,
+   * unconditionally - same as `createPermissionUser` below, neither carries
+   * any bootstrap/empty-roster exception (one briefly existed on the
+   * create path, both client- and server-side, and was explicitly
+   * removed). */
+  deletePermissionUser(proof: string, id: string): Promise<void>;
   /** Resets an existing PermissionUser's (`targetId`) password in place
    * (id/name/role untouched) - but only after REAL server-side
-   * re-authentication of the acting manager: the caller must supply the
-   * acting manager's own current password (`actorPassword`), verified via
-   * bcrypt inside the RPC against the actor's (`actorId`) own stored hash,
-   * plus a real server-side check that the actor's role holds
-   * `electionDay.manageUsers`. This is a genuine security boundary enforced
-   * in the database itself - not just a UI-level `guardedAction` check like
-   * every other mutation in this file. Self-reset: pass
-   * `targetId === actorId`. Never returns or otherwise exposes the password
+   * re-authentication of the acting manager. Security Hardening (Reauth):
+   * the acting manager's identity is now carried by `proof` (obtained via
+   * `reauth()`, itself a bcrypt verification of that manager's own current
+   * password against their stored hash) instead of this method taking
+   * `actorId`/`actorPassword` directly - the RPC still performs the same
+   * real server-side checks (the proof resolves to a valid, currently
+   * signed-in actor; that actor's role holds `electionDay.manageUsers`)
+   * it always did. This is a genuine security boundary enforced in the
+   * database itself - not just a UI-level `guardedAction` check like every
+   * other mutation in this file. Self-reset: pass `targetId` equal to the
+   * proof's own actor id. Never returns or otherwise exposes the password
    * or its hash. */
   resetPermissionUserPassword(
-    actorId: string,
-    actorPassword: string,
+    proof: string,
     targetId: string,
     newPassword: string,
   ): Promise<PermissionUser>;
@@ -331,6 +344,19 @@ export interface ApiClient {
     name: string,
     password: string,
   ): Promise<PermissionUser | null>;
+  /** Security Hardening (Reauth): bcrypt-verifies `actorPassword` against
+   * `actorId`'s own stored hash and returns a raw, opaque, short-lived proof
+   * token on success (`election_day_reauth`) - the credential every one of
+   * the 8 hardened admin/import RPCs below now requires as their first
+   * argument. Raises on a wrong password (mapped to a Hebrew message, same
+   * as every other error in this interface's implementations). */
+  reauth(actorId: string, actorPassword: string): Promise<string>;
+  /** Best-effort logout revocation of a cached proof - MUST NEVER throw
+   * (idempotent server-side for an already-invalid proof, and any network/
+   * RPC failure is swallowed by the implementation) so a caller can always
+   * fire-and-forget this from `electionDaySession.ts`'s `logout()` without
+   * risking blocking or failing the logout itself. */
+  revokeReauthProof(proof: string): Promise<void>;
 
   /** Dynamic Roles & Permissions, Phase 1: lists the full `election_day_roles`
    * catalog the permission engine resolves a session's `roleId` against.
@@ -344,14 +370,26 @@ export interface ApiClient {
    * would remove `electionDay.manageRolesAndPermissions` from every
    * actually-assigned user (enforced DB-side, in the same transaction as the
    * write - see the `election_day_dynamic_roles_phase2` migration).
-   * `deleteRole` also rejects a role with any assigned user. */
-  createRole(input: NewRole): Promise<RoleRecord>;
-  updateRole(input: RoleUpdate): Promise<RoleRecord>;
-  deleteRole(id: string): Promise<void>;
-  cloneRole(id: string, newName: string): Promise<RoleRecord>;
+   * `deleteRole` also rejects a role with any assigned user.
+   *
+   * Security Hardening (Reauth): all 4 now require `proof` (from
+   * `reauth()`) as their first argument. */
+  createRole(proof: string, input: NewRole): Promise<RoleRecord>;
+  updateRole(proof: string, input: RoleUpdate): Promise<RoleRecord>;
+  deleteRole(proof: string, id: string): Promise<void>;
+  cloneRole(proof: string, id: string, newName: string): Promise<RoleRecord>;
   /** Creates a `PermissionUser` against an arbitrary role_id - the only
-   * creation path since the legacy 3-checkbox RPC was removed (Phase 3). */
-  createPermissionUser(input: NewPermissionUser): Promise<PermissionUser>;
+   * creation path since the legacy 3-checkbox RPC was removed (Phase 3).
+   * Security Hardening (Reauth): `proof` is required unconditionally - no
+   * bootstrap/empty-roster exception (one briefly existed both here and
+   * server-side on `election_day_create_permission_user_v2`, and was
+   * explicitly removed: a privileged endpoint must not become
+   * unauthenticated just because the user table is empty). The very first
+   * `PermissionUser` (fresh install / local test bootstrap) is never
+   * created through this method - see `ElectionDayPermissionsPage`'s
+   * setup-required state, rendered instead of any Add-user form while the
+   * roster is empty. */
+  createPermissionUser(proof: string, input: NewPermissionUser): Promise<PermissionUser>;
 
   /** Dynamic Non-Voting Reasons: the full catalog ("ניהול סיבות אי-הצבעה"),
    * including inactive rows - the voter-level dropdown filters to

@@ -490,7 +490,10 @@ export class MockApi implements ApiClient {
 
   // --------------------------------------------------------------- election day
 
-  async importElectionDayVoters(rows: NewElectionDayVoter[]): Promise<{ count: number }> {
+  async importElectionDayVoters(
+    _proof: string,
+    rows: NewElectionDayVoter[],
+  ): Promise<{ count: number }> {
     await latency();
     this.electionDayVoters = rows.map((r) => ({
       ...r,
@@ -798,32 +801,24 @@ export class MockApi implements ApiClient {
     return this.permissionUsers.map(toPublicPermissionUser);
   }
 
-  async deletePermissionUser(id: string): Promise<void> {
+  async deletePermissionUser(_proof: string, id: string): Promise<void> {
     await latency();
     this.permissionUsers = this.permissionUsers.filter((u) => u.id !== id);
     saveJson(PERMISSION_USERS_KEY, this.permissionUsers);
   }
 
   /** Interface compliance only - never actually reached in the running app
-   * (see `listElectionDayRoles`'s comment), but mirrors the real RPC's two
-   * server-side checks (actor password compare, actor role's
-   * `electionDay.manageUsers`) against this class's own plaintext password
-   * store and `this.roles`, rather than trusting the actor params blindly. */
+   * (see `listElectionDayRoles`'s comment). Unlike the real
+   * `_v2` RPC (which resolves the actor from a real, server-issued proof),
+   * this stub has no equivalent proof registry to resolve `proof` against,
+   * so it only checks the target/new-password shape - not a meaningful
+   * re-authentication mirror. */
   async resetPermissionUserPassword(
-    actorId: string,
-    actorPassword: string,
+    _proof: string,
     targetId: string,
     newPassword: string,
   ): Promise<PermissionUser> {
     await latency();
-    const actor = this.permissionUsers.find((u) => u.id === actorId);
-    if (!actor || actor.password !== actorPassword) {
-      throw new Error("הסיסמה שהזנת אינה נכונה");
-    }
-    const actorRole = this.roles.find((r) => r.id === actor.roleId);
-    if (!actorRole?.permissions.includes("electionDay.manageUsers")) {
-      throw new Error("אין לך הרשאה לבצע פעולה זו");
-    }
     const target = this.permissionUsers.find((u) => u.id === targetId);
     if (!target) throw new Error("המשתמש לא נמצא");
     target.password = newPassword;
@@ -843,6 +838,27 @@ export class MockApi implements ApiClient {
   }
 
   /** Interface compliance only - never actually reached in the running app
+   * (see `listElectionDayRoles`'s comment). Returns a fake opaque token
+   * after checking the given actor id/password against this class's own
+   * plaintext password store, mirroring the real `election_day_reauth`
+   * RPC's shape closely enough for MockApi to behave sanely if ever
+   * exercised directly. */
+  async reauth(actorId: string, actorPassword: string): Promise<string> {
+    await latency();
+    const actor = this.permissionUsers.find((u) => u.id === actorId);
+    if (!actor || actor.password !== actorPassword) {
+      throw new Error("הסיסמה שהזנת אינה נכונה");
+    }
+    return `mock-proof-${crypto.randomUUID()}`;
+  }
+
+  /** Interface compliance only - a no-op mirror of the real RPC's
+   * best-effort, never-throws contract. */
+  async revokeReauthProof(): Promise<void> {
+    await latency();
+  }
+
+  /** Interface compliance only - never actually reached in the running app
    * (`services/api/index.ts` always delegates every Election Day method to
    * `SupabaseElectionDayApi`). Returns the same 3 built-in roles the Phase 0
    * migration seeded, so `MockApi` behaves sanely if ever exercised
@@ -855,7 +871,7 @@ export class MockApi implements ApiClient {
   /** Interface compliance only (see `listElectionDayRoles`'s comment) - a
    * minimal, non-persisted mirror of the real RPCs' shape, not their full
    * validation/guard behavior. */
-  async createRole(input: NewRole): Promise<RoleRecord> {
+  async createRole(_proof: string, input: NewRole): Promise<RoleRecord> {
     await latency();
     const role: RoleRecord = {
       id: `role-${crypto.randomUUID().slice(0, 8)}`,
@@ -869,7 +885,7 @@ export class MockApi implements ApiClient {
     return role;
   }
 
-  async updateRole(input: RoleUpdate): Promise<RoleRecord> {
+  async updateRole(_proof: string, input: RoleUpdate): Promise<RoleRecord> {
     await latency();
     const existing = this.roles.find((r) => r.id === input.id);
     if (!existing) throw new Error("התפקיד לא נמצא");
@@ -884,7 +900,7 @@ export class MockApi implements ApiClient {
     return updated;
   }
 
-  async deleteRole(id: string): Promise<void> {
+  async deleteRole(_proof: string, id: string): Promise<void> {
     await latency();
     if (this.permissionUsers.some((u) => u.roleId === id)) {
       throw new Error("לא ניתן למחוק תפקיד שיש לו משתמשים משויכים");
@@ -892,7 +908,7 @@ export class MockApi implements ApiClient {
     this.roles = this.roles.filter((r) => r.id !== id);
   }
 
-  async cloneRole(id: string, newName: string): Promise<RoleRecord> {
+  async cloneRole(_proof: string, id: string, newName: string): Promise<RoleRecord> {
     await latency();
     const source = this.roles.find((r) => r.id === id);
     if (!source) throw new Error("התפקיד לא נמצא");
@@ -905,7 +921,10 @@ export class MockApi implements ApiClient {
     return clone;
   }
 
-  async createPermissionUser(input: NewPermissionUser): Promise<PermissionUser> {
+  async createPermissionUser(
+    _proof: string,
+    input: NewPermissionUser,
+  ): Promise<PermissionUser> {
     await latency();
     const user: StoredPermissionUser = {
       id: `pu-${crypto.randomUUID().slice(0, 8)}`,

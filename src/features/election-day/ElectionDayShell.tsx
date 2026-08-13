@@ -5,6 +5,7 @@ import { ELECTION_DAY_NAV_SECTION_LABEL, NAV_ITEMS } from "../../constants/route
 import { useAuth } from "../auth/authStore";
 import { usePermissions } from "../../permissions/usePermissions";
 import { AppShell } from "../../app/AppShell";
+import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import { CountdownHeader } from "./CountdownHeader";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayContactModal } from "./ElectionDayContactModal";
@@ -28,10 +29,11 @@ export interface ElectionDayShellContext extends ElectionDayHook {
   openContact: (id: string) => void;
   /** From `ElectionDayGuard`'s Outlet context - re-exposed here so screens
    * nested under this Shell's own `<Outlet context={shellContext}>` (which
-   * shadows the Guard's context) can still read it, e.g.
-   * `ElectionDayPermissionsPage` widening the "add first account" exception
-   * to the Add-user form's visibility, matching `addPermissionUser`'s own
-   * bootstrap exception in `useElectionDay.ts`. */
+   * shadows the Guard's context) can still read it. Security Hardening
+   * (Reauth): `useElectionDay()` itself no longer takes or needs this - the
+   * only remaining consumer is `ElectionDayPermissionsPage`, which renders a
+   * static, non-mutating setup-required state while this is true (never
+   * widens what any mutation is allowed to do). */
   isBootstrap: boolean;
 }
 
@@ -41,7 +43,7 @@ export function useElectionDayShell() {
 
 export function ElectionDayShell() {
   const { isBootstrap } = useOutletContext<BootstrapContext>();
-  const electionDay = useElectionDay(isBootstrap);
+  const electionDay = useElectionDay();
   const countdownParts = useCountdown(electionDay.deadline);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
 
@@ -142,6 +144,15 @@ export function ElectionDayShell() {
         incrementingCallAttempts={electionDay.incrementingCallAttempts}
         onExtendCallAttemptsThreshold={electionDay.extendCallAttemptsThreshold}
       />
+
+      {/* Security Hardening (Reauth): the shared password-reauth prompt for
+          this hook's admin/import mutations (add/delete permission user,
+          reset password, import) - reuses `AllocationPasswordDialog`'s
+          existing visual pattern, same as the coordinator-allocation
+          mutations already do. */}
+      {electionDay.reauthDialog && (
+        <AllocationPasswordDialog {...electionDay.reauthDialog} />
+      )}
     </AppShell>
   );
 }
