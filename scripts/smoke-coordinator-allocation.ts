@@ -34,6 +34,20 @@
  *    module - not the pattern followed here).
  * 7. Payload translation - the REAL `toCoordinatorActionPayload`/
  *    `toAllocationAssignmentPayload`, same import, same reasoning as #6.
+ * 8. Phase 5: the REAL `computeEqualSplit` (initial-allocation "חלוקה שווה"
+ *    preview + end-of-day "equal split" preview) - deterministic
+ *    floor+remainder distribution against the Phase 5 spec's own worked
+ *    examples (10/3, 3/5, 0/n) plus order-sensitivity and edge cases.
+ * 9. Phase 5 UI hardening: the REAL `resolveCoordinatorAllocationPhase` -
+ *    the locked setup/live transition rule (`unassignedCount` is the only
+ *    signal, never a coordinator's `totalAssigned`) against the exact
+ *    6-case matrix from the hardening spec.
+ * 10. Phase 5 UI hardening: the REAL validation helpers from
+ *     `coordinatorAllocationValidation.ts` - `isValidQuantityRaw`,
+ *     `manualAllocationStatus`, `validateRebalance`,
+ *     `isEndBlockedByLastActive`, `isValidEndTransferTarget` - the exact
+ *     functions the Setup/Rebalance/End components now consume, not pinned
+ *     copies.
  */
 import { computePermissions } from "../src/permissions/computePermissions";
 import type { Permission, RoleRecord } from "../src/permissions/types";
@@ -45,6 +59,15 @@ import {
   isUnassignedVoter,
   isVoterOwnedByCoordinator,
 } from "../src/features/election-day/coordinatorAllocationStats";
+import { computeEqualSplit } from "../src/features/election-day/coordinatorAllocationEqualSplit";
+import { resolveCoordinatorAllocationPhase } from "../src/features/election-day/coordinatorAllocationPhase";
+import {
+  isEndBlockedByLastActive,
+  isValidEndTransferTarget,
+  isValidQuantityRaw,
+  manualAllocationStatus,
+  validateRebalance,
+} from "../src/features/election-day/coordinatorAllocationValidation";
 import {
   mapCoordinatorAllocationRpcErrorMessage,
   toAllocationAssignmentPayload,
@@ -405,6 +428,203 @@ assert(
     assignmentPayload.coordinator_id === "coord-9" &&
     assignmentPayload.quantity === 12,
   "payload translation (real implementation): AllocationAssignment -> exactly {coordinator_id, quantity} snake_case shape",
+);
+
+// ============================================================================
+// 8. Phase 5: the REAL computeEqualSplit
+// ============================================================================
+const split10of3 = computeEqualSplit(10, ["a", "b", "c"]);
+assert(
+  split10of3.get("a") === 4 && split10of3.get("b") === 3 && split10of3.get("c") === 3,
+  `equal split: 10/3 -> 4,3,3 in order (got ${split10of3.get("a")},${split10of3.get("b")},${split10of3.get("c")})`,
+);
+
+const split3of5 = computeEqualSplit(3, ["a", "b", "c", "d", "e"]);
+assert(
+  split3of5.get("a") === 1 &&
+    split3of5.get("b") === 1 &&
+    split3of5.get("c") === 1 &&
+    split3of5.get("d") === 0 &&
+    split3of5.get("e") === 0,
+  "equal split: 3/5 -> 1,1,1,0,0 (remainder goes to the first entries in order)",
+);
+
+const splitZero = computeEqualSplit(0, ["a", "b", "c"]);
+assert(
+  [...splitZero.values()].every((q) => q === 0),
+  "equal split: 0 total -> every coordinator gets 0",
+);
+
+const splitNoCoordinators = computeEqualSplit(10, []);
+assert(
+  splitNoCoordinators.size === 0,
+  "equal split: 0 coordinators -> empty result, no division by zero",
+);
+
+const splitEven = computeEqualSplit(9, ["a", "b", "c"]);
+assert(
+  splitEven.get("a") === 3 && splitEven.get("b") === 3 && splitEven.get("c") === 3,
+  "equal split: evenly divisible total -> no remainder distribution needed",
+);
+
+// Order-sensitivity: the same total/coordinator-set in a different order
+// must move the remainder with the order, not with a fixed id.
+const splitReordered = computeEqualSplit(10, ["c", "b", "a"]);
+assert(
+  splitReordered.get("c") === 4 &&
+    splitReordered.get("b") === 3 &&
+    splitReordered.get("a") === 3,
+  "equal split: the remainder follows the given order, not a fixed coordinator identity",
+);
+
+const totalPreserved = [...split10of3.values()].reduce((sum, q) => sum + q, 0);
+assert(
+  totalPreserved === 10,
+  `equal split: the sum of all quantities always equals the requested total (got ${totalPreserved})`,
+);
+
+// ============================================================================
+// 9. Phase 5 UI hardening: the REAL resolveCoordinatorAllocationPhase -
+// exact 6-case matrix from the hardening spec. totalAssigned/coordinator
+// ownership never enters this function's signature at all - the cases
+// below prove that by construction, not by inspection.
+// ============================================================================
+assert(
+  resolveCoordinatorAllocationPhase(100, 0) === "setup",
+  "phase: case 1 - 0 coordinators + 100 unassigned -> setup",
+);
+assert(
+  resolveCoordinatorAllocationPhase(100, 1) === "setup",
+  "phase: case 2 - 1 coordinator + 100 unassigned + 0 assigned -> setup",
+);
+assert(
+  resolveCoordinatorAllocationPhase(1230, 1) === "setup",
+  "phase: case 3 - 1 coordinator linked to 4 Excel-assigned + 1230 unassigned -> setup (totalAssigned>0 must NOT flip this)",
+);
+assert(
+  resolveCoordinatorAllocationPhase(1, 3) === "setup",
+  "phase: case 4 - several coordinators + some existing Excel assignments + >=1 unassigned -> setup",
+);
+assert(
+  resolveCoordinatorAllocationPhase(0, 3) === "live",
+  "phase: case 5 - coordinators exist + unassigned=0 -> live",
+);
+assert(
+  resolveCoordinatorAllocationPhase(0, 0) === "setup",
+  "phase: case 6 - 0 coordinators + unassigned=0 -> setup (roster definition, not an empty live view)",
+);
+
+// ============================================================================
+// 10. Phase 5 UI hardening: the REAL validation helpers
+// ============================================================================
+
+// isValidQuantityRaw - the exact keystroke filter every quantity field uses
+assert(isValidQuantityRaw("") === true, "quantity raw: empty string is valid (not yet entered)");
+assert(isValidQuantityRaw("0") === true, "quantity raw: '0' is valid");
+assert(isValidQuantityRaw("42") === true, "quantity raw: a plain positive integer is valid");
+assert(isValidQuantityRaw("-5") === false, "quantity raw: negative is blocked");
+assert(isValidQuantityRaw("3.5") === false, "quantity raw: decimal is blocked");
+assert(isValidQuantityRaw("12a") === false, "quantity raw: any non-digit character is blocked");
+
+// manualAllocationStatus - exact/under/over
+assert(
+  manualAllocationStatus(1230, 1230) === "exact",
+  "manual allocation: exact total -> valid",
+);
+assert(
+  manualAllocationStatus(1000, 1230) === "under",
+  "manual allocation: under total -> invalid (under)",
+);
+assert(
+  manualAllocationStatus(1300, 1230) === "over",
+  "manual allocation: over total -> invalid (over)",
+);
+
+// validateRebalance
+const remainingByCoord = { avi: 30, dana: 10 };
+assert(
+  validateRebalance(
+    [
+      { coordinatorId: "avi", quantity: 20, remaining: remainingByCoord.avi },
+      { coordinatorId: "dana", quantity: 10, remaining: remainingByCoord.dana },
+    ],
+    [
+      { coordinatorId: "yossi", quantity: 12 },
+      { coordinatorId: "eli", quantity: 18 },
+    ],
+  ).valid === true,
+  "rebalance: multi-source/multi-destination, equal totals (30=30) -> valid",
+);
+
+const mismatchResult = validateRebalance(
+  [{ coordinatorId: "avi", quantity: 20, remaining: 30 }],
+  [{ coordinatorId: "yossi", quantity: 12 }],
+);
+assert(
+  !mismatchResult.valid && mismatchResult.reason === "MISMATCH",
+  "rebalance: source total != destination total -> invalid (MISMATCH)",
+);
+
+const exceedsResult = validateRebalance(
+  [{ coordinatorId: "avi", quantity: 20, remaining: 10 }],
+  [{ coordinatorId: "yossi", quantity: 20 }],
+);
+assert(
+  !exceedsResult.valid && exceedsResult.reason === "SOURCE_EXCEEDS_REMAINING",
+  "rebalance: source quantity (20) > its own remaining (10) -> invalid (SOURCE_EXCEEDS_REMAINING)",
+);
+
+const sameCoordinatorResult = validateRebalance(
+  [{ coordinatorId: "avi", quantity: 10, remaining: 30 }],
+  [{ coordinatorId: "avi", quantity: 10 }],
+);
+assert(
+  !sameCoordinatorResult.valid && sameCoordinatorResult.reason === "SAME_COORDINATOR",
+  "rebalance: the same coordinator on both sides -> invalid (SAME_COORDINATOR)",
+);
+
+const noSourceResult = validateRebalance(
+  [{ coordinatorId: "avi", quantity: 0, remaining: 30 }],
+  [{ coordinatorId: "yossi", quantity: 10 }],
+);
+assert(
+  !noSourceResult.valid && noSourceResult.reason === "NO_SOURCE",
+  "rebalance: no source with quantity>0 -> invalid (NO_SOURCE)",
+);
+
+const noDestinationResult = validateRebalance(
+  [{ coordinatorId: "avi", quantity: 10, remaining: 30 }],
+  [{ coordinatorId: "yossi", quantity: 0 }],
+);
+assert(
+  !noDestinationResult.valid && noDestinationResult.reason === "NO_DESTINATION",
+  "rebalance: no destination with quantity>0 -> invalid (NO_DESTINATION)",
+);
+
+// isEndBlockedByLastActive / isValidEndTransferTarget
+assert(
+  isEndBlockedByLastActive(31, 0) === true,
+  "end: last active coordinator + remaining>0 -> blocked",
+);
+assert(
+  isEndBlockedByLastActive(0, 0) === false,
+  "end: last active coordinator + remaining=0 -> allowed",
+);
+assert(
+  isEndBlockedByLastActive(31, 2) === false,
+  "end: remaining>0 but other active coordinators exist -> not blocked",
+);
+assert(
+  isValidEndTransferTarget("coord-yossi", "coord-rooti") === true,
+  "end: a real, different target coordinator -> valid",
+);
+assert(
+  isValidEndTransferTarget("coord-rooti", "coord-rooti") === false,
+  "end: transfer target cannot equal the coordinator being ended (source)",
+);
+assert(
+  isValidEndTransferTarget(null, "coord-rooti") === false,
+  "end: no target chosen -> invalid",
 );
 
 if (process.exitCode) {

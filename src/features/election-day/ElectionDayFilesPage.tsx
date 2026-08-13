@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { X } from "lucide-react";
+import { ChevronLeft, LayoutGrid, X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Card, CardTitle } from "../../components/ui/Card";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { usePermissions } from "../../permissions/usePermissions";
+import { CoordinatorAllocationView } from "./CoordinatorAllocationView";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayImportButton } from "./ElectionDayImportButton";
 import { useElectionDayShell } from "./ElectionDayShell";
@@ -13,9 +14,15 @@ export function ElectionDayFilesPage() {
   const { can } = usePermissions();
   const showImport = can("electionDay.import");
   const showClearData = can("electionDay.clearData");
+  const showAllocationEntry = can("electionDay.manageCoordinatorAllocation");
 
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [allocationOpen, setAllocationOpen] = useState(false);
+
+  if (allocationOpen) {
+    return <CoordinatorAllocationView onBack={() => setAllocationOpen(false)} />;
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -67,6 +74,27 @@ export function ElectionDayFilesPage() {
             busy={electionDay.importing}
           />
         </Card>
+      )}
+
+      {showAllocationEntry && (
+        <button
+          type="button"
+          onClick={() => setAllocationOpen(true)}
+          className="flex items-center gap-3 rounded-2xl bg-gradient-to-l from-primary-600 to-primary-500 p-5 text-start shadow-sm shadow-primary-600/30 transition hover:brightness-105 sm:flex-row sm:items-center"
+        >
+          <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-white/15">
+            <LayoutGrid className="size-5 text-white" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-white">
+              {ELECTION_DAY_TEXT.coordinatorAllocation.entryButton}
+            </p>
+            <p className="truncate text-sm text-primary-50">
+              {ELECTION_DAY_TEXT.coordinatorAllocation.entryHint}
+            </p>
+          </div>
+          <ChevronLeft className="size-5 shrink-0 text-white/80" />
+        </button>
       )}
 
       {showClearData && (

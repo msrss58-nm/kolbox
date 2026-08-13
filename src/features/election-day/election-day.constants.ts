@@ -672,16 +672,171 @@ export const ELECTION_DAY_TEXT = {
     },
   },
 
-  /** Coordinator Allocation Management (Phase 4 data layer only - the
-   * "ניהול הקצאות" screen itself is Phase 5). Only the toast text the
-   * mutation hook (`useCoordinatorAllocation.ts`) needs today; field
-   * labels/placeholders/dialog copy belong to Phase 5. */
+  /** Coordinator Allocation Management ("ניהול הקצאות") - Phase 5 UI. */
   coordinatorAllocation: {
+    entryButton: "ניהול הקצאות",
+    entryHint: "הגדרת אחראים, חלוקת בוחרים וניהול העברות",
+    title: "ניהול הקצאות",
+    subtitle: "הגדרת אחראים, חלוקת בוחרים וניהול העברות במהלך היום",
+    backToFiles: "חזרה לניהול קבצים",
+
+    summary: {
+      total: "סך הבוחרים",
+      assigned: "כבר עם אחראי",
+      unassigned: "ללא אחראי",
+      activeCoordinators: "אחראים פעילים",
+      noCoordinatorsYet: "0 אחראים הוגדרו",
+    },
+
     toast: {
       coordinatorsSaved: "הרכזים עודכנו",
       initialAllocationApplied: "ההקצאה הראשונית בוצעה",
       rebalanced: "האיזון מחדש בוצע",
       coordinatorEnded: "פעילות הרכז הסתיימה",
+    },
+
+    steps: {
+      coordinators: "אחראים",
+      method: "שיטת חלוקה",
+      preview: "תצוגה מקדימה",
+      confirm: "אישור",
+    },
+
+    roster: {
+      nameLabel: "שם האחראי",
+      namePlaceholder: "שם האחראי",
+      addButton: "הוספת אחראי",
+      editAriaLabel: "עריכת שם האחראי",
+      removeAriaLabel: "הסרת אחראי",
+      saveAriaLabel: "שמירת שם",
+      cancelEditAriaLabel: "ביטול עריכה",
+      empty: "טרם נוספו אחראים",
+      emptyHint: "הוסיפו לפחות אחראי אחד כדי להתחיל בחלוקה.",
+      duplicateActiveName: "כבר קיים אחראי פעיל בשם זה",
+      emptyNameBlocked: "יש להזין שם אחראי",
+      endedBadge: "סיים פעילות",
+      linkedBadge: (name: string) => `מקושר ל-"${name}"`,
+      linkSuggestion: (count: number, name: string) =>
+        `נמצאו ${count.toLocaleString("he-IL")} בוחרים שכבר משויכים ל-"${name}"`,
+      linkButton: "קשר לאחראי הזה",
+      relinkButton: "עדכן קישור",
+      unlinkButton: "בטל קישור",
+      confirm: {
+        addTitle: "הוספת אחראי",
+        addSummary: (name: string) => `הוספת אחראי חדש: ${name}`,
+        editTitle: "עדכון שם אחראי",
+        editSummary: (from: string, to: string) => `שינוי שם מ-"${from}" ל-"${to}"`,
+        removeTitle: "הסרת אחראי",
+        removeSummary: (name: string) => `הסרת האחראי "${name}"`,
+        linkTitle: "קישור לרשומת אקסל",
+        linkSummary: (name: string) => `קישור האחראי "${name}" לרשומת האקסל שלו`,
+        unlinkTitle: "ביטול קישור",
+        unlinkSummary: (name: string) => `ביטול קישור האחראי "${name}" לרשומת האקסל`,
+        confirmButton: "אישור",
+      },
+    },
+
+    method: {
+      title: "בחרו שיטת חלוקה",
+      equalTitle: "חלוקה שווה",
+      equalDescription: "נחלק את כל הבוחרים ללא אחראי בצורה מאוזנת בין האחראים הפעילים.",
+      manualTitle: "חלוקה ידנית",
+      manualDescription: "בחר כמה בוחרים יקבל כל אחראי.",
+      manualAssignedOf: (assigned: number, total: number) =>
+        `הוקצו: ${assigned.toLocaleString("he-IL")} מתוך ${total.toLocaleString("he-IL")}`,
+      manualRemaining: (remaining: number) =>
+        `נותרו: ${remaining.toLocaleString("he-IL")}`,
+      manualUnder: (missing: number) =>
+        `חסרים עוד ${missing.toLocaleString("he-IL")} בוחרים לחלוקה`,
+      manualOver: (extra: number) =>
+        `הוקצו ${extra.toLocaleString("he-IL")} בוחרים יותר מהכמות הזמינה`,
+      backButton: "חזרה",
+      continueButton: "המשך",
+      noActiveCoordinators: "הוסיפו לפחות אחראי אחד כדי להתחיל בחלוקה.",
+      allAlreadyAssigned: "כל הבוחרים כבר משויכים לאחראים.",
+      goToManagement: "מעבר לניהול היום",
+    },
+
+    preview: {
+      title: "חלוקה מתוכננת",
+      totalLine: (n: number) => `סה"כ ${n.toLocaleString("he-IL")} בוחרים`,
+      alreadyAssignedNote: (n: number) =>
+        `${n.toLocaleString("he-IL")} בוחרים כבר היו משויכים ולא ישתנו`,
+      backButton: "חזרה",
+      confirmButton: "אישור החלוקה",
+    },
+
+    confirmDialog: {
+      applyTitle: "אישור חלוקת בוחרים",
+      passwordLabel: "הסיסמה שלך",
+      showPasswordAriaLabel: "הצג סיסמה",
+      hidePasswordAriaLabel: "הסתר סיסמה",
+      applyButton: "בצע חלוקה",
+      cancelButton: "ביטול",
+    },
+
+    live: {
+      stats: {
+        total: 'סה"כ בוחרים',
+        unassigned: "ללא אחראי",
+        activeCoordinators: "אחראים פעילים",
+        remaining: "נשארו לטיפול",
+      },
+      addCoordinatorButton: "הוסף אחראי",
+      columns: {
+        coordinator: "אחראי",
+        totalAssigned: 'סה"כ מוקצים',
+        remaining: "נשארו לטיפול",
+        status: "סטטוס",
+        actions: "פעולות",
+      },
+      remainingLabel: (n: number) => `נשארו לטיפול: ${n.toLocaleString("he-IL")}`,
+      rebalanceButton: "העבר הקצאות",
+      endButton: "סיום פעילות",
+      statusActive: "פעיל",
+      statusEnded: "סיים פעילות",
+    },
+
+    rebalance: {
+      title: "העברת הקצאות",
+      sourcesTitle: "ממי להעביר",
+      destinationsTitle: "למי להעביר",
+      quantityAriaLabel: "כמות",
+      sourceExceedsRemaining: "הכמות חורגת מהנותר לטיפול אצל אחראי זה",
+      transferringTotal: (n: number) => `מעבירים: ${n.toLocaleString("he-IL")}`,
+      receivingTotal: (n: number) => `מחלקים: ${n.toLocaleString("he-IL")}`,
+      mismatch: "הכמות שיוצאת חייבת להיות שווה לכמות שנכנסת.",
+      noSource: "יש לבחור לפחות אחראי מקור אחד עם כמות",
+      noDestination: "יש לבחור לפחות אחראי יעד אחד עם כמות",
+      sameCoordinatorBothSides: "לא ניתן לבחור אותו אחראי גם כמקור וגם כיעד",
+      backButton: "חזרה",
+      previewTitle: "תצוגה מקדימה",
+      previewFromLabel: "מעבירים",
+      previewToLabel: "מקבלים",
+      previewTotal: (n: number) => `סה"כ ${n.toLocaleString("he-IL")} בוחרים`,
+      confirmButton: "בצע העברה",
+      cancelButton: "ביטול",
+    },
+
+    end: {
+      title: "סיום פעילות אחראי",
+      remainingLabel: (n: number) => `נשארו לטיפול: ${n.toLocaleString("he-IL")}`,
+      optionTransferTitle: "העבר לאחראי אחד",
+      optionTransferDescription: "כל הבוחרים שנשארו יעברו לאחראי שתבחרו.",
+      targetLabel: "העבר אל",
+      noValidTarget: "אין אחראי פעיל אחר להעביר אליו",
+      optionEqualTitle: "חלק שווה בין האחראים הפעילים",
+      optionEqualDescription:
+        "כל הבוחרים שנשארו יחולקו באופן שווה בין שאר האחראים הפעילים.",
+      lastActiveBlocked:
+        "לא ניתן לסיים את פעילות האחראי האחרון כל עוד נשארו בוחרים לטיפול.",
+      zeroRemainingNote: "לא נשארו בוחרים להעברה. האחראי יסומן כמי שסיים פעילות.",
+      confirmTransferSummary: (count: number, from: string, to: string) =>
+        `${count.toLocaleString("he-IL")} בוחרים יועברו מ${from} ל${to}.`,
+      confirmEqualSummary: (count: number, coordinatorCount: number) =>
+        `${count.toLocaleString("he-IL")} בוחרים יחולקו בין ${coordinatorCount.toLocaleString("he-IL")} אחראים פעילים.`,
+      confirmButton: "סיים פעילות",
+      cancelButton: "ביטול",
     },
   },
 
