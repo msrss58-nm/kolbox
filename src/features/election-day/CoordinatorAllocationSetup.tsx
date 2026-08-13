@@ -4,7 +4,6 @@ import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/utils";
 import type { AllocationAssignment, CoordinatorAction } from "../../services/api";
 import type { Coordinator, ElectionDayVoter } from "../../types";
-import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import { computeEqualSplit } from "./coordinatorAllocationEqualSplit";
 import {
   isValidQuantityRaw,
@@ -12,6 +11,7 @@ import {
 } from "./coordinatorAllocationValidation";
 import { CoordinatorRosterEditor } from "./CoordinatorRosterEditor";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import type { ReauthCopy } from "./useCoordinatorAllocation";
 
 const text = ELECTION_DAY_TEXT.coordinatorAllocation;
 
@@ -47,20 +47,19 @@ export function CoordinatorAllocationSetup({
   unassignedCount: number;
   assignedCount: number;
   manageCoordinators: (
-    password: string,
     actions: CoordinatorAction[],
+    copy: ReauthCopy,
   ) => Promise<Coordinator[] | undefined>;
   managingCoordinators: boolean;
   applyInitialAllocation: (
-    password: string,
     assignments: AllocationAssignment[],
+    copy: ReauthCopy,
   ) => Promise<unknown>;
   applyingInitialAllocation: boolean;
 }) {
   const [step, setStep] = useState<Step>("coordinators");
   const [method, setMethod] = useState<Method>("equal");
   const [manualRaw, setManualRaw] = useState<Record<string, string>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const activeIds = useMemo(
     () => activeCoordinators.map((c) => c.id),
@@ -106,13 +105,31 @@ export function CoordinatorAllocationSetup({
 
   const canContinueFromMethod = method === "equal" || manualValid;
 
-  const handleApply = async (password: string) => {
+  const applySummary = (
+    <div className="space-y-1.5">
+      {plannedAssignments
+        .filter((a) => a.quantity > 0)
+        .map((a) => (
+          <div key={a.coordinatorId} className="flex justify-between">
+            <span>{a.displayName}</span>
+            <span className="tabular-nums font-semibold">{a.quantity}</span>
+          </div>
+        ))}
+      <div className="flex justify-between border-t border-slate-200 pt-1.5 font-bold">
+        <span>{text.preview.totalLine(unassignedCount)}</span>
+      </div>
+    </div>
+  );
+
+  const handleApply = () => {
     const assignments = plannedAssignments
       .filter((a) => a.quantity > 0)
       .map((a) => ({ coordinatorId: a.coordinatorId, quantity: a.quantity }));
-    const result = await applyInitialAllocation(password, assignments);
-    if (result !== undefined) setConfirmOpen(false);
-    return result;
+    return applyInitialAllocation(assignments, {
+      title: text.confirmDialog.applyTitle,
+      summary: applySummary,
+      confirmLabel: text.confirmDialog.applyButton,
+    });
   };
 
   return (
@@ -300,36 +317,17 @@ export function CoordinatorAllocationSetup({
             <Button variant="secondary" onClick={() => setStep("method")}>
               {text.preview.backButton}
             </Button>
-            <Button className="flex-1" onClick={() => setConfirmOpen(true)}>
+            <Button
+              className="flex-1"
+              loading={applyingInitialAllocation}
+              disabled={applyingInitialAllocation}
+              onClick={() => void handleApply()}
+            >
               {text.preview.confirmButton}
             </Button>
           </div>
         </Card>
       )}
-
-      <AllocationPasswordDialog
-        open={confirmOpen}
-        title={text.confirmDialog.applyTitle}
-        summary={
-          <div className="space-y-1.5">
-            {plannedAssignments
-              .filter((a) => a.quantity > 0)
-              .map((a) => (
-                <div key={a.coordinatorId} className="flex justify-between">
-                  <span>{a.displayName}</span>
-                  <span className="tabular-nums font-semibold">{a.quantity}</span>
-                </div>
-              ))}
-            <div className="flex justify-between border-t border-slate-200 pt-1.5 font-bold">
-              <span>{text.preview.totalLine(unassignedCount)}</span>
-            </div>
-          </div>
-        }
-        confirmLabel={text.confirmDialog.applyButton}
-        busy={applyingInitialAllocation}
-        onConfirm={handleApply}
-        onCancel={() => setConfirmOpen(false)}
-      />
     </div>
   );
 }

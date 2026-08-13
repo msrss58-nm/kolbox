@@ -412,28 +412,24 @@ export interface ApiClient {
   // a coordinator row carries no secret; every write goes through one of
   // the 4 actor-password-authenticated RPCs below.
   listCoordinators(): Promise<Coordinator[]>;
-  /** Atomic batch add/edit/remove/link/relink/unlink. Re-authenticates
-   * `actorId`/`actorPassword` server-side (never persisted by any caller of
-   * this method) and requires `electionDay.manageCoordinatorAllocation`.
-   * Returns the full current coordinator roster on success. */
-  manageCoordinators(
-    actorId: string,
-    actorPassword: string,
-    actions: CoordinatorAction[],
-  ): Promise<Coordinator[]>;
+  /** Security Hardening (Reauth), Phase 2: atomic batch add/edit/remove/
+   * link/relink/unlink. `proof` (from `reauth()`) is required unconditionally
+   * - resolved to the acting identity server-side via
+   * `election_day_verify_reauth_proof`, which also re-checks
+   * `electionDay.manageCoordinatorAllocation` live on every call. Returns the
+   * full current coordinator roster on success. */
+  manageCoordinators(proof: string, actions: CoordinatorAction[]): Promise<Coordinator[]>;
   /** One-time distribution of every currently-unassigned voter across the
    * given active coordinators, by quantity only - the server (never this
    * layer, never the caller) chooses which voters. */
   applyInitialAllocation(
-    actorId: string,
-    actorPassword: string,
+    proof: string,
     assignments: AllocationAssignment[],
   ): Promise<ApplyInitialAllocationResult>;
   /** Mid-day transfer of "remaining" voters from source coordinators to
    * destination coordinators, by quantity only. */
   rebalanceAssignments(
-    actorId: string,
-    actorPassword: string,
+    proof: string,
     sources: AllocationAssignment[],
     destinations: AllocationAssignment[],
   ): Promise<RebalanceAssignmentsResult>;
@@ -441,8 +437,7 @@ export interface ApiClient {
    * `mode`. `targetCoordinatorId` is required for `"transfer"`, ignored for
    * `"equal_split"`. */
   endCoordinatorActivity(
-    actorId: string,
-    actorPassword: string,
+    proof: string,
     coordinatorId: string,
     mode: EndCoordinatorActivityMode,
     targetCoordinatorId: string | null,

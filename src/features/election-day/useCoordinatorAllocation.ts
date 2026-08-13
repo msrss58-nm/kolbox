@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { toast } from "../../components/ui/Toast";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { reportPermissionDenied } from "../../permissions/permissionAudit";
 import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
-import { api } from "../../services/api";
+import { api, ElectionDayReauthError } from "../../services/api";
 import type {
   AllocationAssignment,
   CoordinatorAction,
@@ -17,13 +17,30 @@ import {
   countUnassignedVoters,
 } from "./coordinatorAllocationStats";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
-import { useElectionDaySession } from "./electionDaySession";
+import { useElectionDayReauthProof } from "./electionDayReauthProof";
+import { useElectionDayReauth } from "./useElectionDayReauth";
+
+/** Caller-supplied copy for the shared re-auth dialog (see
+ * `useElectionDayReauth.ts`) - each allocation mutation's own confirmation
+ * summary (already computed by the calling component from its own local
+ * state, e.g. "add coordinator X") doubles as the reauth dialog's copy when
+ * no valid proof is cached yet; mirrors `useElectionDay.ts`'s inline
+ * `reauth.gate({title, summary, confirmLabel}, ...)` calls, just threaded in
+ * from the caller instead of being hardcoded per-action inside this hook,
+ * since a single generic `manageCoordinators`/etc. entry point is shared by
+ * several different UI flows (roster editor, initial-allocation setup,
+ * rebalance, end-coordinator) each with their own specific summary text. */
+export interface ReauthCopy {
+  title: string;
+  summary: ReactNode;
+  confirmLabel: string;
+}
 
 /**
  * Coordinator Allocation Management (Phase 4 data layer): owns the
- * coordinator roster and the 4 actor-password-authenticated allocation RPCs
- * (`election_day_manage_coordinators` / `apply_initial_allocation` /
- * `rebalance_assignments` / `end_coordinator_activity`), gated end-to-end on
+ * coordinator roster and the 4 proof-authenticated allocation RPCs
+ * (`election_day_manage_coordinators_v2` / `apply_initial_allocation_v2` /
+ * `rebalance_assignments_v2` / `end_coordinator_activity_v2`), gated end-to-end on
  * `electionDay.manageCoordinatorAllocation` - mirrors `useRoleManagement.ts`'s
  * `guardedAction` pattern exactly (checks `can(permission)` before any API
  * call, reports a denial, never a silent no-op). A dedicated sibling hook to
@@ -37,20 +54,28 @@ import { useElectionDaySession } from "./electionDaySession";
  * whole-picture view, same reasoning as `NonVotingReasonsModal`'s
  * usage-count in `useElectionDay.ts`'s own comment.
  *
- * Never holds a password in state - every mutation takes `actorPassword` as
- * a direct call argument, forwarded straight to the API layer and never
- * stored anywhere in this hook; `actorId` is read from the existing
- * Election Day session, never client-typed (mirrors
- * `resetPermissionUserPassword` in `useElectionDay.ts`). The future Phase 5
- * password dialog owns collecting `actorPassword` from the user - this hook
- * only accepts and forwards it.
+ * Security Hardening (Reauth), Phase 2: all 4 mutations now go through the
+ * same shared short-lived re-auth proof system `useElectionDay.ts`'s own 8
+ * admin/import mutations already use (`useElectionDayReauth`'s `gate()`) -
+ * no `actorId`/`actorPassword` is collected or forwarded by this hook at
+ * all anymore. Each mutation is `guardedAction`-wrapped (unchanged
+ * permission-check contract) around a `reauth.gate(copy, () => rawFn(...))`
+ * call, where `copy` is supplied by the calling component (it already knows
+ * the specific per-action confirmation summary). The first action after a
+ * page load - or after the cached proof expires/is revoked - opens the
+ * shared `AllocationPasswordDialog` (via this hook's own `reauthDialog`,
+ * rendered once by `CoordinatorAllocationView.tsx`, mirroring
+ * `ElectionDayShell.tsx`'s pattern for `useElectionDay`'s dialog); every
+ * further action within the ~15-minute proof lifetime runs immediately with
+ * no dialog at all - same trade-off already established for the admin/import
+ * flows.
  */
 export function useCoordinatorAllocation(
   contacts: readonly ElectionDayVoter[],
   reasonsById: ReadonlyMap<string, NonVotingReason>,
 ) {
   const { can, role } = usePermissions();
-  const sessionUser = useElectionDaySession((s) => s.user);
+  const reauth = useElectionDayReauth();
 
   function guardedAction<Args extends unknown[], R>(
     permission: Permission,
@@ -102,24 +127,33 @@ export function useCoordinatorAllocation(
   const unassignedCount = useMemo(() => countUnassignedVoters(contacts), [contacts]);
   const assignedCount = contacts.length - unassignedCount;
 
-  // The `!sessionUser` branch in each runner below is unreachable in
-  // practice - `guardedAction`'s `can("electionDay.manageCoordinatorAllocation")`
-  // check already requires a resolved session (see `usePermissions.ts`'s
-  // `sessionUser?.roleId ?? null`) - kept only so these closures never need
-  // a non-null assertion, mirroring `resetPermissionUserPassword`'s
-  // identical comment in `useElectionDay.ts`.
+  // Security Hardening (Reauth), Phase 2: each mutation below reads the
+  // currently-cached proof directly from the store (rather than having it
+  // threaded in as an argument) - by the time it runs, `reauth.gate` (see
+  // each `*Raw` wrapper below) has already guaranteed a valid proof is
+  // cached, either because one already was, or because the gate's own dialog
+  // just obtained and cached a fresh one. On the RPC's own `UNAUTHORIZED`
+  // (the proof was rejected server-side - expired/revoked mid-flow), the
+  // stale proof is cleared here before the error propagates to this
+  // `useAsyncAction`'s normal toast handling - mirrors `useElectionDay.ts`'s
+  // identical pattern for its own 8 admin/import mutations exactly.
   const { run: runManageCoordinators, busy: managingCoordinators } = useAsyncAction(
-    (actorPassword: string, actions: CoordinatorAction[]) => {
-      if (!sessionUser) {
-        return Promise.reject(new Error(ELECTION_DAY_TEXT.permissionDenied));
+    async (actions: CoordinatorAction[]) => {
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        return await api.manageCoordinators(proof, actions);
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
       }
-      return api.manageCoordinators(sessionUser.id, actorPassword, actions);
     },
     { successMessage: ELECTION_DAY_TEXT.coordinatorAllocation.toast.coordinatorsSaved },
   );
   const manageCoordinatorsRaw = useCallback(
-    async (actorPassword: string, actions: CoordinatorAction[]) => {
-      const result = await runManageCoordinators(actorPassword, actions);
+    async (actions: CoordinatorAction[]) => {
+      const result = await runManageCoordinators(actions);
       if (result) reloadCoordinators();
       return result;
     },
@@ -127,17 +161,23 @@ export function useCoordinatorAllocation(
   );
   const manageCoordinators = guardedAction(
     "electionDay.manageCoordinatorAllocation",
-    manageCoordinatorsRaw,
+    (actions: CoordinatorAction[], copy: ReauthCopy) =>
+      reauth.gate(copy, () => manageCoordinatorsRaw(actions)),
     "manageCoordinators",
   );
 
   const { run: runApplyInitialAllocation, busy: applyingInitialAllocation } =
     useAsyncAction(
-      (actorPassword: string, assignments: AllocationAssignment[]) => {
-        if (!sessionUser) {
-          return Promise.reject(new Error(ELECTION_DAY_TEXT.permissionDenied));
+      async (assignments: AllocationAssignment[]) => {
+        const proof = useElectionDayReauthProof.getState().proof ?? "";
+        try {
+          return await api.applyInitialAllocation(proof, assignments);
+        } catch (err) {
+          if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+            useElectionDayReauthProof.getState().clearProof();
+          }
+          throw err;
         }
-        return api.applyInitialAllocation(sessionUser.id, actorPassword, assignments);
       },
       {
         successMessage:
@@ -145,8 +185,8 @@ export function useCoordinatorAllocation(
       },
     );
   const applyInitialAllocationRaw = useCallback(
-    async (actorPassword: string, assignments: AllocationAssignment[]) => {
-      const result = await runApplyInitialAllocation(actorPassword, assignments);
+    async (assignments: AllocationAssignment[]) => {
+      const result = await runApplyInitialAllocation(assignments);
       if (result) reloadCoordinators();
       return result;
     },
@@ -154,35 +194,28 @@ export function useCoordinatorAllocation(
   );
   const applyInitialAllocation = guardedAction(
     "electionDay.manageCoordinatorAllocation",
-    applyInitialAllocationRaw,
+    (assignments: AllocationAssignment[], copy: ReauthCopy) =>
+      reauth.gate(copy, () => applyInitialAllocationRaw(assignments)),
     "applyInitialAllocation",
   );
 
   const { run: runRebalanceAssignments, busy: rebalancing } = useAsyncAction(
-    (
-      actorPassword: string,
-      sources: AllocationAssignment[],
-      destinations: AllocationAssignment[],
-    ) => {
-      if (!sessionUser) {
-        return Promise.reject(new Error(ELECTION_DAY_TEXT.permissionDenied));
+    async (sources: AllocationAssignment[], destinations: AllocationAssignment[]) => {
+      const proof = useElectionDayReauthProof.getState().proof ?? "";
+      try {
+        return await api.rebalanceAssignments(proof, sources, destinations);
+      } catch (err) {
+        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+          useElectionDayReauthProof.getState().clearProof();
+        }
+        throw err;
       }
-      return api.rebalanceAssignments(
-        sessionUser.id,
-        actorPassword,
-        sources,
-        destinations,
-      );
     },
     { successMessage: ELECTION_DAY_TEXT.coordinatorAllocation.toast.rebalanced },
   );
   const rebalanceAssignmentsRaw = useCallback(
-    async (
-      actorPassword: string,
-      sources: AllocationAssignment[],
-      destinations: AllocationAssignment[],
-    ) => {
-      const result = await runRebalanceAssignments(actorPassword, sources, destinations);
+    async (sources: AllocationAssignment[], destinations: AllocationAssignment[]) => {
+      const result = await runRebalanceAssignments(sources, destinations);
       if (result) reloadCoordinators();
       return result;
     },
@@ -190,40 +223,45 @@ export function useCoordinatorAllocation(
   );
   const rebalanceAssignments = guardedAction(
     "electionDay.manageCoordinatorAllocation",
-    rebalanceAssignmentsRaw,
+    (
+      sources: AllocationAssignment[],
+      destinations: AllocationAssignment[],
+      copy: ReauthCopy,
+    ) => reauth.gate(copy, () => rebalanceAssignmentsRaw(sources, destinations)),
     "rebalanceAssignments",
   );
 
   const { run: runEndCoordinatorActivity, busy: endingCoordinatorActivity } =
     useAsyncAction(
-      (
-        actorPassword: string,
+      async (
         coordinatorId: string,
         mode: EndCoordinatorActivityMode,
         targetCoordinatorId: string | null,
       ) => {
-        if (!sessionUser) {
-          return Promise.reject(new Error(ELECTION_DAY_TEXT.permissionDenied));
+        const proof = useElectionDayReauthProof.getState().proof ?? "";
+        try {
+          return await api.endCoordinatorActivity(
+            proof,
+            coordinatorId,
+            mode,
+            targetCoordinatorId,
+          );
+        } catch (err) {
+          if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
+            useElectionDayReauthProof.getState().clearProof();
+          }
+          throw err;
         }
-        return api.endCoordinatorActivity(
-          sessionUser.id,
-          actorPassword,
-          coordinatorId,
-          mode,
-          targetCoordinatorId,
-        );
       },
       { successMessage: ELECTION_DAY_TEXT.coordinatorAllocation.toast.coordinatorEnded },
     );
   const endCoordinatorActivityRaw = useCallback(
     async (
-      actorPassword: string,
       coordinatorId: string,
       mode: EndCoordinatorActivityMode,
       targetCoordinatorId: string | null,
     ) => {
       const result = await runEndCoordinatorActivity(
-        actorPassword,
         coordinatorId,
         mode,
         targetCoordinatorId,
@@ -235,7 +273,15 @@ export function useCoordinatorAllocation(
   );
   const endCoordinatorActivity = guardedAction(
     "electionDay.manageCoordinatorAllocation",
-    endCoordinatorActivityRaw,
+    (
+      coordinatorId: string,
+      mode: EndCoordinatorActivityMode,
+      targetCoordinatorId: string | null,
+      copy: ReauthCopy,
+    ) =>
+      reauth.gate(copy, () =>
+        endCoordinatorActivityRaw(coordinatorId, mode, targetCoordinatorId),
+      ),
     "endCoordinatorActivity",
   );
 
@@ -255,6 +301,7 @@ export function useCoordinatorAllocation(
     rebalanceAssignments,
     endingCoordinatorActivity,
     endCoordinatorActivity,
+    reauthDialog: reauth.reauthDialog,
   };
 }
 

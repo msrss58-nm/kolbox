@@ -382,15 +382,6 @@ function mapImportRpcErrorMessage(message: string): string {
 // dependency on the Supabase client, so it's directly Node-importable by
 // `scripts/smoke-coordinator-allocation.ts` (the real implementation, never
 // a pinned copy that could silently drift from it).
-async function callCoordinatorAllocationRpc<T>(
-  promise: PromiseLike<{ data: unknown; error: { message: string } | null }>,
-): Promise<T> {
-  const result = await promise;
-  if (result.error)
-    throw new Error(mapCoordinatorAllocationRpcErrorMessage(result.error.message));
-  return result.data as T;
-}
-
 /**
  * Election Day's Supabase-backed data access - implements exactly the
  * election-day slice of `ApiClient` (see `src/services/api/index.ts`, which
@@ -997,21 +988,22 @@ export class SupabaseElectionDayApi {
     return data.map(toCoordinator);
   }
 
-  /** Atomic batch add/edit/remove/link/relink/unlink - see
-   * `election_day_manage_coordinators`'s own comment for the full per-action
-   * shape/rules. `actorPassword` is forwarded to the RPC call and never
-   * otherwise touched (not logged, not cached) by this method. */
+  /** Security Hardening (Reauth), Phase 2: atomic batch add/edit/remove/
+   * link/relink/unlink via `election_day_manage_coordinators_v2` - see that
+   * function's own comment for the full per-action shape/rules. `proof`
+   * (from `reauth()`) replaces the old `actorId`/`actorPassword` pair; the
+   * acting identity and its current `electionDay.manageCoordinatorAllocation`
+   * permission are resolved/re-checked entirely server-side. */
   async manageCoordinators(
-    actorId: string,
-    actorPassword: string,
+    proof: string,
     actions: CoordinatorAction[],
   ): Promise<Coordinator[]> {
-    const data = await callCoordinatorAllocationRpc<CoordinatorRow[]>(
-      supabase.rpc("election_day_manage_coordinators", {
-        p_actor_id: actorId,
-        p_actor_password: actorPassword,
+    const data = await callReauthedRpc<CoordinatorRow[]>(
+      supabase.rpc("election_day_manage_coordinators_v2", {
+        p_reauth_proof: proof,
         p_actions: actions.map(toCoordinatorActionPayload),
       }),
+      mapCoordinatorAllocationRpcErrorMessage,
     );
     return data.map(toCoordinator);
   }
@@ -1020,22 +1012,21 @@ export class SupabaseElectionDayApi {
    * is the sole source of truth for which voters actually get allocated,
    * this method sends only coordinator/quantity pairs, never a voter id. */
   async applyInitialAllocation(
-    actorId: string,
-    actorPassword: string,
+    proof: string,
     assignments: AllocationAssignment[],
   ): Promise<ApplyInitialAllocationResult> {
-    const data = await callCoordinatorAllocationRpc<
+    const data = await callReauthedRpc<
       {
         operation_id: string;
         allocated_count: number;
         remaining_unassigned_count: number;
       }[]
     >(
-      supabase.rpc("election_day_apply_initial_allocation", {
-        p_actor_id: actorId,
-        p_actor_password: actorPassword,
+      supabase.rpc("election_day_apply_initial_allocation_v2", {
+        p_reauth_proof: proof,
         p_assignments: assignments.map(toAllocationAssignmentPayload),
       }),
+      mapCoordinatorAllocationRpcErrorMessage,
     );
     const row = data[0];
     return {
@@ -1048,20 +1039,19 @@ export class SupabaseElectionDayApi {
   /** Mid-day transfer of "remaining" voters from source coordinators to
    * destination coordinators, by quantity only. */
   async rebalanceAssignments(
-    actorId: string,
-    actorPassword: string,
+    proof: string,
     sources: AllocationAssignment[],
     destinations: AllocationAssignment[],
   ): Promise<RebalanceAssignmentsResult> {
-    const data = await callCoordinatorAllocationRpc<
+    const data = await callReauthedRpc<
       { operation_id: string; transferred_count: number }[]
     >(
-      supabase.rpc("election_day_rebalance_assignments", {
-        p_actor_id: actorId,
-        p_actor_password: actorPassword,
+      supabase.rpc("election_day_rebalance_assignments_v2", {
+        p_reauth_proof: proof,
         p_sources: sources.map(toAllocationAssignmentPayload),
         p_destinations: destinations.map(toAllocationAssignmentPayload),
       }),
+      mapCoordinatorAllocationRpcErrorMessage,
     );
     const row = data[0];
     return { operationId: row.operation_id, transferredCount: row.transferred_count };
@@ -1071,13 +1061,12 @@ export class SupabaseElectionDayApi {
    * required for `"transfer"`, ignored (sent as `null`) for
    * `"equal_split"`. */
   async endCoordinatorActivity(
-    actorId: string,
-    actorPassword: string,
+    proof: string,
     coordinatorId: string,
     mode: EndCoordinatorActivityMode,
     targetCoordinatorId: string | null,
   ): Promise<EndCoordinatorActivityResult> {
-    const data = await callCoordinatorAllocationRpc<
+    const data = await callReauthedRpc<
       {
         operation_id: string;
         transferred_count: number;
@@ -1085,13 +1074,13 @@ export class SupabaseElectionDayApi {
         ended_coordinator_display_name: string;
       }[]
     >(
-      supabase.rpc("election_day_end_coordinator_activity", {
-        p_actor_id: actorId,
-        p_actor_password: actorPassword,
+      supabase.rpc("election_day_end_coordinator_activity_v2", {
+        p_reauth_proof: proof,
         p_coordinator_id: coordinatorId,
         p_mode: mode,
         p_target_coordinator_id: mode === "transfer" ? targetCoordinatorId : null,
       }),
+      mapCoordinatorAllocationRpcErrorMessage,
     );
     const row = data[0];
     return {

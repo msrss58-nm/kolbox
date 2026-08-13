@@ -812,6 +812,46 @@ export interface Database {
           ended_coordinator_display_name: string;
         }[];
       };
+      /** Security Hardening (Reauth), Phase 2 - see election_day_reauth's
+       * comment. Replaces election_day_manage_coordinators - the acting
+       * identity/permission now come entirely from p_reauth_proof instead of
+       * p_actor_id/p_actor_password. Business logic unchanged. */
+      election_day_manage_coordinators_v2: {
+        Args: { p_reauth_proof: string; p_actions: Json };
+        Returns: Database["public"]["Tables"]["election_day_coordinators"]["Row"][];
+      };
+      /** Security Hardening (Reauth), Phase 2 - see election_day_reauth's
+       * comment. Replaces election_day_apply_initial_allocation. */
+      election_day_apply_initial_allocation_v2: {
+        Args: { p_reauth_proof: string; p_assignments: Json };
+        Returns: {
+          operation_id: string;
+          allocated_count: number;
+          remaining_unassigned_count: number;
+        }[];
+      };
+      /** Security Hardening (Reauth), Phase 2 - see election_day_reauth's
+       * comment. Replaces election_day_rebalance_assignments. */
+      election_day_rebalance_assignments_v2: {
+        Args: { p_reauth_proof: string; p_sources: Json; p_destinations: Json };
+        Returns: { operation_id: string; transferred_count: number }[];
+      };
+      /** Security Hardening (Reauth), Phase 2 - see election_day_reauth's
+       * comment. Replaces election_day_end_coordinator_activity. */
+      election_day_end_coordinator_activity_v2: {
+        Args: {
+          p_reauth_proof: string;
+          p_coordinator_id: string;
+          p_mode: string;
+          p_target_coordinator_id: string | null;
+        };
+        Returns: {
+          operation_id: string;
+          transferred_count: number;
+          ended_coordinator_id: string;
+          ended_coordinator_display_name: string;
+        }[];
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

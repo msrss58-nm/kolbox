@@ -3,10 +3,10 @@ import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import type { AllocationAssignment } from "../../services/api";
 import type { Coordinator } from "../../types";
-import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import type { CoordinatorAllocationStats } from "./coordinatorAllocationStats";
 import { isValidQuantityRaw, validateRebalance } from "./coordinatorAllocationValidation";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import type { ReauthCopy } from "./useCoordinatorAllocation";
 
 const text = ELECTION_DAY_TEXT.coordinatorAllocation.rebalance;
 
@@ -53,9 +53,9 @@ export function RebalanceDialog({
   activeCoordinators: Coordinator[];
   coordinatorStats: CoordinatorAllocationStats[];
   onSubmit: (
-    password: string,
     sources: AllocationAssignment[],
     destinations: AllocationAssignment[],
+    copy: ReauthCopy,
   ) => Promise<unknown>;
   busy: boolean;
   onClose: () => void;
@@ -63,7 +63,6 @@ export function RebalanceDialog({
   const [step, setStep] = useState<"form" | "preview">("form");
   const [sourceRaw, setSourceRaw] = useState<Record<string, string>>({});
   const [destRaw, setDestRaw] = useState<Record<string, string>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const statsById = new Map(coordinatorStats.map((s) => [s.coordinatorId, s]));
 
@@ -71,7 +70,6 @@ export function RebalanceDialog({
     setStep("form");
     setSourceRaw({});
     setDestRaw({});
-    setConfirmOpen(false);
   };
   const handleClose = () => {
     reset();
@@ -114,7 +112,25 @@ export function RebalanceDialog({
   );
   const canContinue = validation.valid;
 
-  const handleSubmit = async (password: string) => {
+  const submitSummary = (
+    <div className="space-y-1.5">
+      {sourcesSelected.map((e) => (
+        <div key={e.coordinatorId} className="flex justify-between">
+          <span>- {e.displayName}</span>
+          <span className="tabular-nums font-semibold">{e.quantity}</span>
+        </div>
+      ))}
+      <div className="border-t border-slate-200 pt-1.5" />
+      {destinationsSelected.map((e) => (
+        <div key={e.coordinatorId} className="flex justify-between">
+          <span>+ {e.displayName}</span>
+          <span className="tabular-nums font-semibold">{e.quantity}</span>
+        </div>
+      ))}
+    </div>
+  );
+
+  const handleSubmit = async () => {
     const sources = sourcesSelected.map((e) => ({
       coordinatorId: e.coordinatorId,
       quantity: e.quantity,
@@ -123,7 +139,11 @@ export function RebalanceDialog({
       coordinatorId: e.coordinatorId,
       quantity: e.quantity,
     }));
-    const result = await onSubmit(password, sources, destinations);
+    const result = await onSubmit(sources, destinations, {
+      title: text.title,
+      summary: submitSummary,
+      confirmLabel: text.confirmButton,
+    });
     if (result !== undefined) handleClose();
     return result;
   };
@@ -270,38 +290,17 @@ export function RebalanceDialog({
             <Button variant="secondary" onClick={() => setStep("form")}>
               {text.backButton}
             </Button>
-            <Button className="flex-1" onClick={() => setConfirmOpen(true)}>
+            <Button
+              className="flex-1"
+              loading={busy}
+              disabled={busy}
+              onClick={() => void handleSubmit()}
+            >
               {text.confirmButton}
             </Button>
           </div>
         </div>
       </Modal>
-
-      <AllocationPasswordDialog
-        open={confirmOpen}
-        title={text.title}
-        summary={
-          <div className="space-y-1.5">
-            {sourcesSelected.map((e) => (
-              <div key={e.coordinatorId} className="flex justify-between">
-                <span>- {e.displayName}</span>
-                <span className="tabular-nums font-semibold">{e.quantity}</span>
-              </div>
-            ))}
-            <div className="border-t border-slate-200 pt-1.5" />
-            {destinationsSelected.map((e) => (
-              <div key={e.coordinatorId} className="flex justify-between">
-                <span>+ {e.displayName}</span>
-                <span className="tabular-nums font-semibold">{e.quantity}</span>
-              </div>
-            ))}
-          </div>
-        }
-        confirmLabel={text.confirmButton}
-        busy={busy}
-        onConfirm={handleSubmit}
-        onCancel={() => setConfirmOpen(false)}
-      />
     </>
   );
 }

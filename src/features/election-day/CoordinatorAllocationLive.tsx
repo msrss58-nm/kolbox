@@ -16,6 +16,7 @@ import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayStatTile } from "./ElectionDayStatTile";
 import { EndCoordinatorDialog } from "./EndCoordinatorDialog";
 import { RebalanceDialog } from "./RebalanceDialog";
+import type { ReauthCopy } from "./useCoordinatorAllocation";
 
 const text = ELECTION_DAY_TEXT.coordinatorAllocation;
 
@@ -48,21 +49,21 @@ export function CoordinatorAllocationLive({
   total: number;
   unassignedCount: number;
   manageCoordinators: (
-    password: string,
     actions: CoordinatorAction[],
+    copy: ReauthCopy,
   ) => Promise<Coordinator[] | undefined>;
   managingCoordinators: boolean;
   rebalanceAssignments: (
-    password: string,
     sources: AllocationAssignment[],
     destinations: AllocationAssignment[],
+    copy: ReauthCopy,
   ) => Promise<unknown>;
   rebalancing: boolean;
   endCoordinatorActivity: (
-    password: string,
     coordinatorId: string,
     mode: EndCoordinatorActivityMode,
     targetCoordinatorId: string | null,
+    copy: ReauthCopy,
   ) => Promise<unknown>;
   endingCoordinatorActivity: boolean;
 }) {

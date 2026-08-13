@@ -6,19 +6,11 @@ import { Field, Input } from "../../components/ui/Field";
 import { toast } from "../../components/ui/Toast";
 import type { CoordinatorAction } from "../../services/api";
 import type { Coordinator, ElectionDayVoter } from "../../types";
-import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import { countVotersWithRawCoordinatorName } from "./coordinatorAllocationStats";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import type { ReauthCopy } from "./useCoordinatorAllocation";
 
 const text = ELECTION_DAY_TEXT.coordinatorAllocation.roster;
-
-type PendingAction =
-  | { kind: "add"; name: string }
-  | { kind: "edit"; coordinator: Coordinator; newName: string }
-  | { kind: "remove"; coordinator: Coordinator }
-  | { kind: "link"; coordinator: Coordinator }
-  | { kind: "relink"; coordinator: Coordinator }
-  | { kind: "unlink"; coordinator: Coordinator };
 
 /**
  * Coordinator Allocation Management (Phase 5): "today's coordinators" roster
@@ -37,14 +29,19 @@ type PendingAction =
  * locked attempt surfaces through the real error mapper instead of being
  * silently guessed away.
  *
- * Every action here is a single explicit user click -> one
- * `AllocationPasswordDialog` confirmation -> one `manageCoordinators` RPC
- * call with a single-element `actions` array - never a staged multi-edit
- * batch, so there is no "promised atomic batch UX" to accidentally break
- * into N separate calls (see the Phase 5 spec's "ADD + LINK LIMITATION"
- * section - a newly-added coordinator's id is only known after this
- * component's own reload, so a later link is naturally its own explicit
- * action, never invented as a client-side temp id).
+ * Security Hardening (Reauth), Phase 2: every action here is a single
+ * explicit user click -> one `onManage([action], copy)` call, which runs
+ * through `useCoordinatorAllocation`'s shared `reauth.gate` - the first
+ * action after a page load (or after the cached proof expires/is revoked)
+ * shows the shared `AllocationPasswordDialog` with this action's own
+ * `copy`; every further action within the ~15-minute proof lifetime runs
+ * immediately with no dialog at all. Always a single-element `actions`
+ * array - never a staged multi-edit batch, so there is no "promised atomic
+ * batch UX" to accidentally break into N separate calls (see the Phase 5
+ * spec's "ADD + LINK LIMITATION" section - a newly-added coordinator's id is
+ * only known after this component's own reload, so a later link is
+ * naturally its own explicit action, never invented as a client-side temp
+ * id).
  */
 export function CoordinatorRosterEditor({
   coordinators,
@@ -57,8 +54,8 @@ export function CoordinatorRosterEditor({
   coordinators: Coordinator[];
   contacts: readonly ElectionDayVoter[];
   onManage: (
-    password: string,
     actions: CoordinatorAction[],
+    copy: ReauthCopy,
   ) => Promise<Coordinator[] | undefined>;
   busy: boolean;
   allowRename: boolean;
@@ -67,14 +64,13 @@ export function CoordinatorRosterEditor({
   const [name, setName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
-  const [pending, setPending] = useState<PendingAction | null>(null);
 
   const isDuplicateActiveName = (candidate: string, excludeId?: string) =>
     coordinators.some(
       (c) => c.status === "active" && c.id !== excludeId && c.displayName === candidate,
     );
 
-  const handleAddClick = () => {
+  const handleAddClick = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error(text.emptyNameBlocked);
@@ -84,7 +80,12 @@ export function CoordinatorRosterEditor({
       toast.error(text.duplicateActiveName);
       return;
     }
-    setPending({ kind: "add", name: trimmed });
+    const result = await onManage([{ action: "add", displayName: trimmed }], {
+      title: text.confirm.addTitle,
+      summary: text.confirm.addSummary(trimmed),
+      confirmLabel: text.confirm.confirmButton,
+    });
+    if (result !== undefined) setName("");
   };
 
   const startEdit = (c: Coordinator) => {
@@ -95,7 +96,7 @@ export function CoordinatorRosterEditor({
     setEditingId(null);
     setEditingName("");
   };
-  const confirmEditClick = (c: Coordinator) => {
+  const confirmEditClick = async (c: Coordinator) => {
     const trimmed = editingName.trim();
     if (!trimmed) {
       toast.error(text.emptyNameBlocked);
@@ -109,85 +110,40 @@ export function CoordinatorRosterEditor({
       toast.error(text.duplicateActiveName);
       return;
     }
-    setPending({ kind: "edit", coordinator: c, newName: trimmed });
+    const result = await onManage(
+      [{ action: "edit", coordinatorId: c.id, displayName: trimmed }],
+      {
+        title: text.confirm.editTitle,
+        summary: text.confirm.editSummary(c.displayName, trimmed),
+        confirmLabel: text.confirm.confirmButton,
+      },
+    );
+    if (result !== undefined) cancelEdit();
   };
 
-  const runPending = async (password: string) => {
-    if (!pending) return undefined;
-    let action: CoordinatorAction;
-    switch (pending.kind) {
-      case "add":
-        action = { action: "add", displayName: pending.name };
-        break;
-      case "edit":
-        action = {
-          action: "edit",
-          coordinatorId: pending.coordinator.id,
-          displayName: pending.newName,
-        };
-        break;
-      case "remove":
-        action = { action: "remove", coordinatorId: pending.coordinator.id };
-        break;
-      case "link":
-      case "relink":
-        action = {
-          action: pending.kind,
-          coordinatorId: pending.coordinator.id,
-          linkedAssignmentName: pending.coordinator.displayName,
-        };
-        break;
-      case "unlink":
-        action = { action: "unlink", coordinatorId: pending.coordinator.id };
-        break;
-      default:
-        return undefined;
-    }
-    const result = await onManage(password, [action]);
-    if (result !== undefined) {
-      if (pending.kind === "add") setName("");
-      if (pending.kind === "edit") cancelEdit();
-      setPending(null);
-    }
-    return result;
-  };
+  const handleRemoveClick = (c: Coordinator) =>
+    onManage([{ action: "remove", coordinatorId: c.id }], {
+      title: text.confirm.removeTitle,
+      summary: text.confirm.removeSummary(c.displayName),
+      confirmLabel: text.confirm.confirmButton,
+    });
 
-  const dialogCopy = (() => {
-    if (!pending) return null;
-    switch (pending.kind) {
-      case "add":
-        return {
-          title: text.confirm.addTitle,
-          summary: text.confirm.addSummary(pending.name),
-        };
-      case "edit":
-        return {
-          title: text.confirm.editTitle,
-          summary: text.confirm.editSummary(
-            pending.coordinator.displayName,
-            pending.newName,
-          ),
-        };
-      case "remove":
-        return {
-          title: text.confirm.removeTitle,
-          summary: text.confirm.removeSummary(pending.coordinator.displayName),
-        };
-      case "link":
-      case "relink":
-        return {
-          title: text.confirm.linkTitle,
-          summary: text.confirm.linkSummary(pending.coordinator.displayName),
-        };
-      case "unlink":
-        return {
-          title: text.confirm.unlinkTitle,
-          summary: text.confirm.unlinkSummary(pending.coordinator.displayName),
-        };
-      default:
-        return null;
-    }
-  })();
+  const handleLinkClick = (c: Coordinator, kind: "link" | "relink") =>
+    onManage(
+      [{ action: kind, coordinatorId: c.id, linkedAssignmentName: c.displayName }],
+      {
+        title: text.confirm.linkTitle,
+        summary: text.confirm.linkSummary(c.displayName),
+        confirmLabel: text.confirm.confirmButton,
+      },
+    );
+
+  const handleUnlinkClick = (c: Coordinator) =>
+    onManage([{ action: "unlink", coordinatorId: c.id }], {
+      title: text.confirm.unlinkTitle,
+      summary: text.confirm.unlinkSummary(c.displayName),
+      confirmLabel: text.confirm.confirmButton,
+    });
 
   return (
     <div className="space-y-5">
@@ -198,13 +154,13 @@ export function CoordinatorRosterEditor({
             onChange={(e) => setName(e.target.value)}
             placeholder={text.namePlaceholder}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleAddClick();
+              if (e.key === "Enter") void handleAddClick();
             }}
             className="flex-1"
           />
         </div>
       </Field>
-      <Button className="w-full" onClick={handleAddClick}>
+      <Button className="w-full" disabled={busy} onClick={() => void handleAddClick()}>
         ➕ {text.addButton}
       </Button>
 
@@ -237,13 +193,14 @@ export function CoordinatorRosterEditor({
                         className="flex-1"
                         autoFocus
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") confirmEditClick(c);
+                          if (e.key === "Enter") void confirmEditClick(c);
                           if (e.key === "Escape") cancelEdit();
                         }}
                       />
                       <button
                         type="button"
-                        onClick={() => confirmEditClick(c)}
+                        disabled={busy}
+                        onClick={() => void confirmEditClick(c)}
                         aria-label={text.saveAriaLabel}
                         className="touch-target grid shrink-0 place-items-center rounded-lg text-primary-600 hover:bg-primary-50"
                       >
@@ -289,7 +246,8 @@ export function CoordinatorRosterEditor({
                         {allowRemove && (
                           <button
                             type="button"
-                            onClick={() => setPending({ kind: "remove", coordinator: c })}
+                            disabled={busy}
+                            onClick={() => void handleRemoveClick(c)}
                             aria-label={text.removeAriaLabel}
                             className="touch-target grid place-items-center rounded-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent"
                           >
@@ -307,7 +265,8 @@ export function CoordinatorRosterEditor({
                     <span>{text.linkSuggestion(suggestionCount, c.displayName)}</span>
                     <button
                       type="button"
-                      onClick={() => setPending({ kind: "link", coordinator: c })}
+                      disabled={busy}
+                      onClick={() => void handleLinkClick(c, "link")}
                       className="ms-auto font-semibold underline hover:no-underline"
                     >
                       {text.linkButton}
@@ -321,7 +280,8 @@ export function CoordinatorRosterEditor({
                     <span>{text.linkSuggestion(suggestionCount, c.displayName)}</span>
                     <button
                       type="button"
-                      onClick={() => setPending({ kind: "relink", coordinator: c })}
+                      disabled={busy}
+                      onClick={() => void handleLinkClick(c, "relink")}
                       className="ms-auto font-semibold underline hover:no-underline"
                     >
                       {text.relinkButton}
@@ -332,7 +292,8 @@ export function CoordinatorRosterEditor({
                 {c.linkedAssignmentName !== null && (
                   <button
                     type="button"
-                    onClick={() => setPending({ kind: "unlink", coordinator: c })}
+                    disabled={busy}
+                    onClick={() => void handleUnlinkClick(c)}
                     className="self-start text-xs font-semibold text-slate-500 underline hover:no-underline"
                   >
                     {text.unlinkButton}
@@ -342,18 +303,6 @@ export function CoordinatorRosterEditor({
             );
           })}
         </ul>
-      )}
-
-      {dialogCopy && (
-        <AllocationPasswordDialog
-          open
-          title={dialogCopy.title}
-          summary={dialogCopy.summary}
-          confirmLabel={text.confirm.confirmButton}
-          busy={busy}
-          onConfirm={runPending}
-          onCancel={() => setPending(null)}
-        />
       )}
     </div>
   );

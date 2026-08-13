@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { ArrowRight } from "lucide-react";
+import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import { CoordinatorAllocationLive } from "./CoordinatorAllocationLive";
 import { resolveCoordinatorAllocationPhase } from "./coordinatorAllocationPhase";
 import { CoordinatorAllocationSetup } from "./CoordinatorAllocationSetup";
@@ -106,6 +107,15 @@ export function CoordinatorAllocationView({ onBack }: { onBack: () => void }) {
           applyInitialAllocation={allocation.applyInitialAllocation}
           applyingInitialAllocation={allocation.applyingInitialAllocation}
         />
+      )}
+
+      {/* Security Hardening (Reauth), Phase 2: the shared password-reauth
+          prompt for this hook's 4 allocation mutations - rendered once here
+          (mirrors `ElectionDayShell.tsx`'s identical pattern for
+          `useElectionDay`'s own reauth dialog), reusing
+          `AllocationPasswordDialog`'s existing visual pattern. */}
+      {allocation.reauthDialog && (
+        <AllocationPasswordDialog {...allocation.reauthDialog} />
       )}
     </div>
   );

@@ -1006,22 +1006,6 @@ export class MockApi implements ApiClient {
     return [...this.nonVotingReasons];
   }
 
-  /** Interface compliance only (see `coordinators`' field comment) - mirrors
-   * the real RPCs' 2-step server-side re-auth (bcrypt-equivalent plaintext
-   * compare against this store, then the actor role's
-   * `electionDay.manageCoordinatorAllocation`), same pattern as
-   * `resetPermissionUserPassword` above. */
-  private authorizeCoordinatorActor(actorId: string, actorPassword: string): void {
-    const actor = this.permissionUsers.find((u) => u.id === actorId);
-    if (!actor || actor.password !== actorPassword) {
-      throw new Error("הסיסמה שהזנת אינה נכונה");
-    }
-    const actorRole = this.roles.find((r) => r.id === actor.roleId);
-    if (!actorRole?.permissions.includes("electionDay.manageCoordinatorAllocation")) {
-      throw new Error("אין לך הרשאה לבצע פעולה זו");
-    }
-  }
-
   /** A voter still "remaining" (transferable) per this mock's simplified
    * mirror of `resolveFollowUpStatus`'s "remaining" branch - `nonVotingReasons`
    * is always empty in `MockApi` (interface compliance only, see that
@@ -1039,16 +1023,16 @@ export class MockApi implements ApiClient {
   }
 
   /** Interface compliance only - a minimal, non-persisted mirror of
-   * `election_day_manage_coordinators`'s add/edit/remove/link/relink/unlink
-   * shape, not its full validation (no cross-column name-collision
-   * invariant, no per-coordinator participation lock). */
+   * `election_day_manage_coordinators_v2`'s add/edit/remove/link/relink/
+   * unlink shape, not its full validation (no cross-column name-collision
+   * invariant, no per-coordinator participation lock). `_proof` is ignored,
+   * same as `createPermissionUser`'s own mock - MockApi has no real proof
+   * store to verify against. */
   async manageCoordinators(
-    actorId: string,
-    actorPassword: string,
+    _proof: string,
     actions: CoordinatorAction[],
   ): Promise<Coordinator[]> {
     await latency();
-    this.authorizeCoordinatorActor(actorId, actorPassword);
     const now = new Date().toISOString();
     for (const a of actions) {
       if (a.action === "add") {
@@ -1093,12 +1077,10 @@ export class MockApi implements ApiClient {
    * coordinators in array order, deterministically. Not a full mirror of
    * the real RPC's row-locking/count-revalidation. */
   async applyInitialAllocation(
-    actorId: string,
-    actorPassword: string,
+    _proof: string,
     assignments: AllocationAssignment[],
   ): Promise<ApplyInitialAllocationResult> {
     await latency();
-    this.authorizeCoordinatorActor(actorId, actorPassword);
     const unassigned = this.electionDayVoters.filter((v) => v.coordinator === "");
     const sumQuantities = assignments.reduce((sum, a) => sum + a.quantity, 0);
     if (unassigned.length === 0) throw new Error("אין בוחרים לא-מוקצים כרגע");
@@ -1129,13 +1111,11 @@ export class MockApi implements ApiClient {
    * destination coordinator, in array order. Not a full mirror of the real
    * RPC's row-locking/count-revalidation/exact-id pinning. */
   async rebalanceAssignments(
-    actorId: string,
-    actorPassword: string,
+    _proof: string,
     sources: AllocationAssignment[],
     destinations: AllocationAssignment[],
   ): Promise<RebalanceAssignmentsResult> {
     await latency();
-    this.authorizeCoordinatorActor(actorId, actorPassword);
     const transferred: ElectionDayVoter[] = [];
     for (const s of sources) {
       const source = this.coordinators.find((c) => c.id === s.coordinatorId);
@@ -1173,14 +1153,12 @@ export class MockApi implements ApiClient {
    * mirror of the real RPC's row-locking/last-active-coordinator guard
    * ordering/exact-id pinning. */
   async endCoordinatorActivity(
-    actorId: string,
-    actorPassword: string,
+    _proof: string,
     coordinatorId: string,
     mode: EndCoordinatorActivityMode,
     targetCoordinatorId: string | null,
   ): Promise<EndCoordinatorActivityResult> {
     await latency();
-    this.authorizeCoordinatorActor(actorId, actorPassword);
     const source = this.coordinators.find((c) => c.id === coordinatorId);
     if (!source) throw new Error("הרכז לא נמצא");
     const names = [source.displayName, source.linkedAssignmentName].filter(
