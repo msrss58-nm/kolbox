@@ -15,13 +15,14 @@
 ## Git
 
 - Branch: `master`
-- HEAD: `98fde6c` ("feat: keep election reminders visible until handled")
-- `origin/master...master`: `0 / 0` - fully synced (push completed 2026-08-20)
-- Working tree: the same 16 pre-existing, harmless dirty scripts (`scripts/drive-*.mjs`, `scripts/smoke-*.ts`) as every prior checkpoint - audited read-only, none perform a live mutating RPC against real data, deliberately left untouched/uncommitted across every session since they were first found. This documentation update itself (`CURRENT_STATUS.md`/`CHANGELOG.md`/`task-plan.md`) is pending commit as of this note.
+- HEAD: `2b187c2` ("docs: update election day production checkpoint") - the latest documentation checkpoint, confirmed documentation-only (`CHANGELOG.md`/`CURRENT_STATUS.md`/`task-plan.md` only, no app/DB/script files) via `git show --stat --summary 2b187c2`.
+- `origin/master...master`: `0 / 0` - fully synced
+- Working tree: the same 16 pre-existing, harmless dirty scripts (`scripts/drive-*.mjs`, `scripts/smoke-*.ts`) as every prior checkpoint - audited read-only, none perform a live mutating RPC against real data, deliberately left untouched/uncommitted across every session since they were first found.
 
 Recent history (newest first, since `6f9f3f4` - see `CHANGELOG.md` for full detail on each):
 
 ```
+2b187c2 docs: update election day production checkpoint
 98fde6c feat: keep election reminders visible until handled
 8e519be fix: refine election day file management actions
 20946c0 security: retire legacy election day RPCs (Phase 3)
