@@ -6,46 +6,45 @@
 
 ## Production
 
-- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Active and serving Election Day's full 7-screen Shell, redesigned dashboard, and Reminder Lifecycle v1 - Production Complete as of 2026-08-10.**
+- **URL**: `https://kolbox-gamma.vercel.app` - live since 2026-07-19. **Serving commit `98fde6c` - Election Day's 7-screen Shell, Coordinator Allocation, Security Phases 1-3 (legacy RPC retirement complete), the file-management UI fix, and the persistent-reminder feature are all live, as of 2026-08-20.**
 - **Vercel project**: `kolbox`, scope `nahom10`, Git integration auto-deploys on push to `master`.
-- Current production deployment: `dpl_DQ7Bz5KUPyU5c1QptbtrCfWq3zxt`, `readyState: READY`, `target: production`, built from commit `6f9f3f4` ("test: harden production smoke test safety") - confirmed both via `npx vercel inspect` and directly via the Vercel API's `meta.githubCommitSha`, which matches local HEAD exactly. Aliased to `kolbox-gamma.vercel.app` / `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`. HTTP 200 confirmed on `/election-day` (2026-08-10).
-- **Reminder Lifecycle v1 production smoke test - PASSED** (2026-08-10, run under the new Production Smoke Test Safety Hardening protocol - see below): 63/63 checks (55 RPC-level + 8 live-browser UI). Production baseline reconfirmed exactly restored after cleanup: **1,928 voters**, `voted=true`=**7**, 0 open reminders, 0 reminder events, 4 real `PermissionUser` accounts, 5 roles.
-- Everything documented below this line through "Dynamic Roles & Permissions - status" describes the initiative that closed on 2026-08-06 at commit `e98f180` - still accurate as history, no longer the most current state. **See "What shipped after Dynamic Roles closed" further down for 2026-08-06 → 2026-08-10.**
-- Prior verification (2026-08-06, still accurate as history): post-deploy production smoke test against the `2c92470` deploy - 21/21 checks passed, 0 console/page errors (non-voting-reason assignment, persistence, role management, reminders, search regression). A gap found the same day (`election_day_is_valid_permission` didn't recognize `electionDay.manageNonVotingReasons`) was fixed via migration `election_day_valid_permission_non_voting_reasons`, shipped as `e98f180`, verified live in two rounds (8/8, 7/7 checks).
+- Current production deployment confirmed live via **content-addressed bundle-hash comparison** (no Vercel CLI/API token available in this environment for this pass - a metadata-based `readyState`/`githubCommitSha` check is not something this session could run; the bundle-identity method below is the substitute): a local `npm run build` of commit `98fde6c` produced `index-CXstJDLi.js`/`index-C5aVf1qc.css`, and Production served the **exact same hash** on the first poll. The live JS bundle was independently confirmed to contain the new reminder-bar strings/classes and to lack the removed old toast string - see "Persistent Reminders" below.
+- **Security Phases 1-3 + Production Rollout - COMPLETE** (2026-08-20) - see its own section below for the full record.
+- Everything documented below this line through "Dynamic Roles & Permissions - status" describes older, still-accurate history (closed 2026-08-06 through 2026-08-10). **See "What shipped after Dynamic Roles closed" for 2026-08-06 → 2026-08-10**, and the new sections below it for everything since.
 
 ## Git
 
 - Branch: `master`
-- HEAD: `6f9f3f4` ("test: harden production smoke test safety")
-- `origin/master...master`: 0 ahead / 0 behind - fully synced (push completed 2026-08-10)
-- Working tree, as of the 2026-08-10 documentation/security/allowlist follow-up pass: the same 16 pre-existing, harmless dirty scripts (`scripts/drive-*.mjs`, `scripts/smoke-*.ts`, audited read-only, none perform a live mutating RPC against real data) **plus** 4 documentation files (`CLAUDE.md`, `CURRENT_STATUS.md`, `CHANGELOG.md`, `task-plan.md`) and one new, already-applied-to-production migration file (`supabase/migrations/20260810140000_election_day_valid_permission_reminder_history.sql`) - all still uncommitted pending explicit approval to commit.
+- HEAD: `98fde6c` ("feat: keep election reminders visible until handled")
+- `origin/master...master`: `0 / 0` - fully synced (push completed 2026-08-20)
+- Working tree: the same 16 pre-existing, harmless dirty scripts (`scripts/drive-*.mjs`, `scripts/smoke-*.ts`) as every prior checkpoint - audited read-only, none perform a live mutating RPC against real data, deliberately left untouched/uncommitted across every session since they were first found. This documentation update itself (`CURRENT_STATUS.md`/`CHANGELOG.md`/`task-plan.md`) is pending commit as of this note.
 
-Recent history (newest first, 19 commits since `e98f180` - see `CHANGELOG.md` for full detail on each):
+Recent history (newest first, since `6f9f3f4` - see `CHANGELOG.md` for full detail on each):
 
 ```
-6f9f3f4 test: harden production smoke test safety
-6635aad feat: add election day reminder lifecycle
-0a0343b fix: hide unauthorized election day user actions
-b682594 fix: harden election day user deletion
-812092b fix: prevent election day dashboard mobile overflow
-ea31937 fix: prevent mobile bottom navigation overflow
-4bd7db6 feat: redesign election day dashboard with new KPI rows and panels
-89298ac feat: add closed reason breakdown to election day dashboard
-d4ff25a feat: integrate election day navigation into main sidebar
-7f5381d refactor: rebuild Election Day as a Shell with persistent nav and 7 screens
-7455cb0 polish: accordion animation, spacing, open-state tint, report icons
-e6eef0d fix: report buttons render green instead of purple
-a2c9977 refactor: reorganize election day actions into a categorized nav accordion
-da198ef feat: add secure password reset for election day permission users
-d52c933 fix: show sub-10% voting turnout with one decimal instead of rounding to 0%
-8045f0e feat: add call attempts counter with auto-triggered no-answer dialog
-0aa25c0 docs: close out the follow-up tracking + non-voting-reason reports feature
-89b2847 feat: add coordinator follow-up tracking and non-voting-reason reports
-1830c07 docs: close out the manageNonVotingReasons validator fix
-e98f180 fix: recognize manageNonVotingReasons in the DB permission validator   <- this file's old "current" point
+98fde6c feat: keep election reminders visible until handled
+8e519be fix: refine election day file management actions
+20946c0 security: retire legacy election day RPCs (Phase 3)
+07221b8 security: migrate election day allocation to reauth proofs
+67b098a security: harden election day admin authentication
+8d7ce3d feat: add election day allocation management ui
+d51c599 feat: grant coordinator allocation permission to manager
+441358f feat: add election day allocation frontend data layer
+02d0e45 feat: add election day allocation rpc core
+6d3379a feat: support safe unassigned voter imports
+49b755b feat: add election day allocation db foundation
+53872e8 refactor: compact call attempts watchlist by coordinator
+abdc4c1 feat: harden election day call attempts tracking
+6a1391a fix: clarify non-voting reason placeholder
+d7f8ee1 feat: add call attempts watchlist to election dashboard
+db6efb4 fix: add election day vote status filter
+8e1f909 docs: sync election day production documentation
+6f9f3f4 test: harden production smoke test safety   <- this file's old "current" point
 ```
 
-## Current Supabase migrations (24 total, all confirmed `local` = `remote` via `npx supabase migration list --linked`)
+Note: the coordinator-allocation feature (`49b755b` through `8d7ce3d` - DB foundation, RPC core, frontend data layer, manager permission grant, management UI) and the call-attempts/vote-status-filter/watchlist commits above landed between the last documentation pass and this one without their own `CURRENT_STATUS.md`/Progress Log entries; `CHANGELOG.md` and `git log` are the accurate record for their detail - not reconstructed here to avoid inventing detail this update wasn't briefed on.
+
+## Current Supabase migrations (41 total, confirmed `local` = `remote`, zero drift, via `npx supabase migration list --linked`, 2026-08-20)
 
 ```
 20260803174712_election_day_core_tables.sql
@@ -72,7 +71,26 @@ e98f180 fix: recognize manageNonVotingReasons in the DB permission validator   <
 20260810120000_election_day_reminder_lifecycle.sql
 20260810130000_election_day_set_non_voting_reason_security_definer_fix.sql
 20260810140000_election_day_valid_permission_reminder_history.sql
+20260811090000_election_day_call_attempts_guard.sql
+20260811100000_election_day_coordinator_nullable.sql
+20260811100100_election_day_coordinators_table.sql
+20260811100200_election_day_coordinator_operations_tables.sql
+20260811100300_election_day_coordinators_realtime.sql
+20260811100400_election_day_valid_permission_coordinator_allocation.sql
+20260812090000_election_day_has_allocation_activity.sql
+20260812090100_election_day_import_voters_allocation_guard.sql
+20260812090200_election_day_reminder_lifecycle_null_coordinator_hardening.sql
+20260813100000_election_day_manage_coordinators_rpc.sql
+20260813100100_election_day_coordinator_allocation_rpcs.sql
+20260813100200_election_day_import_voters_allocation_lock.sql
+20260813100300_election_day_manager_coordinator_allocation_permission.sql
+20260813110000_election_day_reauth_proof_infrastructure.sql
+20260813110100_election_day_admin_v2_rpcs.sql
+20260813120000_election_day_allocation_v2_rpcs.sql
+20260813130000_election_day_retire_legacy_rpcs.sql
 ```
+
+The last four (`20260813110000` → `20260813130000`) are the Security Phases 1-3 migrations - see the next section.
 
 ## What shipped after Dynamic Roles closed (2026-08-06 → 2026-08-10)
 
@@ -206,6 +224,32 @@ All application code updated to match: `RoleRecord.legacyRoleKey`/`DatabaseRole`
 
 **Phase 3 is fully closed - and with it, the entire Dynamic Roles & Permissions initiative.** No `legacy_role_key`, no legacy `role` column, no 3-checkbox creation RPC, no hardcoded `manager`/`operations`/`voting` special-casing anywhere in code - every role, built-in or custom, is an ordinary `election_day_roles` row identified only by `id`/`roleId` and judged only by its `permissions`/`scopeType`.
 
+## Security Phases 1-3 (legacy RPC retirement) + Production Rollout - status
+
+**COMPLETE, deployed, verified, closed as of 2026-08-20.** Not to be confused with Dynamic Roles & Permissions' own "Phase 3" above - this is a separate, later initiative: closing the gap where several admin/import/coordinator-allocation RPCs took a raw `p_actor_id`/`p_actor_password` pair (or, for `election_day_import_voters`, no auth at all) instead of the short-lived reauth-proof pattern `election_day_reset_permission_user_password` already used.
+
+- **Phase 1** (commit `67b098a`, "security: harden election day admin authentication"): added `election_day_reauth_proof_infrastructure` (a table-backed, ~15-minute proof token replacing repeated raw-password transmission) plus 8 new `_v2` RPCs (create/delete permission user, reset password, create/update/delete/clone role, import voters) - each a brand-new `pg_proc` object (never a `CREATE OR REPLACE` over the original, since Postgres function identity is name+argtypes and a rename mid-flight would have broken the compatibility window), same business logic as the v1 original, with a proof/permission check added strictly before any mutation.
+- **Phase 2** (commit `07221b8`, "security: migrate election day allocation to reauth proofs"): same pattern extended to the 4 coordinator-allocation RPCs (`manage_coordinators`, `apply_initial_allocation`, `rebalance_assignments`, `end_coordinator_activity`) as `_v2` siblings, preserving the existing global advisory-lock concurrency ordering exactly.
+- **Phase 3** (commit `20946c0`, "security: retire legacy election day RPCs"): `REVOKE EXECUTE` (not `DROP` - bodies kept intact for one-step rollback) on all 12 original v1 RPCs from `anon`/`authenticated`, via an **Expand → Deploy → Contract** rollout (migrate schema with both v1 and `_v2` live → push/deploy the `_v2`-only frontend → confirm the new frontend is actually serving → only then retire v1) specifically to avoid a window where a not-yet-deployed frontend still calling v1 would break.
+
+**Rollout execution** (2026-08-20): migrations `20260813110000` through `20260813120000` applied first (Expand); `git push` + Vercel auto-deploy confirmed live via bundle-hash match; only then `20260813130000` applied (Contract). Runtime-verified via `has_function_privilege` directly against the linked Production database (not inferred): all 12 legacy RPCs now `EXECUTE = false` for both `anon` and `authenticated`; all 12 `_v2` RPCs `EXECUTE = true`. Migration history reconfirmed `local` = `remote` on all 41 rows, zero drift. One local-runtime-only hiccup during rollout: the `db push` CLI hung on exit after the Expand step had already fully and correctly applied (confirmed via `migration list`/lock/long-running-query checks before touching anything) - terminated cleanly, not retried, no partial state.
+
+**Verification performed, not just claimed**: a full local Postgres replay (Docker + `npx supabase db reset`, all 43-then-41 migrations reapplied clean) before touching Production; a Final Gate (typecheck/build/lint/`git diff --check`/migration-ordering/signature-cross-check, all pass) before rollout began; live `has_function_privilege` checks against Production both mid-rollout (Expand-state: legacy still callable) and post-rollout (Contract-state: legacy revoked) - not a single claim in this section rests on documentation-only or "should work" reasoning.
+
+**Read-only closure audit findings** (2026-08-20, same day): Production's permission-users count (7, not the previously-documented 4) and an earlier migration-count discrepancy in this session's own interim reports (40 vs. 41) were both investigated and closed - the account growth traced to 5 real accounts created by a human via the UI on 2026-08-15 (unrelated to this rollout, confirmed via `created_at` timestamps and a full grep of every rollout migration for any `INSERT` into the permission-users table - none found outside a normal RPC function body); the migration-count mismatch was this session's own arithmetic error in an earlier status report, not a real drift (re-verified programmatically: 41/41, zero mismatch, both before and after).
+
+## File Management UI fix + Persistent Reminders - status
+
+**Both COMPLETE, deployed, and verified as of 2026-08-20** - two small, independent UI features shipped back-to-back after the security rollout above, no DB/RPC/migration involvement in either.
+
+**File-management screen** (commit `8e519be`, "fix: refine election day file management actions") - `/election-day/files`: reordered cards to טען קובץ בוחרים → מחק קובץ בוחרים → ניהול הקצאות (last); each card's separate action button was removed and the card itself became the click target (`ElectionDayImportButton.tsx` rewritten, `ElectionDayFilesPage.tsx`'s delete/allocation cards converted to plain full-card `<button>`s); idle state is neutral/white for all three; the active/press indicator is a vertical blue accent stripe on the right (RTL start) edge (`border-s-4 border-s-transparent` at rest, `border-s-primary-500` on `:active`/`:focus-visible`) - a deliberate iteration after an initial full-ring version was explicitly rejected as not matching the requested "stripe" look. No business logic, dialogs, or permission changes.
+
+**Persistent Reminders** (commit `98fde6c`, "feat: keep election reminders visible until handled") - replaces the old reminder-due notification (a generic `toast.info()` that auto-dismissed after 4s via `components/ui/Toast.tsx`, pure in-memory state, gone on reload) with a compact bar: "⏰ יש לך N תזכורות לטיפול", pinned to the physical LEFT edge (an explicit, commented, product-approved exception to this codebase's usual RTL-logical-property convention), click to expand into up to 5 reminder cards (oldest-`reminderAt`-first) + "עוד N תזכורות" if more exist, click again to collapse. New files `overdueReminderPopups.ts` (pure derivation: DUE and not `lastCallAttemptAt >= reminderAt`) and `OverdueReminderStack.tsx`; `useElectionDay.ts` gained `scopedContacts` in its return and lost the old toast-interval effect; rendered once at the `ElectionDayShell` level so it persists across all 7 screens. "Handled by call" reuses the existing `incrementCallAttempts` RPC's own `last_call_attempt_at` write - no new column. "דחה" (postpone) reuses the existing `ReminderMenu` component as-is, wired to the existing `setReminder`/`setReminderAt`. Manager exclusion uses the resolved role's existing `scopeType` field (`"assigned_to_me"` required, same signal `electionDayScope.ts` already uses elsewhere) - not a role name/id check, so it generalizes to any future unrestricted role, not just today's "manager." A real bug was found and fixed during verification (not a pre-existing issue): with several cards expanded, one card's "דחה" dropdown could render underneath the next card in the list (a CSS stacking-context collision from stacking multiple `ReminderMenu` instances, never exercised before this feature existed) - fixed with a scoped `relative z-0 focus-within:z-30` on each card wrapper, without touching `ReminderMenu.tsx` itself.
+
+Full local functional verification (disposable local-only Supabase accounts/contacts, created and deleted every round): manager sees no bar; a scoped user does; 7 overdue → bar reads 7, expands to 5 + "עוד 2"; oldest-first confirmed; a call decrements the count and removes that card; postpone decrements the count until the new time; the bar/count survives a full page reload and screen navigation; desktop (1440px) and mobile (390px) both verified via screenshots. Production verification was necessarily narrower - no Production data mutation or test account was permitted, so **authenticated in-app reminder behavior was not directly exercised live**; what *was* verified against Production is that the exact code proven correct locally is what's actually deployed (bundle-hash match to the local build of `98fde6c`, plus a direct grep of the live bundle confirming the new bar-label strings/CSS classes are present and the old toast string is absent).
+
+**Incidental, out-of-scope finding, explicitly not fixed** (flagged for whoever picks it up, see "Standing open items" below): several existing buttons across the contact modal and both new features (call/reschedule/close-reminder, using an arbitrary-value `bg-[#00a400]`/`bg-[#f59f00]` layered on `<Button>`'s default `variant="primary"`) render as plain primary/purple instead of their intended green/orange, because `cn()` (`src/lib/utils.ts`) is plain `clsx` with no Tailwind-merge conflict resolution. Confirmed pre-existing (present in the shipped contact modal itself, not introduced by either feature above) - deliberately not touched, since fixing it only in new code would make the new UI disagree with the old modal's colors for the same actions.
+
 ## Approved architectural decisions (do not change without explicit re-approval)
 
 - **No protected roles.** Every role, including the three built-in ones, is fully editable/cloneable/deletable.
@@ -222,14 +266,17 @@ All application code updated to match: `RoleRecord.legacyRoleKey`/`DatabaseRole`
 
 ## Continuation point
 
-**The Dynamic Roles & Permissions initiative (Phases 0-3) is closed** - all 4 phases shipped, deployed, and live-verified in production with zero unresolved regressions, as of 2026-08-06 (commit `2e8191c`). This section used to be the file's "continuation point"; it no longer is - see "What shipped after Dynamic Roles closed" above for everything that has landed since.
+**The Dynamic Roles & Permissions initiative (Phases 0-3) is closed** - all 4 phases shipped, deployed, and live-verified in production with zero unresolved regressions, as of 2026-08-06 (commit `2e8191c`). **Security Phases 1-3 (legacy RPC retirement) + Production Rollout is also closed**, as of 2026-08-20 (commit `20946c0`). See both sections above for the full record of each.
 
-**As of this file's 2026-08-10 update, there is no in-flight initiative.** HEAD (`6f9f3f4`) is pushed and deployed; production is fully synced with `master`; the Reminder Lifecycle v1 production smoke test (63/63) closed the most recent feature milestone clean. `git status` shows only the same 16 pre-existing dirty scripts documented above - no other uncommitted work.
+**As of this file's 2026-08-20 update, there is no in-flight initiative.** HEAD (`98fde6c`) is pushed and deployed; Production is fully synced with `master` (bundle-hash confirmed); the file-management UI fix and the persistent-reminder feature both closed clean. `git status` shows only the same 16 pre-existing dirty scripts documented above, plus this documentation update itself pending commit - no other uncommitted work.
 
-**Known open items for whoever picks this up next** (none blocking, none urgent):
+**Standing OPEN items for whoever picks this up next** (none blocking, none urgent):
 
-1. `task-plan.md`'s M6 "Polish & ship" checklist items (micro-interactions, a systematic mobile/RTL/lighthouse audit, README+screenshots) remain genuinely open - the 2 mobile-overflow bug fixes documented above are incremental progress, not a substitute for a systematic pass.
-2. `task-plan.md`'s P2 "Real backend" items (Postgres schema for voters/activists/classifications, `MockApi`→`SupabaseApi` swap) remain open - only Election Day's own data has moved to Supabase; the core campaign-management data model is still `MockApi`/localStorage.
-3. The Vercel CLI needs a fresh interactive login (see "Production" above) - the project owner's action, not something to script around.
+1. **Reminder History Backfill Portability Debt** - open, carried forward from an earlier checkpoint; not re-investigated or elaborated by this documentation pass (avoiding inventing detail this update wasn't briefed on).
+2. **Pre-existing custom button-color/Tailwind-cascade issue** in the contact modal and both new UI features (call/reschedule/close-reminder buttons render primary/purple instead of green/orange - `cn()` has no Tailwind-merge conflict resolution, see the "File Management UI fix + Persistent Reminders" section above for the mechanism) - cosmetic, confirmed pre-existing, deliberately not fixed as part of either feature above.
+3. **Dashboard tiles becoming clickable** is an explicitly future, separate feature - not implemented, not started.
+4. `task-plan.md`'s M6 "Polish & ship" checklist items (micro-interactions, a systematic mobile/RTL/lighthouse audit, README+screenshots) remain genuinely open.
+5. `task-plan.md`'s P2 "Real backend" items (Postgres schema for voters/activists/classifications, `MockApi`→`SupabaseApi` swap) remain open - only Election Day's own data has moved to Supabase. **Unrelated to and unaffected by the Election Day Security Phases 1-3 rollout above**: Election Day's Supabase backend and the core voter/activist/classification data model are separate, disjoint parts of the app - `src/services/api/index.ts`'s own header comment confirms `listVoters`/`listActivists`/`classifyVoter`/dashboard/import still route to `MockApi` (localStorage), unchanged.
+6. The Vercel CLI needs a fresh interactive login for manual convenience commands (`vercel inspect`, etc.) - the project owner's action, not something to script around. **Confirmed non-blocking, not a deployment gate**: every Production deploy and live-bundle verification across this entire documentation-checkpoint's work succeeded via `git push` + Vercel's GitHub auto-deploy integration alone, with zero Vercel CLI involvement - this is optional local tooling/account hygiene, not something anything in this project actually depends on.
 
-The `voter.viewReminderHistory` allowlist gap noted in an earlier version of this list has been fixed (migration `20260810140000`, verified in production) and is no longer open. None of the remaining items were assigned or approved as the next piece of work as of this file's last update - check with whoever's driving before starting on any of them.
+**Recommended next step**: none of the items above were assigned or approved as the next piece of work as of this update - check with whoever's driving before starting on any of them. If a next step is wanted purely from a hygiene standpoint, item 1 (Reminder History Backfill Portability Debt) is the only one already named as a specific, scoped standing item rather than an open-ended checklist category.
