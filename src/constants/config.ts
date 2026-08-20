@@ -72,4 +72,13 @@ export const APP_CONFIG = {
   /** Dashboard turnout-pace chart - bucket size for the cumulative votes
    * curve and for the "last hour" / "previous hour" pace stats. */
   electionDayPaceBucketMinutes: 60,
+
+  /** `OverdueReminderStack` re-evaluates which reminders are DUE on this
+   * interval, so a reminder that crosses into "due" while the tab stays
+   * open appears without needing a data refetch. */
+  electionDayReminderPopupTickMs: 15_000,
+
+  /** `OverdueReminderStack` shows at most this many popup cards at once;
+   * the rest collapse into a single "עוד N תזכורות" summary line. */
+  electionDayReminderPopupVisibleCount: 5,
 } as const;

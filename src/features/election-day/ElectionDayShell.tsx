@@ -12,6 +12,7 @@ import { ElectionDayContactModal } from "./ElectionDayContactModal";
 import { getVisibleElectionDayNavItems } from "./electionDayNavVisibility";
 import { useElectionDaySession } from "./electionDaySession";
 import type { ElectionDayOutletContext as BootstrapContext } from "./ElectionDayGuard";
+import { OverdueReminderStack } from "./OverdueReminderStack";
 import { roleDisplayName } from "./roleDisplayName";
 import { useCountdown } from "./useCountdown";
 import { useElectionDay, type ElectionDayHook } from "./useElectionDay";
@@ -153,6 +154,14 @@ export function ElectionDayShell() {
       {electionDay.reauthDialog && (
         <AllocationPasswordDialog {...electionDay.reauthDialog} />
       )}
+
+      <OverdueReminderStack
+        contacts={electionDay.scopedContacts}
+        onSetReminder={(id, minutes) => void electionDay.setReminder(id, minutes)}
+        onSetReminderAt={(id, at) => void electionDay.setReminderAt(id, at.toISOString())}
+        onIncrementCallAttempts={(id) => void electionDay.incrementCallAttempts(id)}
+        incrementingCallAttempts={electionDay.incrementingCallAttempts}
+      />
     </AppShell>
   );
 }

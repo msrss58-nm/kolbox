@@ -423,8 +423,6 @@ export const ELECTION_DAY_TEXT = {
        * `formatReminderDisplay` output `activeLabel` uses. */
       setAt: (formatted: string) => `התזכורת נקבעה ${formatted}`,
       cancelled: "התזכורת בוטלה",
-      due: (name: string, coordinator: string) =>
-        `תזכורת: זמן ליצור קשר עם ${name} (${coordinator})`,
       /** Reminder Lifecycle v1 - fired by `onCloseReminder`'s success
        * handler in `useElectionDay.ts`. */
       closed: "התזכורת סומנה כטופלה",
@@ -451,6 +449,17 @@ export const ELECTION_DAY_TEXT = {
        * no real backing identity - see CLAUDE.md). Only rendered when
        * `actorName` is non-null; never shown as a fallback "unknown" line. */
       actorPrefix: (name: string) => `על ידי ${name}`,
+    },
+    /** Persistent Reminders: `OverdueReminderStack`'s left-side popup cards -
+     * replaces the old auto-dismissing toast (`toast.due`, removed). Stays
+     * on screen until the existing call action or a reschedule (via
+     * `postponeButton`, which reuses `ReminderMenu` as-is) removes it. */
+    popup: {
+      /** The compact collapsed bar's label - clicking it toggles the
+       * expanded list open/closed. */
+      barLabel: (n: number) => `יש לך ${n} תזכורות לטיפול`,
+      moreCount: (n: number) => `עוד ${n} תזכורות`,
+      postponeButton: "דחה",
     },
   },
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "../../components/ui/Toast";
 import { APP_CONFIG } from "../../constants/config";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
@@ -37,7 +37,6 @@ import {
   buildClosedRemindersToday,
   buildCallAttemptsWatchlist,
 } from "./followUpBreakdown";
-import { resolveReminderLifecycleState } from "./reminderLifecycle";
 import { buildRideStatusBreakdown } from "./rideStatusBreakdown";
 import { buildAttentionAlerts } from "./attentionAlerts";
 import { buildTurnoutPaceSeries } from "./turnoutPace";
@@ -1275,55 +1274,13 @@ export function useElectionDay() {
     "cancelRideCoordination",
   );
 
-  // Polls for freshly-DUE reminders and fires a one-time toast for each -
-  // only while this tab is open, no browser-notification permission
-  // involved. Reads the latest contacts via a ref so the interval itself
-  // never needs to be torn down/recreated when the list changes.
-  //
-  // FUTURE -> DUE is now a pure read-time computation
-  // (`resolveReminderLifecycleState`) - `reminderAt` is never written here,
-  // nothing is ever nulled. That means this effect can no longer rely on
-  // "the field went away" to avoid re-toasting every 15s forever, so it
-  // dedupes in-memory instead: `toastedRef` holds `${contact.id}:${reminderAt}`
-  // keys already toasted. A RESCHEDULED reminder (a new `reminderAt` value)
-  // gets a fresh key and can toast again once it later becomes due - the
-  // explicit product requirement. This set grows unboundedly over a very
-  // long session (never evicted) - an accepted, deliberately simple
-  // tradeoff for an internal tool, matching this same effect's existing
-  // `contactsRef` simplicity tradeoff; not worth over-engineering eviction
-  // logic for a single election-day shift.
-  const contactsRef = useRef(scopedContacts);
-  useEffect(() => {
-    contactsRef.current = scopedContacts;
-  }, [scopedContacts]);
-
-  const toastedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const checkReminders = () => {
-      // A role that can't see reminder status shouldn't have a toast
-      // revealing a voter's name/coordinator in the background - not a
-      // guardedAction denial (nothing was attempted, nothing is written),
-      // just a visibility gate on an automatic, fully read-only process.
-      if (!can("voter.viewReminderStatus")) return;
-      const now = new Date();
-      const due = (contactsRef.current ?? []).filter(
-        (c) => resolveReminderLifecycleState(c, now) === "due",
-      );
-      for (const c of due) {
-        const key = `${c.id}:${c.reminderAt}`;
-        if (toastedRef.current.has(key)) continue;
-        toastedRef.current.add(key);
-        toast.info(
-          ELECTION_DAY_TEXT.reminder.toast.due(
-            `${c.firstName} ${c.lastName}`,
-            c.coordinator,
-          ),
-        );
-      }
-    };
-    const id = setInterval(checkReminders, 15_000);
-    return () => clearInterval(id);
-  }, [can]);
+  // Persistent Reminders: the old "poll for freshly-DUE reminders and fire
+  // a one-time, 4s-auto-dismissing toast" effect that used to live here has
+  // been replaced by `OverdueReminderStack` (rendered in `ElectionDayShell`),
+  // which derives its list straight from `scopedContacts` via
+  // `resolveOverdueReminderPopups` on every render/tick - no separate
+  // in-memory "already notified" tracking, and nothing that can silently
+  // disappear on a timer or a reload.
 
   return {
     contacts: pagedContacts,
@@ -1332,6 +1289,12 @@ export function useElectionDay() {
     // deletion if ANY voter references it, not just the current page/filter
     // view) - `pagedContacts` above is deliberately narrower for the list.
     allContacts: contacts ?? [],
+    // Session-scoped (role/coordinator-filtered) contacts, unpaged/
+    // unfiltered by the Voters screen's own search/filters - used by
+    // `OverdueReminderStack` so its due-reminder derivation respects the
+    // exact same visibility rule as everything else (never the raw
+    // unscoped `contacts`).
+    scopedContacts: scopedContacts ?? [],
     total: contacts?.length ?? 0,
     filteredTotal,
     loaded: contacts !== null,
