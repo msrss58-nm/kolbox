@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { ChevronLeft, LayoutGrid, X } from "lucide-react";
-import { Button } from "../../components/ui/Button";
-import { Card, CardTitle } from "../../components/ui/Card";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { usePermissions } from "../../permissions/usePermissions";
 import { CoordinatorAllocationView } from "./CoordinatorAllocationView";
@@ -62,57 +60,49 @@ export function ElectionDayFilesPage() {
         )}
 
       {showImport && (
-        <Card className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle>{ELECTION_DAY_TEXT.import.button}</CardTitle>
+        <ElectionDayImportButton
+          onFileSelected={(file) => setPendingImportFile(file)}
+          busy={electionDay.importing}
+        />
+      )}
+
+      {showClearData && (
+        <button
+          type="button"
+          onClick={() => setConfirmClearOpen(true)}
+          disabled={!electionDay.total}
+          className="flex w-full items-center justify-between gap-3 rounded-2xl border-s-4 border-s-transparent bg-white p-5 text-start ring-1 ring-slate-200 transition hover:bg-slate-50 focus-visible:border-s-primary-500 focus-visible:outline-none active:border-s-primary-500 disabled:pointer-events-none disabled:opacity-50"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-slate-800">
+              🗑️ {ELECTION_DAY_TEXT.clearAll.button}
+            </p>
             <p className="mt-1 text-sm text-slate-500">
-              {ELECTION_DAY_TEXT.import.columnsHint}
+              {ELECTION_DAY_TEXT.clearAll.confirmMessage}
             </p>
           </div>
-          <ElectionDayImportButton
-            onFileSelected={(file) => setPendingImportFile(file)}
-            busy={electionDay.importing}
-          />
-        </Card>
+        </button>
       )}
 
       {showAllocationEntry && (
         <button
           type="button"
           onClick={() => setAllocationOpen(true)}
-          className="flex items-center gap-3 rounded-2xl bg-gradient-to-l from-primary-600 to-primary-500 p-5 text-start shadow-sm shadow-primary-600/30 transition hover:brightness-105 sm:flex-row sm:items-center"
+          className="flex items-center gap-3 rounded-2xl border-s-4 border-s-transparent bg-white p-5 text-start ring-1 ring-slate-200 transition hover:bg-slate-50 focus-visible:border-s-primary-500 focus-visible:outline-none active:border-s-primary-500 sm:flex-row sm:items-center"
         >
-          <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-white/15">
-            <LayoutGrid className="size-5 text-white" />
+          <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary-50">
+            <LayoutGrid className="size-5 text-primary-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="font-bold text-white">
+            <p className="font-bold text-slate-800">
               {ELECTION_DAY_TEXT.coordinatorAllocation.entryButton}
             </p>
-            <p className="truncate text-sm text-primary-50">
+            <p className="truncate text-sm text-slate-500">
               {ELECTION_DAY_TEXT.coordinatorAllocation.entryHint}
             </p>
           </div>
-          <ChevronLeft className="size-5 shrink-0 text-white/80" />
+          <ChevronLeft className="size-5 shrink-0 text-slate-400" />
         </button>
-      )}
-
-      {showClearData && (
-        <Card className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle>{ELECTION_DAY_TEXT.clearAll.button}</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">
-              {ELECTION_DAY_TEXT.clearAll.confirmMessage}
-            </p>
-          </div>
-          <Button
-            variant="danger"
-            disabled={!electionDay.total}
-            onClick={() => setConfirmClearOpen(true)}
-          >
-            🗑️ {ELECTION_DAY_TEXT.clearAll.button}
-          </Button>
-        </Card>
       )}
 
       <ConfirmDialog
