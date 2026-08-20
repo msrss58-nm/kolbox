@@ -782,6 +782,19 @@ export const ELECTION_DAY_TEXT = {
         unlinkSummary: (name: string) => `ביטול קישור האחראי "${name}" לרשומת האקסל`,
         confirmButton: "אישור",
       },
+      /** Coordinator Allocation auto-preload (revised, 2026-08-20): names
+       * already present in the raw `voter.coordinator` column but not yet a
+       * persisted `election_day_coordinators` row - shown read-only, never
+       * persisted just by viewing them (see `resolveMissingCoordinatorNames`'s
+       * own comment). Each carries its own explicit, single-item "add" button
+       * - clicking it runs the exact same `onManage([{action:"add",...}])`
+       * flow as typing the name manually, just without retyping it. */
+      detected: {
+        sectionLabel: "אחראים שזוהו בנתוני הבוחרים",
+        hint: "השמות הבאים כבר מופיעים בעמודת ה'אחראי' של הבוחרים אך טרם נוספו לרשימת האחראים.",
+        addButton: "הוסף",
+        addAriaLabel: (name: string) => `הוסף את "${name}" כאחראי`,
+      },
     },
 
     method: {

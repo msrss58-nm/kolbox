@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, Link2, Pencil, Trash2, UserPlus, X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -6,11 +6,15 @@ import { Field, Input } from "../../components/ui/Field";
 import { toast } from "../../components/ui/Toast";
 import type { CoordinatorAction } from "../../services/api";
 import type { Coordinator, ElectionDayVoter } from "../../types";
-import { countVotersWithRawCoordinatorName } from "./coordinatorAllocationStats";
+import {
+  countVotersWithRawCoordinatorName,
+  resolveMissingCoordinatorNames,
+} from "./coordinatorAllocationStats";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { ReauthCopy } from "./useCoordinatorAllocation";
 
 const text = ELECTION_DAY_TEXT.coordinatorAllocation.roster;
+const detectedText = text.detected;
 
 /**
  * Coordinator Allocation Management (Phase 5): "today's coordinators" roster
@@ -64,6 +68,26 @@ export function CoordinatorRosterEditor({
   const [name, setName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+
+  // Read-only: distinct, non-empty `voter.coordinator` names not yet
+  // represented by any coordinator entity (any status) - see
+  // `resolveMissingCoordinatorNames`'s own comment. Computed fresh from
+  // already-fetched props on every render; opening/viewing this screen never
+  // writes anything on its own - a name only becomes a real
+  // `election_day_coordinators` row when its own "הוסף" button below is
+  // explicitly clicked, going through the exact same `onManage` call (same
+  // permission + reauth gate) as typing it into the field above by hand.
+  const missingCoordinatorNames = useMemo(
+    () => resolveMissingCoordinatorNames(coordinators, contacts),
+    [coordinators, contacts],
+  );
+
+  const handleAddDetectedClick = (detectedName: string) =>
+    onManage([{ action: "add", displayName: detectedName }], {
+      title: text.confirm.addTitle,
+      summary: text.confirm.addSummary(detectedName),
+      confirmLabel: text.confirm.confirmButton,
+    });
 
   const isDuplicateActiveName = (candidate: string, excludeId?: string) =>
     coordinators.some(
@@ -163,6 +187,38 @@ export function CoordinatorRosterEditor({
       <Button className="w-full" disabled={busy} onClick={() => void handleAddClick()}>
         ➕ {text.addButton}
       </Button>
+
+      {missingCoordinatorNames.length > 0 && (
+        <div className="space-y-2 rounded-xl bg-primary-50 p-3">
+          <div>
+            <p className="text-xs font-bold text-primary-800">
+              {detectedText.sectionLabel}
+            </p>
+            <p className="text-xs text-primary-700">{detectedText.hint}</p>
+          </div>
+          <ul className="space-y-1.5">
+            {missingCoordinatorNames.map((detectedName) => (
+              <li
+                key={detectedName}
+                className="flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-primary-100"
+              >
+                <span className="min-w-0 truncate font-semibold text-slate-700">
+                  {detectedName}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleAddDetectedClick(detectedName)}
+                  aria-label={detectedText.addAriaLabel(detectedName)}
+                  className="shrink-0 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {detectedText.addButton}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {coordinators.length === 0 ? (
         <EmptyState icon={UserPlus} title={text.empty} hint={text.emptyHint} dense />

@@ -104,3 +104,40 @@ export function countVotersWithRawCoordinatorName(
 ): number {
   return voters.filter((v) => v.coordinator === rawCoordinatorName).length;
 }
+
+/**
+ * Coordinator Allocation auto-preload (product decision, 2026-08-20):
+ * `voter.coordinator` - the free-text "אחראי" column set at Excel import
+ * time - is the authoritative, pre-existing source of who's already
+ * responsible for whom. Returns every distinct, non-empty, trimmed raw name
+ * not yet represented by any existing coordinator entity, in either its
+ * `displayName` or its `linkedAssignmentName`, across every status (not just
+ * `"active"` - a name already used by an ended coordinator is still "already
+ * represented", not a fresh candidate), in first-seen order.
+ *
+ * Deliberately does not touch `linkedAssignmentName` itself - the DB
+ * migration's "never auto-matched" comment is scoped to that column alone,
+ * for explicit-only Excel-assignment linking. A newly-seeded coordinator
+ * whose `displayName` equals the raw string already satisfies
+ * `isVoterOwnedByCoordinator`'s own `displayName` branch with no link
+ * needed, so this stays a plain "add", never an auto-link.
+ */
+export function resolveMissingCoordinatorNames(
+  coordinators: readonly Coordinator[],
+  voters: readonly ElectionDayVoter[],
+): string[] {
+  const existingNames = new Set<string>();
+  for (const c of coordinators) {
+    existingNames.add(c.displayName);
+    if (c.linkedAssignmentName !== null) existingNames.add(c.linkedAssignmentName);
+  }
+  const seen = new Set<string>();
+  const missing: string[] = [];
+  for (const voter of voters) {
+    const name = voter.coordinator.trim();
+    if (!name || existingNames.has(name) || seen.has(name)) continue;
+    seen.add(name);
+    missing.push(name);
+  }
+  return missing;
+}

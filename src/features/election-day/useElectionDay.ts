@@ -196,7 +196,7 @@ export function useElectionDay() {
   const [coordinatorFilter, setCoordinatorFilter] = useState<string[]>([]);
   const [cityFilter, setCityFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<RideStatusFilterValue[]>([]);
-  const [reasonFilter, setReasonFilter] = useState<string[]>([]);
+  const [reasonFilter, setReasonFilterRaw] = useState<string[]>([]);
   const [voteStatusFilter, setVoteStatusFilterRaw] = useState<VoteStatusFilterValue[]>([
     "notVoted",
   ]);
@@ -218,12 +218,43 @@ export function useElectionDay() {
     setVoteStatusFilterRaw(values);
     if (values.length === 1 && values[0] === "voted") setFollowUpFilter([]);
   }, []);
+  // `reasonFilter`'s own setter, wrapped for the same reason as
+  // `setVoteStatusFilter` above: a "closed" reason (`requiresFollowUp ===
+  // false`, e.g. "נפטר"/"עבר עיר") never resolves to `"remaining"`
+  // (`resolveFollowUpStatus`), so picking one while `followUpFilter` still
+  // sits at its untouched default `["remaining"]` silently intersects to
+  // zero results even though matching voters exist. Only clears the
+  // default - a `followUpFilter` the user already changed themselves is
+  // left alone, same restraint as the reasoning documented above.
+  const setReasonFilter = useCallback(
+    (values: string[]) => {
+      setReasonFilterRaw(values);
+      const hasClosedReason = values.some((id) => {
+        const reason = reasonsById.get(id);
+        return reason !== undefined && reason.requiresFollowUp === false;
+      });
+      if (hasClosedReason) {
+        setFollowUpFilter((prev) =>
+          prev.length === 1 && prev[0] === "remaining" ? [] : prev,
+        );
+      }
+    },
+    [reasonsById],
+  );
+  // `voteStatusFilter`/`followUpFilter` are non-empty by default (see above),
+  // so a plain `.length > 0` check would always read as "active" even at
+  // rest - compared against their own default instead, matching the
+  // wrapped-setter checks above, so the empty-state message ("no matches for
+  // your filters" vs. "no voters at all") is correct once a user changes
+  // either away from its default.
   const hasActiveFilters =
     debouncedSearch.trim() !== "" ||
     coordinatorFilter.length > 0 ||
     cityFilter.length > 0 ||
     statusFilter.length > 0 ||
-    reasonFilter.length > 0;
+    reasonFilter.length > 0 ||
+    !(voteStatusFilter.length === 1 && voteStatusFilter[0] === "notVoted") ||
+    !(followUpFilter.length === 1 && followUpFilter[0] === "remaining");
 
   // A single atomic { key, dir } state - toggling both from one updater
   // avoids the unreliable pattern of calling setState from inside another
