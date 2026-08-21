@@ -910,6 +910,7 @@ export const ELECTION_DAY_TEXT = {
 
     rebalance: {
       title: "העברת הקצאות",
+      formHint: "ניתן להעביר חלק מהבוחרים בין אחראים פעילים, ללא סיום פעילות האחראי.",
       sourcesTitle: "ממי להעביר",
       destinationsTitle: "למי להעביר",
       quantityAriaLabel: "כמות",

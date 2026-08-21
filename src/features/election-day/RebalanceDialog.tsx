@@ -154,6 +154,7 @@ export function RebalanceDialog({
     <>
       <Modal open={step === "form"} onClose={handleClose} title={text.title} wide>
         <div className="space-y-5">
+          <p className="text-sm text-slate-500">{text.formHint}</p>
           <div>
             <h3 className="mb-2 text-sm font-bold text-slate-700">{text.sourcesTitle}</h3>
             <ul className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-100">
