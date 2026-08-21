@@ -521,6 +521,9 @@ export class MockApi implements ApiClient {
       callAttempts: 0,
       callAttemptsThreshold: 3,
       lastCallAttemptAt: null,
+      noAnswerStreak: 0,
+      noAnswerStreakThreshold: 3,
+      pendingCallId: null,
     }));
     saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     // A fresh import is a new ride-list for the day - last time's log no longer applies.
@@ -715,30 +718,131 @@ export class MockApi implements ApiClient {
     return [];
   }
 
+  /** Final 6/6 State-Safety Fix mirror: whether `contact`'s case is already
+   * closed (a non-voting reason with `requiresFollowUp: false`) - the same
+   * predicate `resolveFollowUpStatus`'s "closed" branch and the
+   * `election_day_*` RPCs' own `v_closed` check use, kept here as one
+   * shared helper rather than duplicated across the 3 methods below. Like
+   * `setNonVotingReason`'s own lookup above, `this.nonVotingReasons` is
+   * never actually populated in the running app (Election Day always
+   * delegates to `SupabaseElectionDayApi`) - present for behavioral parity
+   * only. */
+  private isCallCaseClosed(contact: ElectionDayVoter): boolean {
+    if (!contact.notVotingReasonId) return false;
+    const reason = this.nonVotingReasons.find((r) => r.id === contact.notVotingReasonId);
+    return reason?.requiresFollowUp === false;
+  }
+
+  /** Call Outcome Tracking mirror (see election_day_increment_call_attempts):
+   * unconditional - total dial count is never capped. Stamps a fresh
+   * `pendingCallId` every time; never touches `noAnswerStreak`. Final 6/6
+   * State-Safety Fix: no-op (no new `pendingCallId`) once the case is
+   * already closed - a new dial must never be possible against a closed
+   * voter. */
   async incrementCallAttempts(id: string): Promise<ElectionDayVoter> {
     await latency();
     const contact = this.electionDayVoters.find((v) => v.id === id);
     if (!contact) throw new Error("רשומה לא נמצאה");
-    // Server-side quota guard mirror (see election_day_increment_call_attempts):
-    // once the quota is reached, return the row unchanged rather than
-    // incrementing past callAttemptsThreshold.
-    if (contact.callAttempts < contact.callAttemptsThreshold) {
-      contact.callAttempts += 1;
-      contact.lastCallAttemptAt = new Date().toISOString();
+    if (this.isCallCaseClosed(contact)) return contact;
+    contact.callAttempts += 1;
+    contact.lastCallAttemptAt = new Date().toISOString();
+    contact.pendingCallId = crypto.randomUUID();
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
+  /** Call Outcome Tracking mirror (see election_day_record_no_answer): no-op
+   * unless `callId` matches the current `pendingCallId` (must follow a real,
+   * unresolved dial - also the idempotency guard). Final 6/6 State-Safety
+   * Fix: a closed case is never reopened (defense-in-depth alongside
+   * `incrementCallAttempts`'s own dial-blocking guard above), and once the
+   * streak has already reached its threshold, `pendingCallId` is still
+   * cleared even though the streak itself doesn't advance further -
+   * previously left stranded, which is the actual bug this fix closes. */
+  async recordNoAnswer(
+    id: string,
+    callId: string,
+    actorName: string,
+  ): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    if (this.isCallCaseClosed(contact)) {
+      if (contact.pendingCallId !== null) {
+        contact.pendingCallId = null;
+        saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+      }
+      return contact;
+    }
+    if (contact.pendingCallId !== callId) return contact;
+    if (contact.noAnswerStreak >= contact.noAnswerStreakThreshold) {
+      contact.pendingCallId = null;
+      saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+      return contact;
+    }
+    contact.noAnswerStreak += 1;
+    contact.pendingCallId = null;
+    // Due-Reminder Auto-Close mirror (see election_day_record_no_answer) -
+    // only a currently DUE reminder closes here, never a future one.
+    if (contact.reminderAt && new Date(contact.reminderAt).getTime() <= Date.now()) {
+      contact.reminderAt = null;
+      contact.reminderClosedAt = new Date().toISOString();
+      contact.reminderClosedReason = "no_answer";
+      contact.reminderClosedBy = actorName;
+    }
+    saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+    return contact;
+  }
+
+  /** Call Outcome Tracking mirror (see election_day_record_call_answered):
+   * unconditional streak reset once `callId` matches. Due-Reminder
+   * Auto-Close mirror: closes the reminder too, but only if it's currently
+   * DUE - a future reminder is left untouched either way. Final 6/6
+   * State-Safety Fix: a closed case is never implicitly reopened by an
+   * "answered" outcome - this method previously had no such guard at all. */
+  async recordCallAnswered(
+    id: string,
+    callId: string,
+    actorName: string,
+  ): Promise<ElectionDayVoter> {
+    await latency();
+    const contact = this.electionDayVoters.find((v) => v.id === id);
+    if (!contact) throw new Error("רשומה לא נמצאה");
+    if (this.isCallCaseClosed(contact)) {
+      if (contact.pendingCallId !== null) {
+        contact.pendingCallId = null;
+        saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
+      }
+      return contact;
+    }
+    if (contact.pendingCallId === callId) {
+      contact.noAnswerStreak = 0;
+      contact.noAnswerStreakThreshold = 3;
+      contact.pendingCallId = null;
+      if (contact.reminderAt && new Date(contact.reminderAt).getTime() <= Date.now()) {
+        contact.reminderAt = null;
+        contact.reminderClosedAt = new Date().toISOString();
+        contact.reminderClosedReason = "answered";
+        contact.reminderClosedBy = actorName;
+      }
       saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     }
     return contact;
   }
 
-  async extendCallAttemptsThreshold(id: string): Promise<ElectionDayVoter> {
+  /** Call Outcome Tracking mirror (see
+   * election_day_extend_no_answer_streak_threshold): only valid at the first
+   * checkpoint (streak = threshold = 3) - a duplicate/late request, or one
+   * past the 6 cap, returns the row unchanged. */
+  async extendNoAnswerStreakThreshold(id: string): Promise<ElectionDayVoter> {
     await latency();
     const contact = this.electionDayVoters.find((v) => v.id === id);
     if (!contact) throw new Error("רשומה לא נמצאה");
-    // Server-side quota guard mirror (see election_day_extend_call_attempts_threshold):
-    // extension is only valid while the quota has actually been reached -
-    // a duplicate/concurrent extend request returns the row unchanged.
-    if (contact.callAttempts === contact.callAttemptsThreshold) {
-      contact.callAttemptsThreshold += 3;
+    if (
+      contact.noAnswerStreak === contact.noAnswerStreakThreshold &&
+      contact.noAnswerStreakThreshold === 3
+    ) {
+      contact.noAnswerStreakThreshold += 3;
       saveJson(ELECTION_DAY_VOTERS_KEY, this.electionDayVoters);
     }
     return contact;

@@ -907,6 +907,26 @@ export function useElectionDay() {
     "setNonVotingReason",
   );
 
+  // Call Outcome Tracking: the 6/6-cap "close as לא עונה" action
+  // (`CallAttemptsDialog`'s `onCloseAsNoAnswer`, reached only after a real
+  // 6th confirmed no-answer) shares `setNonVotingReasonRaw`'s exact
+  // mutation/RPC/audit-trail with the voted-toggle-area reason dropdown
+  // above, but is a genuinely different action and must NOT share its
+  // `voter.markVoted` gate - it never touches `voted`/`voted_at`, and a
+  // call-handling role finishing an exhausted case must not need
+  // permission to mark anyone as voted. Gated on `voter.viewPhone` instead
+  // - the same permission that already gates dialing and recording every
+  // other call outcome (`incrementCallAttempts`/`recordNoAnswer`/
+  // `recordCallAnswered` below), so the whole call-handling flow reads
+  // through one consistent permission end to end. `setNonVotingReason`
+  // above is untouched and still requires `voter.markVoted` for its own
+  // (voted-context) call site.
+  const closeCallAsNoAnswer = guardedAction(
+    "voter.viewPhone",
+    setNonVotingReasonRaw,
+    "closeCallAsNoAnswer",
+  );
+
   const { run: runSetRideCompleted } = useAsyncAction(
     (id: string, completed: boolean) => api.setRideCompleted(id, completed),
     {
@@ -989,24 +1009,67 @@ export function useElectionDay() {
     "incrementCallAttempts",
   );
 
-  // "המשך ניסיונות (+3)" - advances the threshold (3 -> 6 -> 9…) from the
-  // auto-opened `CallAttemptsDialog`. Same permission gate as above - anyone
-  // who could trigger the dialog by dialing can always choose this option.
-  const { run: runExtendCallAttemptsThreshold } = useAsyncAction((id: string) =>
-    api.extendCallAttemptsThreshold(id),
+  // Call Outcome Tracking: "❌ לא ענה" - the explicit outcome for the most
+  // recent dial. `callId` is the contact's current `pendingCallId`; the RPC
+  // rejects (no-op) anything else, so this can never advance the streak
+  // without a real, unresolved dial behind it. Same `voter.viewPhone` gate
+  // as the call button itself - whoever can dial is exactly who can report
+  // the outcome.
+  const { run: runRecordNoAnswer, busy: recordingNoAnswer } = useAsyncAction(
+    (id: string, callId: string) => api.recordNoAnswer(id, callId, sessionUser?.name ?? ""),
   );
-  const extendCallAttemptsThresholdRaw = useCallback(
-    async (id: string) => {
-      const updated = await runExtendCallAttemptsThreshold(id);
+  const recordNoAnswerRaw = useCallback(
+    async (id: string, callId: string) => {
+      const updated = await runRecordNoAnswer(id, callId);
       if (updated) applyContactUpdate(updated);
       return updated;
     },
-    [runExtendCallAttemptsThreshold, applyContactUpdate],
+    [runRecordNoAnswer, applyContactUpdate],
   );
-  const extendCallAttemptsThreshold = guardedAction(
+  const recordNoAnswer = guardedAction(
     "voter.viewPhone",
-    extendCallAttemptsThresholdRaw,
-    "extendCallAttemptsThreshold",
+    recordNoAnswerRaw,
+    "recordNoAnswer",
+  );
+
+  // Call Outcome Tracking: "✅ ענה" - resets the no-answer streak
+  // unconditionally. Same `callId`/permission contract as `recordNoAnswer`.
+  const { run: runRecordCallAnswered, busy: recordingCallAnswered } = useAsyncAction(
+    (id: string, callId: string) => api.recordCallAnswered(id, callId, sessionUser?.name ?? ""),
+  );
+  const recordCallAnsweredRaw = useCallback(
+    async (id: string, callId: string) => {
+      const updated = await runRecordCallAnswered(id, callId);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runRecordCallAnswered, applyContactUpdate],
+  );
+  const recordCallAnswered = guardedAction(
+    "voter.viewPhone",
+    recordCallAnsweredRaw,
+    "recordCallAnswered",
+  );
+
+  // "המשך ניסיונות (+3)" - advances the no-answer streak's threshold (3 ->
+  // 6, once) from the auto-opened `CallAttemptsDialog`. Same permission gate
+  // as above - anyone who could trigger the dialog by reporting a no-answer
+  // can always choose this option.
+  const { run: runExtendNoAnswerStreakThreshold } = useAsyncAction((id: string) =>
+    api.extendNoAnswerStreakThreshold(id, sessionUser?.name ?? ""),
+  );
+  const extendNoAnswerStreakThresholdRaw = useCallback(
+    async (id: string) => {
+      const updated = await runExtendNoAnswerStreakThreshold(id);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runExtendNoAnswerStreakThreshold, applyContactUpdate],
+  );
+  const extendNoAnswerStreakThreshold = guardedAction(
+    "voter.viewPhone",
+    extendNoAnswerStreakThresholdRaw,
+    "extendNoAnswerStreakThreshold",
   );
 
   /** Marking "יש דרישה להסעה" is a lighter-weight signal than actually
@@ -1390,13 +1453,21 @@ export function useElectionDay() {
     listReminderEvents: (contactId: string) => api.listReminderEvents(contactId),
     setVoted,
     setNonVotingReason,
+    closeCallAsNoAnswer,
     setRideCompleted,
     setNotes,
     setPhone,
     settingPhone,
     incrementCallAttempts,
     incrementingCallAttempts,
-    extendCallAttemptsThreshold,
+    recordNoAnswer,
+    recordCallAnswered,
+    // Shared UI-level disable for both outcome buttons while either request
+    // is in flight - defense in depth alongside the RPCs' own server-side
+    // pending_call_id guard, which is the real source of truth against a
+    // double-submit.
+    recordingCallOutcome: recordingNoAnswer || recordingCallAnswered,
+    extendNoAnswerStreakThreshold,
     toggleRideRequested,
     cancelRideCoordination,
     rideCoordinators: rideCoordinators ?? [],

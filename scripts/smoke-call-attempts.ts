@@ -1,16 +1,17 @@
-/** Call Attempts Counter - smoke test. Run via: npx esbuild scripts/smoke-call-attempts.ts --bundle --format=cjs --outfile=scripts/smoke-call-attempts.cjs && node scripts/smoke-call-attempts.cjs
+/** Call Outcome Tracking - smoke test. Run via: npx esbuild scripts/smoke-call-attempts.ts --bundle --format=cjs --outfile=scripts/smoke-call-attempts.cjs && node scripts/smoke-call-attempts.cjs
  *
- * Covers the two things that live outside the DB/RPC round trip and are
- * therefore worth pinning here: the counter's text formatting/dialog copy
- * (`ELECTION_DAY_TEXT.callAttempts`), and the permission-gated
- * `canCloseAsNoAnswer` derivation (`showVotedToggle` in
- * `ElectionDayContactModal.tsx`, i.e. `can("voter.markVoted")`) across the 3
- * built-in roles - "operations" must NOT see "close as לא עונה" (it can call
- * but not mark voted/set a reason), "manager"/"voting" must see it.
- * `voter.viewPhone` (gates the call button + counter, and both new RPCs'
- * `guardedAction`) is asserted the same way via smoke-permission-logic.ts's
- * MUTATION_PERMISSIONS map (incrementCallAttempts/extendCallAttemptsThreshold)
- * - not duplicated here.
+ * Covers the things that live outside the DB/RPC round trip and are
+ * therefore worth pinning here: the streak's text formatting/dialog copy
+ * (`ELECTION_DAY_TEXT.callAttempts`, now parameterized by `isFinal` at the
+ * capped 6th checkpoint), and the permission-gated `canCloseAsNoAnswer`
+ * derivation (`ElectionDayContactModal.tsx`'s `showCall`, i.e.
+ * `can("voter.viewPhone")` - the 6/6 Final No-Answer Permission Boundary fix:
+ * finishing an exhausted call is call-handling, not voting, so it rides on
+ * the same permission as dialing/recording outcomes, not `voter.markVoted`)
+ * across the 3 built-in roles - "operations" (can call, cannot mark voted)
+ * MUST now see "close as לא עונה" too; only a role with no calling access at
+ * all wouldn't. `voter.markVoted` itself is asserted separately below to
+ * confirm this fix did NOT broaden it - "operations" must still be `false`.
  */
 import {
   computePermissions,
@@ -27,16 +28,28 @@ const assert = (cond: boolean, msg: string) => {
 
 const text = ELECTION_DAY_TEXT.callAttempts;
 
-// ---- counter formatting ----------------------------------------------------
+// ---- streak/threshold formatting (noAnswerStreak/noAnswerStreakThreshold, --
+// NOT the total dial count - see totalCount below for that) --------------
 assert(text.count(0, 3) === "0/3", 'count(0, 3) === "0/3" (initial state)');
 assert(text.count(1, 3) === "1/3", 'count(1, 3) === "1/3"');
 assert(text.count(3, 3) === "3/3", 'count(3, 3) === "3/3" (checkpoint - dialog opens)');
 assert(
   text.count(3, 6) === "3/6",
-  'count(3, 6) === "3/6" (threshold just extended by "continue", no new click yet - matches the product spec\'s worked example)',
+  'count(3, 6) === "3/6" (threshold just extended by "continue", no new click yet)',
 );
-assert(text.count(6, 6) === "6/6", 'count(6, 6) === "6/6" (second checkpoint)');
-assert(text.count(6, 9) === "6/9", 'count(6, 9) === "6/9" (second extension)');
+assert(text.count(6, 6) === "6/6", 'count(6, 6) === "6/6" (capped checkpoint - no further extend)');
+
+// ---- total dial count (callAttempts) is a SEPARATE, uncapped figure - -----
+// never conflated with the noAnswerStreak/threshold badge above.
+assert(
+  text.totalCount(0) === 'סה"כ חיוגים: 0',
+  'totalCount(0) - shown only while no outcome is pending',
+);
+assert(text.totalCount(11) === 'סה"כ חיוגים: 11', "totalCount(11) - uncapped, unlike the streak");
+
+// ---- outcome button labels --------------------------------------------
+assert(text.noAnswerButton === "לא ענה", 'noAnswerButton === "לא ענה"');
+assert(text.answeredButton === "ענה", 'answeredButton === "ענה"');
 
 // ---- the reason-name key this feature closes a voter with must match the --
 // real seeded catalog row's name exactly, or "close as לא עונה" would silently
@@ -46,35 +59,102 @@ assert(
   'noAnswerReasonName === "לא עונה" (must match the seeded election_day_not_voting_reasons row exactly)',
 );
 
-// ---- dialog copy is static/non-parameterized by the actual threshold ------
-// (every checkpoint represents exactly 3 NEW attempts since the last one,
-// so "שלושה"/"3" stays literally correct at 3/3, 6/6, 9/9, ...)
+// ---- dialog copy is parameterized by isFinal (the capped 6th checkpoint) --
+// the 3rd checkpoint still offers "keep trying (+3)"; the 6th (capped, no
+// further extension) does not, and its copy says so.
 assert(
-  text.dialogTitle === "בוצעו 3 ניסיונות חיוג",
-  "dialogTitle is the fixed, non-parameterized product-spec string",
+  text.dialogTitle(false) === "בוצעו 3 ניסיונות חיוג ללא מענה",
+  "dialogTitle(false) - the first (3rd-attempt) checkpoint",
 );
 assert(
-  text.dialogBody("רחל אברמוביץ").includes("רחל אברמוביץ") &&
-    text.dialogBody("רחל אברמוביץ").includes("שלושה") &&
-    text.dialogBody("דני כהן").includes("דני כהן") &&
-    !text.dialogBody("דני כהן").includes("רחל"),
-  "dialogBody interpolates the given voter name fresh each call, body text otherwise fixed",
+  text.dialogTitle(true) === "בוצעו 6 ניסיונות חיוג ללא מענה",
+  "dialogTitle(true) - the capped (6th-attempt) checkpoint",
+);
+assert(
+  text.dialogBody("רחל אברמוביץ", false).includes("רחל אברמוביץ") &&
+    text.dialogBody("רחל אברמוביץ", false).includes("שלושה") &&
+    text.dialogBody("דני כהן", false).includes("דני כהן") &&
+    !text.dialogBody("דני כהן", false).includes("רחל"),
+  "dialogBody(name, false) interpolates the given voter name fresh each call, body text otherwise fixed",
+);
+assert(
+  text.dialogBody("רחל אברמוביץ", true).includes("שישה") &&
+    text.dialogBody("רחל אברמוביץ", true).includes("לא ניתן להאריך"),
+  "dialogBody(name, true) says six attempts and that no further extension is offered",
+);
+assert(
+  text.dialogBodyNoPermission("רחל אברמוביץ").includes("רחל אברמוביץ"),
+  "dialogBodyNoPermission interpolates the voter name (the no-action-button fallback case)",
 );
 
-// ---- canCloseAsNoAnswer (== can("voter.markVoted")) across the 3 built-in --
-// roles - must match ElectionDayContactModal.tsx's `showVotedToggle`, which
-// is what CallAttemptsDialog's `canCloseAsNoAnswer` prop is wired to.
+// ---- canCloseAsNoAnswer (== can("voter.viewPhone")) across the 3 built-in --
+// roles - must match ElectionDayContactModal.tsx's `showCall`, which is what
+// CallAttemptsDialog's `canCloseAsNoAnswer` prop is now wired to (the 6/6
+// Final No-Answer Permission Boundary fix - previously wired to
+// `voter.markVoted`, which wrongly blocked "operations" from ever finishing
+// an exhausted call).
+function canCloseAsNoAnswer(sessionRoleId: string | null): boolean {
+  return computePermissions(sessionRoleId, "loaded", BUILT_IN_ROLE_SEED).can("voter.viewPhone");
+}
+
+assert(canCloseAsNoAnswer("seed-manager") === true, "manager: canCloseAsNoAnswer === true");
+assert(
+  canCloseAsNoAnswer("seed-user") === true,
+  'operations ("משתמש"): canCloseAsNoAnswer === true (can call -> can finish the call it produced, even without voter.markVoted)',
+);
+assert(
+  canCloseAsNoAnswer("seed-voting") === true,
+  'voting ("נציג קלפי"): canCloseAsNoAnswer === true',
+);
+assert(canCloseAsNoAnswer(null) === false, "no session: canCloseAsNoAnswer === false");
+
+// ---- voter.markVoted itself must be unaffected by the fix above - proves --
+// the fix decoupled the close action from this permission rather than
+// broadening the permission itself. "operations" still cannot mark voted.
 function canMarkVoted(sessionRoleId: string | null): boolean {
   return computePermissions(sessionRoleId, "loaded", BUILT_IN_ROLE_SEED).can("voter.markVoted");
 }
 
-assert(canMarkVoted("seed-manager") === true, 'manager: canCloseAsNoAnswer === true');
+assert(canMarkVoted("seed-manager") === true, "manager: voter.markVoted unchanged, still true");
 assert(
   canMarkVoted("seed-user") === false,
-  'operations ("משתמש"): canCloseAsNoAnswer === false (can call, cannot mark voted/set a reason - dialog must hide the button, "continue" stays the only option)',
+  'operations ("משתמש"): voter.markVoted still false - NOT broadened by this fix',
 );
-assert(canMarkVoted("seed-voting") === true, 'voting ("נציג קלפי"): canCloseAsNoAnswer === true');
-assert(canMarkVoted(null) === false, "no session: canCloseAsNoAnswer === false");
+assert(canMarkVoted("seed-voting") === true, "voting: voter.markVoted unchanged, still true");
+
+// ---- CallAttemptsDialog's action-availability derivation (isFinal/noEscape) -
+// mirrored here in pure logic (no React render) - see that component's own
+// doc comment for the full reasoning. `noEscape` (capped checkpoint + no
+// close access) is now structurally unreachable for all 3 built-in roles
+// (every one of them has `voter.viewPhone`, so `hasCloseAccess` is always
+// true whenever this dialog can even be triggered) - still exercised here
+// as a pure-logic edge case, not tied to any real role, since the component
+// keeps it as a defensive fallback rather than assuming it can never happen.
+function deriveDialogState(noAnswerStreakThreshold: number, hasCloseAccess: boolean) {
+  const canExtend = noAnswerStreakThreshold === 3;
+  const isFinal = !canExtend;
+  const noEscape = isFinal && !hasCloseAccess;
+  return { canExtend, isFinal, noEscape };
+}
+
+assert(
+  deriveDialogState(3, true).canExtend === true && deriveDialogState(3, true).noEscape === false,
+  "3rd checkpoint, has close access: extend offered, no dead-end",
+);
+assert(
+  deriveDialogState(3, false).canExtend === true &&
+    deriveDialogState(3, false).noEscape === false,
+  '3rd checkpoint, no close access: extend still offered even without "close" - no dead-end',
+);
+assert(
+  deriveDialogState(6, true).canExtend === false && deriveDialogState(6, true).noEscape === false,
+  "6th (capped) checkpoint, has close access (every built-in role, post-fix): no extend offered, but close as לא ענה is available",
+);
+assert(
+  deriveDialogState(6, false).canExtend === false &&
+    deriveDialogState(6, false).noEscape === true,
+  "6th (capped) checkpoint, no close access (defensive edge case, not a real built-in role today): no extend, no close -> falls back to the dismissible no-permission message",
+);
 
 if (process.exitCode) {
   console.error("\nsmoke-call-attempts: FAILED");

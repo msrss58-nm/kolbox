@@ -14,9 +14,11 @@ import type { ElectionDayVoter } from "../../types";
  *   time-derived** - DUE is never written to the database and never requires
  *   a background write when the clock ticks past `reminderAt`; it's just
  *   `reminderAt <= now`, recomputed on every read.
- * - `"closed"` - the reminder was explicitly closed (`reminderClosedReason`
- *   is `"handled"`, `"voted"`, or `"case_closed"`) and no new reminder has
- *   been set since. Only ever set by the close RPC - never inferred.
+ * - `"closed"` - the reminder was closed (`reminderClosedReason` is
+ *   `"handled"`, `"voted"`, `"case_closed"`, `"no_answer"`, or `"answered"`)
+ *   and no new reminder has been set since. Only ever set by the closing
+ *   RPC (manual close, voted, non-voting reason, or Due-Reminder
+ *   Auto-Close) - never inferred.
  * - `"cancelled"` - the reminder was explicitly cancelled
  *   (`reminderClosedReason === "cancelled"`) and no new reminder has been
  *   set since. Only ever set by the cancel RPC - never inferred.

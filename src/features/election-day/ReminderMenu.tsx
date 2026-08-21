@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button } from "../../components/ui/Button";
+import { Button, type ButtonProps } from "../../components/ui/Button";
 import { DateTimePicker } from "../../components/ui/DateTimePicker";
 import { COMMON_TEXT } from "../../constants/common-text";
 import { REMINDER_MINUTES_OPTIONS, ELECTION_DAY_TEXT } from "./election-day.constants";
@@ -24,6 +24,8 @@ export function ReminderMenu({
   onSelect,
   onSelectCustom,
   label = ELECTION_DAY_TEXT.reminder.button,
+  triggerVariant = "primary",
+  triggerClassName = "w-full bg-[#f59f00] text-white hover:bg-[#e08e00] active:bg-[#c97e00]",
 }: {
   /** The contact's current reminder timestamp (or `null`) - only used to
    * default the custom picker to the existing reminder when one is already
@@ -33,11 +35,28 @@ export function ReminderMenu({
   onSelectCustom: (at: Date) => void;
   /** Reminder Lifecycle v1: the trigger button's label - defaults to the
    * plain "תזכורת" (fresh reminder), but `ElectionDayContactModal` passes
-   * `reminder.rescheduleButton` ("קבע תזכורת חדשה") instead once a reminder
+   * `reminder.rescheduleButton` ("שנה מועד") instead once a reminder
    * is already outstanding (future/due), since this same menu is reused for
    * both "set" and "reschedule". Purely a label override - the menu's own
    * options/wiring are unchanged either way. */
   label?: string;
+  /** Trigger button's `Button` variant - defaults to `"primary"` (this
+   * component's original base, before `triggerClassName`'s amber override).
+   * Contact Card redesign: the modal passes `"secondary"` instead, since
+   * `חיוג מהיר` is now the only intentionally colorful action in that
+   * modal. Passed as a real `variant` (not just competing `className`
+   * utility classes) so there's no ambiguity over which of Button's own
+   * baked-in text/background classes wins the cascade - found live: an
+   * earlier className-only override left this button's text invisible
+   * (white-on-white) because `variant="primary"`'s own `text-white` still
+   * applied underneath a `text-slate-700` override that didn't reliably
+   * win. */
+  triggerVariant?: ButtonProps["variant"];
+  /** Trigger button additional styling - defaults to this component's
+   * original standalone amber look (paired with the default `"primary"`
+   * variant above). Contact Card redesign: the modal passes plain `"w-full"`
+   * alongside `triggerVariant="secondary"` instead. */
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
@@ -85,7 +104,8 @@ export function ReminderMenu({
     <div ref={rootRef} className="relative flex-1">
       <Button
         type="button"
-        className="w-full bg-[#f59f00] text-white hover:bg-[#e08e00] active:bg-[#c97e00]"
+        variant={triggerVariant}
+        className={triggerClassName}
         onClick={() => setOpen((o) => !o)}
       >
         ⏰ {label}

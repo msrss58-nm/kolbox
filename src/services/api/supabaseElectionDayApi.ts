@@ -98,6 +98,9 @@ type VoterRow = {
   call_attempts: number;
   call_attempts_threshold: number;
   last_call_attempt_at: string | null;
+  no_answer_streak: number;
+  no_answer_streak_threshold: number;
+  pending_call_id: string | null;
 };
 
 function toVoter(row: VoterRow): ElectionDayVoter {
@@ -136,6 +139,9 @@ function toVoter(row: VoterRow): ElectionDayVoter {
     callAttempts: row.call_attempts,
     callAttemptsThreshold: row.call_attempts_threshold,
     lastCallAttemptAt: row.last_call_attempt_at,
+    noAnswerStreak: row.no_answer_streak,
+    noAnswerStreakThreshold: row.no_answer_streak_threshold,
+    pendingCallId: row.pending_call_id,
   };
 }
 
@@ -709,10 +715,12 @@ export class SupabaseElectionDayApi {
     return data.map(toReminderEvent);
   }
 
-  /** These two go through a dedicated RPC (not the `updateVoter` REST-patch
-   * path every other single-field setter uses) because they need an atomic
-   * `column = column + 1`, which plain PostgREST PATCH can't express without
-   * a race-prone client-side read-modify-write. */
+  /** Fired on every call-button click - a dial alone. Goes through a
+   * dedicated RPC (not the `updateVoter` REST-patch path every other
+   * single-field setter uses) because it needs an atomic `column = column +
+   * 1` plus a fresh `pending_call_id` in one round trip, which plain
+   * PostgREST PATCH can't express without a race-prone client-side
+   * read-modify-write. */
   async incrementCallAttempts(id: string): Promise<ElectionDayVoter> {
     const data = unwrapArray<VoterRow[]>(
       await supabase.rpc("election_day_increment_call_attempts", { p_id: id }),
@@ -720,9 +728,52 @@ export class SupabaseElectionDayApi {
     return toVoter(data[0]);
   }
 
-  async extendCallAttemptsThreshold(id: string): Promise<ElectionDayVoter> {
+  /** Call Outcome Tracking: explicit "❌ לא ענה" - `callId` must be the
+   * voter's current `pendingCallId`, the RPC's idempotency/"must follow a
+   * real dial" guard. */
+  async recordNoAnswer(
+    id: string,
+    callId: string,
+    actorName: string,
+  ): Promise<ElectionDayVoter> {
     const data = unwrapArray<VoterRow[]>(
-      await supabase.rpc("election_day_extend_call_attempts_threshold", { p_id: id }),
+      await supabase.rpc("election_day_record_no_answer", {
+        p_id: id,
+        p_call_id: callId,
+        p_actor_name: actorName,
+      }),
+    );
+    return toVoter(data[0]);
+  }
+
+  /** Call Outcome Tracking: explicit "✅ ענה" - same `callId` contract as
+   * `recordNoAnswer`. */
+  async recordCallAnswered(
+    id: string,
+    callId: string,
+    actorName: string,
+  ): Promise<ElectionDayVoter> {
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_record_call_answered", {
+        p_id: id,
+        p_call_id: callId,
+        p_actor_name: actorName,
+      }),
+    );
+    return toVoter(data[0]);
+  }
+
+  /** Call Outcome Tracking: the "המשך ניסיונות (+3)" checkpoint-dialog
+   * choice - replaces the old `extendCallAttemptsThreshold`. */
+  async extendNoAnswerStreakThreshold(
+    id: string,
+    actorName: string,
+  ): Promise<ElectionDayVoter> {
+    const data = unwrapArray<VoterRow[]>(
+      await supabase.rpc("election_day_extend_no_answer_streak_threshold", {
+        p_id: id,
+        p_actor_name: actorName,
+      }),
     );
     return toVoter(data[0]);
   }

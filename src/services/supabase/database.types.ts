@@ -68,6 +68,9 @@ export interface Database {
           call_attempts: number;
           call_attempts_threshold: number;
           last_call_attempt_at: string | null;
+          no_answer_streak: number;
+          no_answer_streak_threshold: number;
+          pending_call_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -100,6 +103,9 @@ export interface Database {
           call_attempts?: number;
           call_attempts_threshold?: number;
           last_call_attempt_at?: string | null;
+          no_answer_streak?: number;
+          no_answer_streak_threshold?: number;
+          pending_call_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -690,6 +696,26 @@ export interface Database {
        * dialog. Returns the row unchanged (no error) once already extended. */
       election_day_extend_call_attempts_threshold: {
         Args: { p_id: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Call Outcome Tracking: confirms the most recent dial went
+       * unanswered - increments no_answer_streak and logs a no_answer event.
+       * No-op unless p_call_id matches the row's current pending_call_id. */
+      election_day_record_no_answer: {
+        Args: { p_id: string; p_call_id: string; p_actor_name: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Call Outcome Tracking: confirms the most recent dial was answered -
+       * unconditionally resets no_answer_streak/no_answer_streak_threshold
+       * to 0/3 and logs an answered event. No-op unless p_call_id matches. */
+      election_day_record_call_answered: {
+        Args: { p_id: string; p_call_id: string; p_actor_name: string };
+        Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
+      };
+      /** Call Outcome Tracking: the "keep trying (+3)" checkpoint-dialog
+       * choice - advances no_answer_streak_threshold 3 -> 6 exactly once. */
+      election_day_extend_no_answer_streak_threshold: {
+        Args: { p_id: string; p_actor_name: string };
         Returns: Database["public"]["Tables"]["election_day_voters"]["Row"][];
       };
       /** Reminder Lifecycle v1: creates or reschedules a reminder. Atomic - if

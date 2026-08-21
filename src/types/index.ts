@@ -123,18 +123,43 @@ export interface ElectionDayVoter {
   notVotingReasonId: string | null;
   notVotingReasonSetAt: string | null; // ISO timestamp
   notVotingReasonSetBy: string | null; // denormalized PermissionUser name, not a FK
-  callAttempts: number; // raw click count on the call button, monotonic, never reset
-  callAttemptsThreshold: number; // next call_attempts value that triggers the decision dialog, starts at 3, +3 per "keep trying" choice
-  lastCallAttemptAt: string | null; // ISO timestamp - server-side, written only on a successful increment, never conflated with other edits (unlike updated_at)
+  callAttempts: number; // total raw dial-button clicks, monotonic, never reset - NOT a no-answer count, see noAnswerStreak
+  callAttemptsThreshold: number; // Call Outcome Tracking: retired - the checkpoint concept moved to noAnswerStreakThreshold below. Column kept (unused) for DB compatibility only, never read by the app anymore.
+  lastCallAttemptAt: string | null; // ISO timestamp - server-side, written only on a dial (increment), never conflated with other edits (unlike updated_at)
+  /** Call Outcome Tracking: consecutive CONFIRMED no-answer outcomes since
+   * the last reset - drives the 3+3 checkpoint. Only advances via an
+   * explicit "לא ענה" outcome; a plain dial never touches it. Reset to 0 by
+   * an explicit "ענה" outcome, regardless of where the streak was. */
+  noAnswerStreak: number;
+  /** Next noAnswerStreak checkpoint - starts at 3, may extend to 6 exactly
+   * once, never past 6; resets to 3 alongside noAnswerStreak on an answered
+   * outcome. */
+  noAnswerStreakThreshold: number;
+  /** Set by the server to a fresh token on every dial; cleared once the
+   * dial's outcome (no_answer/answered) is recorded. Non-null is what gates
+   * the "לא ענה"/"ένα" outcome buttons in the UI - they must never be usable
+   * without a real, unresolved dial behind them - and doubles as the
+   * idempotency key the outcome RPCs match against. */
+  pendingCallId: string | null;
 }
 
-/** Reminder Lifecycle v1: why a reminder is no longer open. 'handled' is an
- * explicit manual close; 'voted' and 'case_closed' are closures automatically
- * triggered as a side effect of `setVoted(true)`/`setNonVotingReason` (see
- * `ElectionDayApi`); 'cancelled' is an explicit cancel (distinct from
- * 'handled' - both close the reminder, but mean different things to a
- * coordinator reviewing history). */
-export type ReminderClosedReason = "handled" | "voted" | "case_closed" | "cancelled";
+/** Reminder Lifecycle v1: why a reminder is no longer open. 'handled' is a
+ * legacy manual close (its UI trigger was removed by Call Outcome Tracking -
+ * no longer written by new closures, but still a valid historical value);
+ * 'voted' and 'case_closed' are closures automatically triggered as a side
+ * effect of `setVoted(true)`/`setNonVotingReason` (see `ElectionDayApi`);
+ * 'cancelled' is an explicit cancel. Due-Reminder Auto-Close: 'no_answer' and
+ * 'answered' are closures automatically triggered as a side effect of
+ * recording that outcome for a real dial made while the reminder was DUE -
+ * same literal names as the matching `ReminderEvent.eventType` call-outcome
+ * entries, deliberately distinct from 'handled'. */
+export type ReminderClosedReason =
+  | "handled"
+  | "voted"
+  | "case_closed"
+  | "cancelled"
+  | "no_answer"
+  | "answered";
 
 /** A single lifecycle event on an `ElectionDayVoter`'s reminder - powers the
  * audit/history view (mirrors `RideStatusEvent`'s role for ride-arranged
@@ -142,15 +167,33 @@ export type ReminderClosedReason = "handled" | "voted" | "case_closed" | "cancel
  * the contact is later removed by a re-import. Unlike `ElectionDayVoter`'s
  * own `reminderClosedAt`/`reminderClosedReason`/`reminderClosedBy` (which
  * only ever reflect the latest closure), this is the full history, including
- * 'created' and 'rescheduled' entries. */
+ * 'created' and 'rescheduled' entries.
+ *
+ * Call Outcome Tracking: also carries the 3 call-outcome event types
+ * ('no_answer'/'answered'/'streak_extended') - `reminderAt`/`reason` are
+ * always null for these, same as they already are for 'cancelled'.
+ *
+ * Due-Reminder Auto-Close: a 'closed' event's `reason` can now also be
+ * 'no_answer'/'answered' (alongside the pre-existing 'handled'/'voted'/
+ * 'case_closed') - a separate row from that same RPC call's own
+ * 'no_answer'/'answered' call-outcome event, so "what happened to the call"
+ * and "what happened to the reminder" stay two distinct, individually
+ * readable rows. */
 export interface ReminderEvent {
   id: string;
   contactId: string;
   contactName: string;
   coordinator: string;
-  eventType: "created" | "closed" | "cancelled" | "rescheduled";
+  eventType:
+    | "created"
+    | "closed"
+    | "cancelled"
+    | "rescheduled"
+    | "no_answer"
+    | "answered"
+    | "streak_extended";
   reminderAt: string | null;
-  reason: "handled" | "voted" | "case_closed" | null;
+  reason: "handled" | "voted" | "case_closed" | "no_answer" | "answered" | null;
   actorName: string | null;
   createdAt: string; // ISO timestamp
 }

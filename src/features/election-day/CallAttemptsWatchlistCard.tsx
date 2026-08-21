@@ -129,8 +129,8 @@ export function CallAttemptsWatchlistCard({
                       </span>
                       <span className="shrink-0 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold tabular-nums text-rose-700">
                         {callAttemptsText.count(
-                          row.callAttempts,
-                          row.callAttemptsThreshold,
+                          row.noAnswerStreak,
+                          row.noAnswerStreakThreshold,
                         )}
                       </span>
                     </button>

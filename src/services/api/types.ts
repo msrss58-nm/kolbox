@@ -299,8 +299,36 @@ export interface ApiClient {
    * Distinct from the latest-only `reminderClosedAt`/`reminderClosedReason`/
    * `reminderClosedBy` fields on `ElectionDayVoter` itself. */
   listReminderEvents(contactId: string): Promise<ReminderEvent[]>;
+  /** Fired on every call-button click - a dial alone. Bumps total
+   * `callAttempts`/`lastCallAttemptAt` and stamps a fresh `pendingCallId` on
+   * the returned voter; never touches `noAnswerStreak`. */
   incrementCallAttempts(id: string): Promise<ElectionDayVoter>;
-  extendCallAttemptsThreshold(id: string): Promise<ElectionDayVoter>;
+  /** Call Outcome Tracking: explicit "❌ לא ענה" outcome for the most recent
+   * dial. `callId` must be the voter's current `pendingCallId` (from the
+   * increment/previous outcome response) - a stale/mismatched/already-null
+   * id is a safe no-op server-side, both because "no real dial behind this"
+   * must never advance the streak, and as the idempotency guard against a
+   * retried/duplicated request. */
+  recordNoAnswer(
+    id: string,
+    callId: string,
+    actorName: string,
+  ): Promise<ElectionDayVoter>;
+  /** Call Outcome Tracking: explicit "✅ ענה" outcome - unconditionally
+   * resets `noAnswerStreak`/`noAnswerStreakThreshold` to 0/3, regardless of
+   * the answer's reason (callback/voting/ride/anything else); never touches
+   * `reminderAt` - use `setReminder`/`setReminderAt` afterward for a
+   * callback. Same `callId` contract as `recordNoAnswer`. */
+  recordCallAnswered(
+    id: string,
+    callId: string,
+    actorName: string,
+  ): Promise<ElectionDayVoter>;
+  /** Call Outcome Tracking: the "המשך ניסיונות (+3)" checkpoint-dialog choice
+   * - advances `noAnswerStreakThreshold` 3 -> 6 exactly once (server-guarded,
+   * a second call after it's already 6 is a no-op). Replaces the old
+   * `extendCallAttemptsThreshold`. */
+  extendNoAnswerStreakThreshold(id: string, actorName: string): Promise<ElectionDayVoter>;
   setElectionDayNotes(id: string, notes: string): Promise<ElectionDayVoter>;
   /** Updates only the `phone` field, by internal id - never sends or
    * overwrites the rest of the voter record. */

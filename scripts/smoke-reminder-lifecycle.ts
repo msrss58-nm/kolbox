@@ -60,6 +60,10 @@ function makeContact(overrides: Partial<ElectionDayVoter> = {}): ElectionDayVote
     notVotingReasonSetBy: null,
     callAttempts: 0,
     callAttemptsThreshold: 3,
+    lastCallAttemptAt: null,
+    noAnswerStreak: 0,
+    noAnswerStreakThreshold: 3,
+    pendingCallId: null,
     ...overrides,
   };
 }
@@ -334,28 +338,36 @@ const followUpContacts: ElectionDayVoter[] = [
   makeContact({ id: "f1", voted: true }),
   // f2: not voted, reason requiresFollowUp=false -> "closed", excluded
   makeContact({ id: "f2", voted: false, notVotingReasonId: REASON_CLOSED.id }),
-  // f3/f4: remaining, callAttempts >= threshold(2) -> callAttempts2Plus (exactly 2, and >2)
-  makeContact({ id: "f3", voted: false, callAttempts: 2 }),
-  makeContact({ id: "f4", voted: false, callAttempts: 5 }),
-  // f5: remaining, callAttempts < 2, reminder DUE -> reminderDue
-  makeContact({ id: "f5", voted: false, notVotingReasonId: REASON_OPEN.id, callAttempts: 0, reminderAt: FB_DUE_ISO }),
-  // f6: remaining, callAttempts < 2, reminder FUTURE -> reminderWaiting
-  makeContact({ id: "f6", voted: false, callAttempts: 1, reminderAt: FB_FUTURE_ISO }),
-  // f7: remaining, no reminder at all, callAttempts < 2 -> none of the 3 buckets
-  makeContact({ id: "f7", voted: false, callAttempts: 0 }),
+  // f3/f4: remaining, noAnswerStreak >= threshold(2) -> callAttempts2Plus
+  // (exactly 2, and >2) - Call Outcome Tracking: isCallAttempts2Plus reads
+  // noAnswerStreak, NOT callAttempts, so callAttempts is deliberately set
+  // HIGHER here to prove the total dial count is never what drives this.
+  makeContact({ id: "f3", voted: false, callAttempts: 9, noAnswerStreak: 2 }),
+  makeContact({ id: "f4", voted: false, callAttempts: 9, noAnswerStreak: 5 }),
+  // f5: remaining, noAnswerStreak < 2, reminder DUE -> reminderDue
+  makeContact({ id: "f5", voted: false, notVotingReasonId: REASON_OPEN.id, noAnswerStreak: 0, reminderAt: FB_DUE_ISO }),
+  // f6: remaining, noAnswerStreak < 2, reminder FUTURE -> reminderWaiting
+  makeContact({ id: "f6", voted: false, noAnswerStreak: 1, reminderAt: FB_FUTURE_ISO }),
+  // f7: remaining, no reminder at all, noAnswerStreak < 2 -> none of the 3 buckets
+  makeContact({ id: "f7", voted: false, noAnswerStreak: 0 }),
   // f8: remaining, reminder state "cancelled" -> not due/future -> no bucket
-  makeContact({ id: "f8", voted: false, callAttempts: 0, reminderClosedReason: "cancelled" }),
+  makeContact({ id: "f8", voted: false, noAnswerStreak: 0, reminderClosedReason: "cancelled" }),
   // f9: remaining, reminder state "closed" (handled) -> not due/future -> no bucket
-  makeContact({ id: "f9", voted: false, callAttempts: 0, reminderClosedReason: "handled" }),
-  // f10: remaining, callAttempts >= threshold AND reminder due -> priority
+  makeContact({ id: "f9", voted: false, noAnswerStreak: 0, reminderClosedReason: "handled" }),
+  // f10: remaining, noAnswerStreak >= threshold AND reminder due -> priority
   // check: callAttempts2Plus wins, must NOT also land in reminderDue.
   makeContact({
     id: "f10",
     voted: false,
     notVotingReasonId: REASON_OPEN.id,
-    callAttempts: 2,
+    noAnswerStreak: 2,
     reminderAt: FB_DUE_ISO,
   }),
+  // f11: a high total dial count but noAnswerStreak = 0 (answered on the last
+  // attempt) must NOT appear in callAttempts2Plus - the exact regression this
+  // feature exists to prevent (a voter who answered must never look "still
+  // unreachable" just because their total dial count is high).
+  makeContact({ id: "f11", voted: false, callAttempts: 8, noAnswerStreak: 0 }),
 ];
 
 const breakdown = buildFollowUpBreakdown(followUpContacts, REASONS_BY_ID, FB_NOW);

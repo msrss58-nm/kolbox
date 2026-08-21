@@ -410,8 +410,11 @@ export const ELECTION_DAY_TEXT = {
     closeButton: "סמן כטופל",
     /** Reminder Lifecycle v1: relabels the reschedule action once a
      * reminder is already outstanding (future or due) - wired to the same
-     * `ReminderMenu` as a fresh reminder, unchanged. */
-    rescheduleButton: "קבע תזכורת חדשה",
+     * `ReminderMenu` as a fresh reminder, unchanged. Deliberately NOT
+     * phrased as "set a new reminder" - at most one reminder is ever active
+     * per voter, so this changes the EXISTING one's time, never adds a
+     * second. */
+    rescheduleButton: "שנה מועד",
     options: {
       15: "15 דקות",
       30: "30 דקות",
@@ -437,11 +440,16 @@ export const ELECTION_DAY_TEXT = {
         closed: "תזכורת נסגרה",
         cancelled: "תזכורת בוטלה",
         rescheduled: "תזכורת נדחתה",
+        no_answer: "לא ענה",
+        answered: "ענה",
+        streak_extended: "הוארכו הניסיונות (+3)",
       },
       reasonLabel: {
         handled: "טופל ידנית",
         voted: "הבוחר הצביע",
         case_closed: "התיק נסגר",
+        no_answer: "נסגרה עקב ניסיון חיוג ללא מענה",
+        answered: "נסגרה עקב מענה בשיחה",
       },
       /** `name` is `ReminderEvent.actorName` - denormalized, audit-only
        * informational text, NOT a verified/authenticated identity (mirrors
@@ -455,11 +463,23 @@ export const ELECTION_DAY_TEXT = {
      * on screen until the existing call action or a reschedule (via
      * `postponeButton`, which reuses `ReminderMenu` as-is) removes it. */
     popup: {
-      /** The compact collapsed bar's label - clicking it toggles the
-       * expanded list open/closed. */
+      /** The compact collapsed bar's label (multi-reminder case only) -
+       * clicking it toggles the expanded list open/closed. */
       barLabel: (n: number) => `יש לך ${n} תזכורות לטיפול`,
       moreCount: (n: number) => `עוד ${n} תזכורות`,
-      postponeButton: "דחה",
+      /** Concise status label on each card/row - single-reminder card and
+       * every row in the expanded multi-reminder list. */
+      cardLabel: "תזכורת לטיפול",
+      /** The single-reminder card's explicit call-to-action (opens the full
+       * contact modal - same `onOpen` the card itself, and every row in the
+       * multi-reminder list, already responds to on click). */
+      openButton: "פתח בוחר",
+      /** The single-reminder card's due-time line - `time` is just the
+       * "HH:MM" portion (not the full `formatReminderDisplay` sentence,
+       * which this card doesn't reuse - it's always showing a reminder
+       * that's already due "now," so the generic "on <date> at <time>"
+       * phrasing that function is built for doesn't fit here). */
+      dueTimeLabel: (time: string) => `המועד הגיע ב־${time}`,
     },
   },
 
@@ -472,24 +492,49 @@ export const ELECTION_DAY_TEXT = {
     rideRequestActiveLabel: "יש דרישה להסעה",
     cancelCoordinationButton: "בטל תיאום",
     coordinatedLabel: "תואם",
+    /** Final 6/6 State-Safety Fix: replaces the call button/outcome buttons
+     * once `resolveFollowUpStatus(contact, reasonsById) === "closed"` (a
+     * non-voting reason with `requiresFollowUp: false`) - reopening is an
+     * explicit future action, never an accidental consequence of dialing,
+     * so no call affordance is offered here at all while closed. */
+    caseClosedLabel: "הבוחר נסגר כ״לא עונה״ - לא נדרש חיוג נוסף",
   },
 
-  /** Call Attempts Counter - a running "attempts/threshold" badge next to the
-   * call button; every click counts as an attempt. Hitting the threshold
-   * (3, then 6, 9…) auto-opens a non-dismissible decision dialog. */
+  /** Call Outcome Tracking - a "streak/threshold" badge shown once the
+   * no-answer streak's outcome buttons resolve back to nothing pending.
+   * Reaching the threshold (3, then capped at 6) auto-opens a non-dismissible
+   * decision dialog. */
   callAttempts: {
-    count: (attempts: number, threshold: number) => `${attempts}/${threshold}`,
+    /** noAnswerStreak/noAnswerStreakThreshold - NOT the total dial count. */
+    count: (streak: number, threshold: number) => `${streak}/${threshold}`,
+    /** Always-visible label near the call controls (unlike `totalCount`
+     * below, which only shows once no outcome is pending) - same "X/Y" shape
+     * as `count` above, just with the Hebrew label prefixed. */
+    streakLabel: (streak: number, threshold: number) => `ללא מענה: ${streak}/${threshold}`,
+    /** Total raw dial-button clicks (`callAttempts`), shown only while no
+     * outcome is pending - distinct from `count`/`streakLabel` above. */
+    totalCount: (totalDials: number) => `סה"כ חיוגים: ${totalDials}`,
+    noAnswerButton: "לא ענה",
+    answeredButton: "ענה",
     /** The pre-existing non-voting reason "close as לא עונה" resolves to -
      * matched by `name` against the loaded `nonVotingReasons` catalog, since
      * that catalog is data (no stable id constant to key off). */
     noAnswerReasonName: "לא עונה",
-    dialogTitle: "בוצעו 3 ניסיונות חיוג",
+    /** `isFinal` = the capped 6th checkpoint (no further extension offered)
+     * vs. the first, 3rd checkpoint (extend is still an option). */
+    dialogTitle: (isFinal: boolean) =>
+      isFinal ? "בוצעו 6 ניסיונות חיוג ללא מענה" : "בוצעו 3 ניסיונות חיוג ללא מענה",
     /** `voterName` is the full name (first + last), same as everywhere else
-     * in this modal. Each trigger represents exactly 3 NEW attempts since the
-     * last checkpoint, so "שלושה" is always literally correct - never
-     * parameterized by the actual threshold. */
-    dialogBody: (voterName: string) =>
-      `בוצעו שלושה ניסיונות חיוג לבוחר:\n${voterName}\nולא התקבל מענה.\n\nמה תרצה לעשות?`,
+     * in this modal. */
+    dialogBody: (voterName: string, isFinal: boolean) =>
+      isFinal
+        ? `בוצעו שישה ניסיונות חיוג לבוחר:\n${voterName}\nללא מענה, ולא ניתן להאריך יותר.\n\nהבוחר ייסגר כ"לא ענה".`
+        : `בוצעו שלושה ניסיונות חיוג לבוחר:\n${voterName}\nולא התקבל מענה.\n\nמה תרצה לעשות?`,
+    /** The one combination with no action button (see CallAttemptsDialog's
+     * own doc comment: capped checkpoint + a role without voter.markVoted) -
+     * an informational, dismissible message instead of a forced choice. */
+    dialogBodyNoPermission: (voterName: string) =>
+      `בוצעו שישה ניסיונות חיוג לבוחר:\n${voterName}\nללא מענה.\n\nנדרש משתמש עם הרשאת סימון הצבעה כדי לסגור אותו כ"לא ענה".`,
     closeAsNoAnswerButton: 'סגור את הבוחר כ"לא עונה"',
     continueButton: "המשך ניסיונות (+3)",
   },
@@ -507,6 +552,11 @@ export const ELECTION_DAY_TEXT = {
   },
 
   notes: {
+    /** Collapsed-state trigger label - the field itself opens only once
+     * requested; an already-saved note is still shown as read-only text
+     * beneath this trigger even while collapsed. */
+    addButton: "הוסף הערה",
+    /** The expanded editor's own heading, once open. */
     label: "הערות ועדכוני סטטוס",
     placeholder: "לדוגמה: הבטיח לצאת ב-18:00, לא עונה, צריך לברר לגבי המשפחה...",
     saving: "שומר...",

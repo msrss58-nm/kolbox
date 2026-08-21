@@ -131,11 +131,13 @@ export function ElectionDayShell() {
           void electionDay.setReminderAt(contact.id, at.toISOString())
         }
         onCancelReminder={(contact) => void electionDay.cancelReminder(contact.id)}
-        onCloseReminder={(contact) => void electionDay.closeReminder(contact.id)}
         onLoadReminderEvents={(contactId) => electionDay.listReminderEvents(contactId)}
         onToggleVoted={(contact, voted) => void electionDay.setVoted(contact.id, voted)}
         onSetNonVotingReason={(id, reasonId) =>
           void electionDay.setNonVotingReason(id, reasonId)
+        }
+        onCloseCallAsNoAnswer={(id, reasonId) =>
+          void electionDay.closeCallAsNoAnswer(id, reasonId)
         }
         nonVotingReasons={electionDay.nonVotingReasons}
         onSetNotes={(id, notes) => void electionDay.setNotes(id, notes)}
@@ -143,7 +145,10 @@ export function ElectionDayShell() {
         settingPhone={electionDay.settingPhone}
         onIncrementCallAttempts={electionDay.incrementCallAttempts}
         incrementingCallAttempts={electionDay.incrementingCallAttempts}
-        onExtendCallAttemptsThreshold={electionDay.extendCallAttemptsThreshold}
+        onRecordNoAnswer={electionDay.recordNoAnswer}
+        onRecordCallAnswered={electionDay.recordCallAnswered}
+        recordingCallOutcome={electionDay.recordingCallOutcome}
+        onExtendNoAnswerStreakThreshold={electionDay.extendNoAnswerStreakThreshold}
       />
 
       {/* Security Hardening (Reauth): the shared password-reauth prompt for
@@ -155,13 +160,7 @@ export function ElectionDayShell() {
         <AllocationPasswordDialog {...electionDay.reauthDialog} />
       )}
 
-      <OverdueReminderStack
-        contacts={electionDay.scopedContacts}
-        onSetReminder={(id, minutes) => void electionDay.setReminder(id, minutes)}
-        onSetReminderAt={(id, at) => void electionDay.setReminderAt(id, at.toISOString())}
-        onIncrementCallAttempts={(id) => void electionDay.incrementCallAttempts(id)}
-        incrementingCallAttempts={electionDay.incrementingCallAttempts}
-      />
+      <OverdueReminderStack contacts={electionDay.scopedContacts} onOpen={setOpenContactId} />
     </AppShell>
   );
 }

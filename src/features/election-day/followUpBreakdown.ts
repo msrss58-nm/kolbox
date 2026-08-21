@@ -14,18 +14,25 @@ export interface CallAttemptsWatchlistRow {
   firstName: string;
   lastName: string;
   coordinator: string;
-  callAttempts: number;
-  callAttemptsThreshold: number;
+  noAnswerStreak: number;
+  noAnswerStreakThreshold: number;
   lastCallAttemptAt: string | null;
 }
 
 /**
- * Single source of truth for "בוחר עם 2+ ניסיונות חיוג" - still on the
+ * Single source of truth for "בוחר עם 2+ ניסיונות ללא מענה" - still on the
  * coordinator worklist (`resolveFollowUpStatus === "remaining"`) and at or
- * past the configured call-attempts threshold. Both the `callAttempts2Plus`
- * KPI tally below and `buildCallAttemptsWatchlist`'s drill-down rows read
- * through this exact check, so a future threshold/definition change happens
- * in one place and the two can never disagree.
+ * past the configured no-answer-streak threshold. Both the
+ * `callAttempts2Plus` KPI tally below and `buildCallAttemptsWatchlist`'s
+ * drill-down rows read through this exact check, so a future
+ * threshold/definition change happens in one place and the two can never
+ * disagree.
+ *
+ * Call Outcome Tracking: reads `noAnswerStreak`, NOT the total `callAttempts`
+ * - a voter dialed 5 times who answered on the 5th has `noAnswerStreak = 0`
+ * and must NOT appear here, even though their raw dial count is high. Using
+ * `callAttempts` here would silently misrepresent "total effort" as "still
+ * unreachable."
  */
 export function isCallAttempts2Plus(
   contact: ElectionDayVoter,
@@ -33,7 +40,7 @@ export function isCallAttempts2Plus(
 ): boolean {
   return (
     resolveFollowUpStatus(contact, reasonsById) === "remaining" &&
-    contact.callAttempts >= APP_CONFIG.electionDayAttentionCallAttemptsThreshold
+    contact.noAnswerStreak >= APP_CONFIG.electionDayAttentionCallAttemptsThreshold
   );
 }
 
@@ -93,14 +100,14 @@ export function buildCallAttemptsWatchlist(
       firstName: c.firstName,
       lastName: c.lastName,
       coordinator: c.coordinator,
-      callAttempts: c.callAttempts,
-      callAttemptsThreshold: c.callAttemptsThreshold,
+      noAnswerStreak: c.noAnswerStreak,
+      noAnswerStreakThreshold: c.noAnswerStreakThreshold,
       lastCallAttemptAt: c.lastCallAttemptAt,
     });
   }
 
   return rows.sort((a, b) => {
-    if (b.callAttempts !== a.callAttempts) return b.callAttempts - a.callAttempts;
+    if (b.noAnswerStreak !== a.noAnswerStreak) return b.noAnswerStreak - a.noAnswerStreak;
     return (a.lastName + a.firstName).localeCompare(b.lastName + b.firstName, "he");
   });
 }
