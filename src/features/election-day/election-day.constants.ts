@@ -826,6 +826,7 @@ export const ELECTION_DAY_TEXT = {
       namePlaceholder: "שם האחראי",
       addButton: "הוספת אחראי",
       editAriaLabel: "עריכת שם האחראי",
+      removeButton: "הסר אחראי",
       removeAriaLabel: "הסרת אחראי",
       saveAriaLabel: "שמירת שם",
       cancelEditAriaLabel: "ביטול עריכה",

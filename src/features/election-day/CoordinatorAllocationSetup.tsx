@@ -172,6 +172,7 @@ export function CoordinatorAllocationSetup({
             busy={managingCoordinators}
             allowRename
             allowRemove
+            collapsibleAddForm
           />
           <div className="mt-5 flex flex-col items-end gap-1.5">
             {activeCoordinators.length === 0 && (

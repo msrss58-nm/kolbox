@@ -1,15 +1,15 @@
 import { useState } from "react";
-import { ArrowLeftRight, Flag, UserPlus, Users } from "lucide-react";
+import { Flag, UserPlus, Users } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Card, CardTitle } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { cn } from "../../lib/utils";
 import type {
   AllocationAssignment,
   CoordinatorAction,
   EndCoordinatorActivityMode,
 } from "../../services/api";
 import type { Coordinator, ElectionDayVoter } from "../../types";
+import { CoordinatorLiveRow } from "./CoordinatorLiveRow";
 import type { CoordinatorAllocationStats } from "./coordinatorAllocationStats";
 import { CoordinatorRosterEditor } from "./CoordinatorRosterEditor";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
@@ -23,14 +23,17 @@ const text = ELECTION_DAY_TEXT.coordinatorAllocation;
 /**
  * Coordinator Allocation Management (Phase 5): the day-of management view -
  * shown once allocation activity exists (see `CoordinatorAllocationPage.tsx`
- * for the exact phase-derivation rule). Stats + coordinator roster with
- * per-row rebalance/end actions, plus an always-available "add coordinator"
- * section that now also allows rename/remove (`allowRename allowRemove`,
- * 2026-08-21) - previously hidden here specifically because the server's old
- * guard was a global activity flag with no reliable per-coordinator signal
- * to gate the UI with; now that the guard is a real per-coordinator
- * predicate, `CoordinatorRosterEditor`'s own row-level eligibility check
- * applies correctly in this view too.
+ * for the exact phase-derivation rule). Stats + a main "אחראים" table whose
+ * rows carry every per-coordinator action together (`העבר הקצאות`/
+ * `סיום פעילות`/`הסר אחראי`, plus rename/phone/link management -
+ * `CoordinatorLiveRow.tsx`), and a separate, always-available "➕ הוסף אחראי"
+ * panel that does ONLY one thing: add a new coordinator (UX fix, 2026-08-22
+ * - `הסר אחראי` and the rest of existing-coordinator management used to live
+ * inside that add panel, which was conceptually wrong: adding a coordinator
+ * and managing an existing one are different actions). `allowRename
+ * allowRemove` (2026-08-21) reflect the server's real per-coordinator guard,
+ * not the old global activity flag that made hiding these conservatively
+ * necessary here.
  */
 export function CoordinatorAllocationLive({
   coordinators,
@@ -119,6 +122,8 @@ export function CoordinatorAllocationLive({
               busy={managingCoordinators}
               allowRename
               allowRemove
+              onCancelAdd={() => setShowRoster(false)}
+              showExistingCoordinators={false}
             />
           </div>
         )}
@@ -139,70 +144,19 @@ export function CoordinatorAllocationLive({
               <span>{text.live.columns.actions}</span>
             </div>
             <ul className="divide-y divide-slate-100">
-              {coordinators.map((c) => {
-                const stats = statByCoordinatorId.get(c.id);
-                const isActive = c.status === "active";
-                return (
-                  <li
-                    key={c.id}
-                    className="grid grid-cols-2 gap-2 py-3 md:grid-cols-[1fr_120px_120px_100px_auto] md:items-center"
-                  >
-                    <div className="col-span-2 min-w-0 md:col-span-1">
-                      <p className="truncate text-sm font-bold text-slate-800">
-                        {c.displayName}
-                      </p>
-                      {c.linkedAssignmentName !== null && (
-                        <p className="truncate text-xs text-slate-400">
-                          {text.roster.linkedBadge(c.linkedAssignmentName)}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-sm tabular-nums text-slate-600 md:block">
-                      <span className="text-xs text-slate-400 md:hidden">
-                        {text.live.columns.totalAssigned}:{" "}
-                      </span>
-                      {stats?.totalAssigned ?? 0}
-                    </div>
-                    <div className="text-sm font-bold tabular-nums text-primary-700 md:block">
-                      <span className="text-xs font-normal text-slate-400 md:hidden">
-                        {text.live.columns.remaining}:{" "}
-                      </span>
-                      {stats?.remainingCount ?? 0}
-                    </div>
-                    <div>
-                      <span
-                        className={cn(
-                          "inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold",
-                          isActive
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-slate-100 text-slate-500",
-                        )}
-                      >
-                        {isActive ? text.live.statusActive : text.live.statusEnded}
-                      </span>
-                    </div>
-                    {isActive && (
-                      <div className="col-span-2 flex flex-wrap gap-2 md:col-span-1 md:justify-end">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setRebalanceOpen(true)}
-                        >
-                          <ArrowLeftRight className="size-3.5" />
-                          {text.live.rebalanceButton}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setEndTarget(c)}
-                        >
-                          {text.live.endButton}
-                        </Button>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
+              {coordinators.map((c) => (
+                <CoordinatorLiveRow
+                  key={c.id}
+                  coordinator={c}
+                  contacts={contacts}
+                  allCoordinators={coordinators}
+                  onManage={manageCoordinators}
+                  busy={managingCoordinators}
+                  stats={statByCoordinatorId.get(c.id)}
+                  onRebalanceClick={() => setRebalanceOpen(true)}
+                  onEndClick={() => setEndTarget(c)}
+                />
+              ))}
             </ul>
           </>
         )}

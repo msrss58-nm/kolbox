@@ -170,6 +170,20 @@ Cross-cutting UI primitives like `components/ui/Pagination.tsx` (page-size selec
 
 Extract a pure function (e.g. `src/features/import/importMapping.ts`, `src/lib/activity.ts`) whenever logic doesn't need component state - pure functions are trivially testable and reusable.
 
+### Shared component/UX change checklist (mandatory)
+
+Added 2026-08-22 after a real incident: a UX fix to the coordinator add-form was manually verified only against the Live consumer of `CoordinatorRosterEditor`; the Setup wizard's separate consumer of the same component still had the old, unfixed behavior. This went unnoticed for several turns because local application state happened to stay in "Live" mode throughout - until an unrelated fixture cleanup changed the underlying data, flipped the app into "Setup" mode, and exposed the second, never-fixed code path. The mistake wasn't the fix itself - it was verifying one rendering context and treating that as proof for all of them.
+
+This rule is general - it applies to any shared component, hook, selector, or reusable behavior, in this codebase or any other, not just this one incident:
+
+1. **Before implementation**, find every consumer/usage of the thing you're changing (grep for the component/hook/function name across the codebase - don't rely on memory of "the one place I've been looking at").
+2. **Map every relevant route/state/mode each consumer renders under** - a component can look identical in source but behave differently per caller (different props, different feature-flags, different application phase/state machine branch).
+3. **Explicitly decide, for each consumer, whether the requested behavior should apply there too** - "same component" does not mean "same intended behavior." Say so out loud (in the plan or the summary) rather than assuming silently.
+4. **Verify/regression-test every affected consumer before declaring the work done** - not just the one you happened to be looking at when the bug was reported.
+5. **Do not infer that one successfully verified consumer proves the others are also correct.** A shared component with N consumers needs N verification passes (or one shared regression test that actually exercises all N), never just one.
+
+**Corollary - fixture/state cleanup can silently change which code path is live.** After deleting or resetting local test fixtures (or any action that changes real application data), check whether that action also changed: the application's derived phase/state (e.g. a setup-vs-live/empty-vs-populated state machine), which route or render branch is now active, or which of several UI modes is now showing. If it did, the newly-exposed state needs its own verification pass before the feature can be declared complete - a cleanup step is not "just cleanup" when it also changes what's on screen.
+
 ### Git commits
 
 Plain commits - author is the repo owner, no AI co-author trailer, no mention of AI tooling in messages, comments, or docs.
