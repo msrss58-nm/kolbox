@@ -92,6 +92,15 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* The whole app scrolls at the document level (the sticky sidebar's
+       positioning context - see AppShell.tsx - depends on this, there is no
+       inner overflow container). Without this, a page tall enough to need a
+       vertical scrollbar reserves less horizontal space for content than a
+       page that isn't, shifting the sidebar-max-w-[1400px] gap by the
+       scrollbar's width every time navigation crosses that threshold.
+       Reserving the gutter unconditionally keeps it constant across every
+       Election Day screen regardless of content height. */
+    scrollbar-gutter: stable;
   }
 
   body {

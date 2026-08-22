@@ -124,19 +124,25 @@ export interface NonVotingReasonUpdate extends NewNonVotingReason {
 /** Coordinator Allocation Management: one batch action for
  * `election_day_manage_coordinators`. Which fields are meaningful depends on
  * `action` (mirrors the RPC's own per-action shape - see the migration):
- * - `add`: `displayName` required.
- * - `edit`: `coordinatorId` + `displayName` required.
+ * - `add`: `displayName` required, `phone` optional.
+ * - `edit`: `coordinatorId` + `displayName` required. Never touches `phone`.
  * - `remove`: `coordinatorId` required.
  * - `link` / `relink`: `coordinatorId` + `linkedAssignmentName` required.
  * - `unlink`: `coordinatorId` required.
+ * - `update_phone`: `coordinatorId` required, `phone` optional (empty/absent
+ *   clears to `null`). Contact metadata only - deliberately carries none of
+ *   `edit`'s identity/participation/collision guards, so it stays available
+ *   even when rename/remove are blocked.
  * The API layer validates nothing client-side beyond shape - every real
  * business rule (activity locks, name-collision invariant, participation
- * locks) is enforced server-side and surfaces as a stable error code. */
+ * locks, phone format) is enforced server-side and surfaces as a stable
+ * error code. */
 export interface CoordinatorAction {
-  action: "add" | "edit" | "remove" | "link" | "relink" | "unlink";
+  action: "add" | "edit" | "remove" | "link" | "relink" | "unlink" | "update_phone";
   coordinatorId?: string;
   displayName?: string;
   linkedAssignmentName?: string;
+  phone?: string;
 }
 
 /** Coordinator Allocation Management: one `{coordinator, quantity}` pair -

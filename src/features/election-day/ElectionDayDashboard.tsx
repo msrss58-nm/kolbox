@@ -24,12 +24,14 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { CHART_TOOLTIP_STYLE_COMPACT } from "../../constants/chart";
 import { fmtVotedPct } from "../../lib/utils";
 import { PermissionGuard } from "../../permissions/PermissionGuard";
+import { usePermissions } from "../../permissions/usePermissions";
 import type { ElectionDayVoter } from "../../types";
 import { AttentionAlertsCard } from "./AttentionAlertsCard";
 import type { AttentionAlertRow } from "./attentionAlerts";
 import { CallAttemptsWatchlistCard } from "./CallAttemptsWatchlistCard";
 import type { ClosedReasonBreakdownRow } from "./closedReasonBreakdown";
 import { CoordinatorPerformanceTable } from "./CoordinatorPerformanceTable";
+import { CoordinatorReminderSupervisionCard } from "./CoordinatorReminderSupervisionCard";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayStatTile } from "./ElectionDayStatTile";
 import type { CallAttemptsWatchlistRow, FollowUpBreakdown } from "./followUpBreakdown";
@@ -152,6 +154,7 @@ export function ElectionDayDashboard({
   callAttemptsWatchlist,
   onOpenVoter,
   loaded,
+  scopedContacts,
 }: {
   stats: ElectionDayStats;
   coordinatorBreakdown: CoordinatorBreakdown[];
@@ -175,9 +178,20 @@ export function ElectionDayDashboard({
   callAttemptsWatchlist: CallAttemptsWatchlistRow[];
   onOpenVoter: (id: string) => void;
   loaded: boolean;
+  /** Session-scoped contacts (see `useElectionDay.ts`'s own field) - feeds
+   * `CoordinatorReminderSupervisionCard`, which for a manager
+   * (`role.scopeType === "all"`) is the full unfiltered set, same as every
+   * other manager-facing breakdown on this page. */
+  scopedContacts: readonly ElectionDayVoter[];
 }) {
   const followUpText = ELECTION_DAY_TEXT.dashboard.followUp;
   const rideStatusText = ELECTION_DAY_TEXT.dashboard.rideStatus;
+  // Manager Dashboard Reminders is manager-only - computed here (not left
+  // to CoordinatorReminderSupervisionCard's own internal check alone) so
+  // this row's grid can fall back to the original, unchanged 2-column
+  // layout for every other role instead of leaving an empty middle cell.
+  const { role } = usePermissions();
+  const isManager = role?.scopeType === "all";
 
   if (!loaded) {
     return (
@@ -317,11 +331,26 @@ export function ElectionDayDashboard({
         </div>
       </PermissionGuard>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <PermissionGuard permission="voter.viewCoordinator">
-          <CoordinatorPerformanceTable rows={coordinatorBreakdown} />
-        </PermissionGuard>
-        <TurnoutPaceCard pace={turnoutPace} loaded={loaded} />
+      {/* Coordinator performance | reminder supervision (manager-only) |
+          turnout pace. Non-managers get the original, unchanged 2-column
+          layout (no empty middle cell). For managers, `order-*` keeps the
+          product-required mobile stack order (reminders before performance)
+          while `md:order-*` rearranges to "performance first, reminders
+          beside it" once there's room. */}
+      <div className={`grid min-w-0 gap-4 ${isManager ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+        <div className={`min-w-0 ${isManager ? "order-2 md:order-1" : ""}`}>
+          <PermissionGuard permission="voter.viewCoordinator">
+            <CoordinatorPerformanceTable rows={coordinatorBreakdown} />
+          </PermissionGuard>
+        </div>
+        {isManager && (
+          <div className="order-1 min-w-0 md:order-2">
+            <CoordinatorReminderSupervisionCard contacts={scopedContacts} />
+          </div>
+        )}
+        <div className={`min-w-0 ${isManager ? "order-3" : ""}`}>
+          <TurnoutPaceCard pace={turnoutPace} loaded={loaded} />
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

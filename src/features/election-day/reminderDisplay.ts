@@ -23,3 +23,28 @@ export function formatReminderDisplay(
   });
   return `ב-${date} בשעה ${time}`;
 }
+
+/** Formats how long a DUE reminder has been waiting, in natural Hebrew -
+ * "12 דקות" / "שעה ו־20 דקות" / "3 שעות". Deliberately never uses the word
+ * "מאחר" (Manager Dashboard Reminders' own product requirement - this
+ * describes elapsed wait time, not lateness/blame). Pure function, `now`
+ * passed explicitly (same convention as `formatReminderDisplay`) so a
+ * ticking caller controls its own re-render cadence. */
+export function formatWaitingDuration(
+  reminderAt: string,
+  now: Date = new Date(),
+): string {
+  const totalMinutes = Math.max(
+    0,
+    Math.floor((now.getTime() - new Date(reminderAt).getTime()) / 60_000),
+  );
+  if (totalMinutes < 1) return "פחות מדקה";
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const minutesPart = minutes === 1 ? "דקה" : `${minutes} דקות`;
+
+  if (hours === 0) return minutesPart;
+  const hoursPart = hours === 1 ? "שעה" : `${hours} שעות`;
+  return minutes === 0 ? hoursPart : `${hoursPart} ו־${minutesPart}`;
+}

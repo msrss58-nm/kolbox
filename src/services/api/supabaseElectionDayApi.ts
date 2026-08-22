@@ -214,6 +214,7 @@ type CoordinatorRow = {
   linked_assignment_name: string | null;
   created_at: string;
   ended_at: string | null;
+  phone: string | null;
 };
 
 /** `status` is a plain `text` column in the DB (`check (status in ('active',
@@ -231,6 +232,7 @@ function toCoordinator(row: CoordinatorRow): Coordinator {
     linkedAssignmentName: row.linked_assignment_name,
     createdAt: row.created_at,
     endedAt: row.ended_at,
+    phone: row.phone,
   };
 }
 

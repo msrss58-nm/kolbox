@@ -32,6 +32,7 @@ export function ElectionDayDashboardPage() {
         callAttemptsWatchlist={electionDay.callAttemptsWatchlist}
         onOpenVoter={electionDay.openContact}
         loaded={electionDay.loaded}
+        scopedContacts={electionDay.scopedContacts}
       />
 
       <NonVotingReasonDrillDownModal

@@ -81,4 +81,10 @@ export const APP_CONFIG = {
   /** `OverdueReminderStack` shows at most this many popup cards at once;
    * the rest collapse into a single "עוד N תזכורות" summary line. */
   electionDayReminderPopupVisibleCount: 5,
+
+  /** `CoordinatorReminderSupervisionCard` (manager Dashboard "תזכורות
+   * לטיפול") shows at most this many coordinator rows before collapsing
+   * the rest behind "הצג את כל האחראים (N)" - keeps the card usable at
+   * 50+ coordinators without becoming a full-page list. */
+  electionDayReminderSupervisionVisibleCount: 6,
 } as const;

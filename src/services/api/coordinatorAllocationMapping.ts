@@ -41,13 +41,19 @@ export function mapCoordinatorAllocationRpcErrorMessage(message: string): string
     return "הרכז לא נמצא - ייתכן שנמחק על ידי משתמש אחר";
   }
   if (message.includes("DISPLAY_NAME_LOCKED")) {
-    return "לא ניתן לשנות את שם הרכז לאחר שהחלה פעילות הקצאות";
+    return "לא ניתן לשנות את שם הרכז - יש לו בוחרים משויכים כרגע או שהוא כבר השתתף בפעילות הקצאות בעבר";
   }
   if (message.includes("ASSIGNMENT_ALREADY_LINKED")) {
     return "המחרוזת המקושרת כבר משויכת לרכז אחר";
   }
+  if (message.includes("COORDINATOR_HAS_ASSIGNED_VOTERS")) {
+    return "לא ניתן להסיר רכז שיש לו בוחרים משויכים כרגע - יש להעביר את ההקצאות תחילה (העבר הקצאות)";
+  }
+  if (message.includes("COORDINATOR_HAS_LOGIN_ACCOUNT")) {
+    return "לא ניתן להסיר רכז זה - קיים חשבון התחברות התלוי בשם זהות זה, יש לטפל בשיוך המשתמש תחילה";
+  }
   if (message.includes("COORDINATOR_LOCKED")) {
-    return "לא ניתן לבצע פעולה זו על רכז שכבר השתתף בפעילות הקצאות";
+    return "לא ניתן לבצע פעולה זו על רכז שכבר השתתף בפעילות הקצאות - ניתן להשתמש ב'סיום פעילות' עבור רכז זה";
   }
   if (message.includes("COORDINATOR_NAME_COLLISION")) {
     return "השם מתנגש עם רכז אחר קיים";
@@ -57,6 +63,9 @@ export function mapCoordinatorAllocationRpcErrorMessage(message: string): string
   }
   if (message.includes("INVALID_ACTION")) {
     return "פעולה לא מוכרת";
+  }
+  if (message.includes("INVALID_COORDINATOR_PHONE")) {
+    return "מספר טלפון לא תקין";
   }
   if (message.includes("INVALID_ASSIGNMENT_SHAPE")) {
     return "נתוני ההקצאה אינם תקינים";
@@ -123,12 +132,14 @@ export function toCoordinatorActionPayload(a: CoordinatorAction): {
   coordinator_id: string | null;
   display_name: string | null;
   linked_assignment_name: string | null;
+  phone: string | null;
 } {
   return {
     action: a.action,
     coordinator_id: a.coordinatorId ?? null,
     display_name: a.displayName ?? null,
     linked_assignment_name: a.linkedAssignmentName ?? null,
+    phone: a.phone ?? null,
   };
 }
 

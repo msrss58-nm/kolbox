@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Check, Link2, Pencil, Trash2, UserPlus, X } from "lucide-react";
+import { Check, Link2, Pencil, Phone, Trash2, UserPlus, X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Input } from "../../components/ui/Field";
 import { toast } from "../../components/ui/Toast";
+import { isValidIsraeliPhone, normalizeIsraeliPhone } from "../../lib/phone";
 import type { CoordinatorAction } from "../../services/api";
 import type { Coordinator, ElectionDayVoter } from "../../types";
 import {
@@ -21,17 +22,37 @@ const detectedText = text.detected;
  * - add/rename/remove + the explicit Excel-assignment link/relink/unlink
  * flow (`countVotersWithRawCoordinatorName`, exact-match-only, never
  * fuzzy/automatic - see that function's own comment). Used both as Setup
- * Step 1 (`allowRename`/`allowRemove` both true - nothing has touched the
- * server yet) and as the always-available "הוסף אחראי" section in the live
- * management view (`allowRename={false} allowRemove={false}` there - once
- * allocation activity exists server-side, only `add` is guaranteed to stay
- * allowed; rename/remove are conservatively hidden rather than attempting to
- * reproduce the server's exact activity predicate client-side). Link/unlink/
- * relink stay visible in both call sites - that lock is per-coordinator
- * (`COORDINATOR_LOCKED`), not a global activity flag, and Phase 5 has no
- * reliable per-coordinator participation signal to hide them with, so a
- * locked attempt surfaces through the real error mapper instead of being
- * silently guessed away.
+ * Step 1 and as the always-available "הוסף אחראי" section in the live
+ * management view - both call sites now pass `allowRename allowRemove`
+ * (true), since the server's `edit`/`remove` guard (2026-08-21) is a real
+ * per-coordinator predicate (participation history + currently-assigned
+ * voters), not the old global activity flag that made hiding these
+ * conservatively necessary in the live view.
+ *
+ * Per-row eligibility (`isEligibleForEditOrRemove`, below): a certain,
+ * client-computable proxy for "no voter currently assigned" via
+ * `countVotersWithRawCoordinatorName(contacts, c.displayName)` PLUS the same
+ * check against `c.linkedAssignmentName` when set - the exact same two-name
+ * free-text match `election_day_end_coordinator_activity_v2` has always used
+ * (`v_source_names`) and the final identity-invariant RPC (2026-08-21) now
+ * also uses for its own `edit`/`remove` voter check - so a row with any
+ * voter matching EITHER identity name is disabled with an inline reason
+ * (`assignedVotersReason`), zero RPC round trip. Two OTHER conditions the
+ * same RPC also enforces have no cheap client-side signal: real
+ * participation/history, and a `election_day_permission_users.name` sharing
+ * either identity name (the app's `assigned_to_me` login scoping matches
+ * purely by that same free-text string, with zero relationship to this
+ * table - see `electionDayScope.ts`). Fetching either signal just to render
+ * row state would mean a new per-coordinator RPC call or a whole extra
+ * permission-users fetch in this component tree, for a rare edge case - so
+ * both stay client-blind by design, and a blocked attempt on either surfaces
+ * through the normal error-toast mapper
+ * (`DISPLAY_NAME_LOCKED`/`COORDINATOR_LOCKED`/`COORDINATOR_HAS_LOGIN_ACCOUNT`)
+ * instead - exactly the "frontend pre-checks are UX only, RPC remains
+ * authoritative" contract this feature
+ * was built to respect. Link/unlink/relink stay visible in both call sites,
+ * unchanged - that lock is per-coordinator (`COORDINATOR_LOCKED`) and always
+ * has been, nothing about this change alters those three actions.
  *
  * Security Hardening (Reauth), Phase 2: every action here is a single
  * explicit user click -> one `onManage([action], copy)` call, which runs
@@ -66,8 +87,12 @@ export function CoordinatorRosterEditor({
   allowRemove: boolean;
 }) {
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editingPhoneId, setEditingPhoneId] = useState<string | null>(null);
+  const [editingPhoneValue, setEditingPhoneValue] = useState("");
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   // Read-only: distinct, non-empty `voter.coordinator` names not yet
   // represented by any coordinator entity (any status) - see
@@ -104,12 +129,62 @@ export function CoordinatorRosterEditor({
       toast.error(text.duplicateActiveName);
       return;
     }
-    const result = await onManage([{ action: "add", displayName: trimmed }], {
-      title: text.confirm.addTitle,
-      summary: text.confirm.addSummary(trimmed),
-      confirmLabel: text.confirm.confirmButton,
-    });
-    if (result !== undefined) setName("");
+    let normalizedPhone: string | undefined;
+    if (phone.trim()) {
+      normalizedPhone = normalizeIsraeliPhone(phone);
+      if (!isValidIsraeliPhone(normalizedPhone)) {
+        toast.error(text.invalidPhone);
+        return;
+      }
+    }
+    const result = await onManage(
+      [{ action: "add", displayName: trimmed, phone: normalizedPhone }],
+      {
+        title: text.confirm.addTitle,
+        summary: text.confirm.addSummary(trimmed),
+        confirmLabel: text.confirm.confirmButton,
+      },
+    );
+    if (result !== undefined) {
+      setName("");
+      setPhone("");
+    }
+  };
+
+  const startPhoneEdit = (c: Coordinator) => {
+    setEditingPhoneId(c.id);
+    setEditingPhoneValue(c.phone ?? "");
+    setPhoneError(null);
+  };
+  const cancelPhoneEdit = () => {
+    setEditingPhoneId(null);
+    setEditingPhoneValue("");
+    setPhoneError(null);
+  };
+  const confirmPhoneEditClick = async (c: Coordinator) => {
+    const trimmed = editingPhoneValue.trim();
+    let normalizedPhone: string | undefined;
+    if (trimmed) {
+      normalizedPhone = normalizeIsraeliPhone(trimmed);
+      if (!isValidIsraeliPhone(normalizedPhone)) {
+        setPhoneError(text.invalidPhone);
+        return;
+      }
+    }
+    // Same reauth-gated `onManage` path as every other coordinator
+    // mutation (unchanged) - only the RPC's own server-side guard differs:
+    // `update_phone` carries none of `edit`'s identity/participation checks
+    // (contact metadata, not identity), so this call succeeds even for a
+    // coordinator whose name/status edits are currently blocked.
+    const result = await onManage(
+      [{ action: "update_phone", coordinatorId: c.id, phone: normalizedPhone }],
+      {
+        title: text.confirm.editPhoneTitle,
+        summary: text.confirm.editPhoneSummary(c.displayName),
+        confirmLabel: text.confirm.confirmButton,
+      },
+    );
+    if (result !== undefined) cancelPhoneEdit();
   };
 
   const startEdit = (c: Coordinator) => {
@@ -184,6 +259,17 @@ export function CoordinatorRosterEditor({
           />
         </div>
       </Field>
+      <Field label={text.phoneLabel}>
+        <Input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder={text.phonePlaceholder}
+          dir="ltr"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void handleAddClick();
+          }}
+        />
+      </Field>
       <Button className="w-full" disabled={busy} onClick={() => void handleAddClick()}>
         ➕ {text.addButton}
       </Button>
@@ -226,6 +312,12 @@ export function CoordinatorRosterEditor({
         <ul className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-100">
           {coordinators.map((c) => {
             const isEditing = editingId === c.id;
+            const assignedCount =
+              countVotersWithRawCoordinatorName(contacts, c.displayName) +
+              (c.linkedAssignmentName !== null
+                ? countVotersWithRawCoordinatorName(contacts, c.linkedAssignmentName)
+                : 0);
+            const isEligibleForEditOrRemove = assignedCount === 0;
             const showLinkSuggestion =
               c.linkedAssignmentName === null &&
               countVotersWithRawCoordinatorName(contacts, c.displayName) > 0;
@@ -289,23 +381,32 @@ export function CoordinatorRosterEditor({
                         )}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        {allowRename && (
+                        {allowRename && c.status === "active" && (
                           <button
                             type="button"
-                            onClick={() => startEdit(c)}
-                            aria-label={text.editAriaLabel}
-                            className="touch-target grid place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                            disabled={!isEligibleForEditOrRemove}
+                            onClick={() => isEligibleForEditOrRemove && startEdit(c)}
+                            aria-label={
+                              isEligibleForEditOrRemove
+                                ? text.editAriaLabel
+                                : text.editAriaLabelBlocked
+                            }
+                            className="touch-target grid place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                           >
                             <Pencil className="size-4" />
                           </button>
                         )}
-                        {allowRemove && (
+                        {allowRemove && c.status === "active" && (
                           <button
                             type="button"
-                            disabled={busy}
+                            disabled={busy || !isEligibleForEditOrRemove}
                             onClick={() => void handleRemoveClick(c)}
-                            aria-label={text.removeAriaLabel}
-                            className="touch-target grid place-items-center rounded-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent"
+                            aria-label={
+                              isEligibleForEditOrRemove
+                                ? text.removeAriaLabel
+                                : text.removeAriaLabelBlocked
+                            }
+                            className="touch-target grid place-items-center rounded-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                           >
                             <Trash2 className="size-4" />
                           </button>
@@ -314,6 +415,74 @@ export function CoordinatorRosterEditor({
                     </>
                   )}
                 </div>
+
+                {!isEligibleForEditOrRemove &&
+                  c.status === "active" &&
+                  (allowRename || allowRemove) && (
+                    <p className="text-xs text-slate-500">{text.assignedVotersReason}</p>
+                  )}
+
+                {/* Phone is CONTACT METADATA, not identity - a plain
+                    inline field, editable regardless of the name-lock state
+                    above (no visual grouping with the identity pencil/trash
+                    icons). */}
+                {editingPhoneId === c.id ? (
+                  <div className="flex items-center gap-2">
+                    <Phone className="size-3.5 shrink-0 text-slate-400" />
+                    <Input
+                      value={editingPhoneValue}
+                      onChange={(e) => {
+                        setEditingPhoneValue(e.target.value);
+                        if (phoneError) setPhoneError(null);
+                      }}
+                      placeholder={text.phonePlaceholder}
+                      dir="ltr"
+                      invalid={!!phoneError}
+                      autoFocus
+                      className="flex-1"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void confirmPhoneEditClick(c);
+                        if (e.key === "Escape") cancelPhoneEdit();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void confirmPhoneEditClick(c)}
+                      aria-label={text.savePhoneAriaLabel}
+                      className="touch-target grid shrink-0 place-items-center rounded-lg text-primary-600 hover:bg-primary-50"
+                    >
+                      <Check className="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelPhoneEdit}
+                      aria-label={text.cancelPhoneEditAriaLabel}
+                      className="touch-target grid shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startPhoneEdit(c)}
+                    aria-label={text.editPhoneAriaLabel}
+                    className="flex w-fit items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-primary-600"
+                  >
+                    <Phone className="size-3.5 shrink-0" />
+                    {c.phone ? (
+                      <span dir="ltr" className="tabular-nums">
+                        {c.phone}
+                      </span>
+                    ) : (
+                      text.addPhoneLink
+                    )}
+                  </button>
+                )}
+                {phoneError && editingPhoneId === c.id && (
+                  <p className="text-xs text-opponent">{phoneError}</p>
+                )}
 
                 {showLinkSuggestion && (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-800">

@@ -1148,7 +1148,15 @@ export class MockApi implements ApiClient {
           linkedAssignmentName: null,
           createdAt: now,
           endedAt: null,
+          phone: a.phone?.trim() || null,
         });
+      } else if (a.action === "update_phone") {
+        // Interface compliance only - contact metadata, no identity/
+        // participation checks (mirrors the real RPC's own deliberately
+        // unguarded update_phone action).
+        const c = this.coordinators.find((x) => x.id === a.coordinatorId);
+        if (!c) throw new Error("הרכז לא נמצא");
+        c.phone = a.phone?.trim() || null;
       } else if (a.action === "edit") {
         const c = this.coordinators.find((x) => x.id === a.coordinatorId);
         if (!c) throw new Error("הרכז לא נמצא");

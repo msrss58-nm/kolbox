@@ -245,6 +245,11 @@ export interface Coordinator {
   linkedAssignmentName: string | null;
   createdAt: string; // ISO timestamp
   endedAt: string | null; // ISO timestamp
+  /** Optional contact phone (normalized local Israeli format, e.g.
+   * "0501234567") - pure contact metadata, never part of identity: never
+   * matched against `linkedAssignmentName`, a voter's `coordinator` string,
+   * or `PermissionUser.name`. `null` until a manager sets one. */
+  phone: string | null;
 }
 
 /** Election Day's local user/manager roster ("ניהול הרשאות משתמשים") - a

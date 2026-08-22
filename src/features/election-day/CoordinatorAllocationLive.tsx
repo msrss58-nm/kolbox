@@ -25,8 +25,12 @@ const text = ELECTION_DAY_TEXT.coordinatorAllocation;
  * shown once allocation activity exists (see `CoordinatorAllocationPage.tsx`
  * for the exact phase-derivation rule). Stats + coordinator roster with
  * per-row rebalance/end actions, plus an always-available "add coordinator"
- * section (`allowRemove={false}` - see `CoordinatorRosterEditor`'s own
- * comment on why remove is hidden here specifically).
+ * section that now also allows rename/remove (`allowRename allowRemove`,
+ * 2026-08-21) - previously hidden here specifically because the server's old
+ * guard was a global activity flag with no reliable per-coordinator signal
+ * to gate the UI with; now that the guard is a real per-coordinator
+ * predicate, `CoordinatorRosterEditor`'s own row-level eligibility check
+ * applies correctly in this view too.
  */
 export function CoordinatorAllocationLive({
   coordinators,
@@ -113,8 +117,8 @@ export function CoordinatorAllocationLive({
               contacts={contacts}
               onManage={manageCoordinators}
               busy={managingCoordinators}
-              allowRename={false}
-              allowRemove={false}
+              allowRename
+              allowRemove
             />
           </div>
         )}

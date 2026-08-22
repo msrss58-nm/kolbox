@@ -303,6 +303,9 @@ export interface Database {
           linked_assignment_name: string | null;
           created_at: string;
           ended_at: string | null;
+          /** Optional contact phone (2026-08-22) - pure contact metadata,
+           * never part of any identity/collision/safety rule. */
+          phone: string | null;
         };
         Insert: {
           id?: string;
@@ -311,6 +314,7 @@ export interface Database {
           linked_assignment_name?: string | null;
           created_at?: string;
           ended_at?: string | null;
+          phone?: string | null;
         };
         Update: Partial<
           Database["public"]["Tables"]["election_day_coordinators"]["Insert"]
@@ -841,7 +845,11 @@ export interface Database {
       /** Security Hardening (Reauth), Phase 2 - see election_day_reauth's
        * comment. Replaces election_day_manage_coordinators - the acting
        * identity/permission now come entirely from p_reauth_proof instead of
-       * p_actor_id/p_actor_password. Business logic unchanged. */
+       * p_actor_id/p_actor_password. Coordinator identity invariant added
+       * 2026-08-21; optional contact `phone` (add/`update_phone` actions)
+       * added 2026-08-22 - phone is never part of identity, and
+       * `update_phone` deliberately carries none of the participation/
+       * collision guards `edit`/`remove` do. */
       election_day_manage_coordinators_v2: {
         Args: { p_reauth_proof: string; p_actions: Json };
         Returns: Database["public"]["Tables"]["election_day_coordinators"]["Row"][];

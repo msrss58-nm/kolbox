@@ -313,6 +313,27 @@ export const ELECTION_DAY_TEXT = {
       },
       totalsRow: 'סה"כ',
     },
+    /** Manager Dashboard Reminders ("תזכורות לטיפול") - supervisory view,
+     * one tile per coordinator with at least one DUE reminder (see
+     * `coordinatorReminderSupervision.ts`). Manager-only (`role.scopeType
+     * === "all"`) - distinct from, and does not replace, the personal
+     * popup stack (`OverdueReminderStack.tsx`) a scoped coordinator sees. */
+    reminderSupervision: {
+      title: "תזכורות לטיפול",
+      empty: "אין תזכורות שממתינות לטיפול",
+      dueCount: (count: number) => (count === 1 ? "תזכורת אחת ממתינה" : `${count} תזכורות ממתינות`),
+      oldestWaiting: (duration: string) => `הוותיקה ממתינה ${duration}`,
+      showAll: (count: number) => `הצג את כל האחראים (${count})`,
+      showFewer: "הצג פחות",
+      modal: {
+        header: (coordinator: string) => `אחראי: ${coordinator}`,
+        voterColumn: "בוחר",
+        reminderTimeColumn: "מועד התזכורת",
+        waitingColumn: "ממתינה כבר",
+        phoneLabel: (phone: string) => `טלפון: ${phone}`,
+        callButton: (name: string) => `📞 התקשר ל${name}`,
+      },
+    },
     /** "קצב הצבעה" - cumulative turnout-over-time chart (see `turnoutPace.ts`). */
     pace: {
       title: "קצב הצבעה",
@@ -808,6 +829,17 @@ export const ELECTION_DAY_TEXT = {
       removeAriaLabel: "הסרת אחראי",
       saveAriaLabel: "שמירת שם",
       cancelEditAriaLabel: "ביטול עריכה",
+      /** Phone is CONTACT METADATA, not identity (2026-08-22) - shown/edited
+       * as its own separate affordance from the name pencil/trash icons
+       * above, deliberately available regardless of `isEligibleForEditOrRemove`
+       * (it stays editable even when rename/remove are blocked). */
+      phoneLabel: "טלפון (לא חובה)",
+      phonePlaceholder: "050-1234567",
+      addPhoneLink: "הוסף טלפון",
+      editPhoneAriaLabel: "עריכת טלפון",
+      savePhoneAriaLabel: "שמירת טלפון",
+      cancelPhoneEditAriaLabel: "ביטול עריכת טלפון",
+      invalidPhone: "מספר טלפון לא תקין",
       empty: "טרם נוספו אחראים",
       emptyHint: "הוסיפו לפחות אחראי אחד כדי להתחיל בחלוקה.",
       duplicateActiveName: "כבר קיים אחראי פעיל בשם זה",
@@ -819,11 +851,27 @@ export const ELECTION_DAY_TEXT = {
       linkButton: "קשר לאחראי הזה",
       relinkButton: "עדכן קישור",
       unlinkButton: "בטל קישור",
+      /** Coordinator Delete safety guard (2026-08-21): client-side proxy for
+       * "this coordinator currently has assigned voters" (via
+       * `countVotersWithRawCoordinatorName`, the same raw display_name match
+       * the RPC's own guard uses) - a certain, provable ineligibility shown
+       * proactively next to the row, no RPC round trip needed. The
+       * complementary "has real participation/history" reason is NOT
+       * computable client-side without a per-coordinator RPC call, so that
+       * case surfaces only after an attempted rename/remove is rejected by
+       * the RPC (via the shared toast, `mapCoordinatorAllocationRpcErrorMessage`) -
+       * this is the RPC's own authoritative check, the client merely reflects it. */
+      assignedVotersReason:
+        "לרכז זה יש בוחרים משויכים כרגע - יש להעביר את ההקצאות תחילה (העבר הקצאות)",
+      removeAriaLabelBlocked: "לא ניתן להסיר - יש לרכז זה בוחרים משויכים",
+      editAriaLabelBlocked: "לא ניתן לשנות שם - יש לרכז זה בוחרים משויכים",
       confirm: {
         addTitle: "הוספת אחראי",
         addSummary: (name: string) => `הוספת אחראי חדש: ${name}`,
         editTitle: "עדכון שם אחראי",
         editSummary: (from: string, to: string) => `שינוי שם מ-"${from}" ל-"${to}"`,
+        editPhoneTitle: "עדכון טלפון אחראי",
+        editPhoneSummary: (name: string) => `עדכון מספר הטלפון של "${name}"`,
         removeTitle: "הסרת אחראי",
         removeSummary: (name: string) => `הסרת האחראי "${name}"`,
         linkTitle: "קישור לרשומת אקסל",
