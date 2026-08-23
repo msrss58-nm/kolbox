@@ -32,6 +32,20 @@ import type { RoleRecord } from "./types";
  * persisted Production role, including manager - that requires a dedicated
  * backfill migration mirroring the two precedents above, deliberately not
  * created in Phase 4 (see that phase's own report).
+ *
+ * One exception to "frozen to Phase 0's literal text", by the same
+ * established pattern: `seed-user`'s `name` here is `"טלפן/ית"`, not Phase
+ * 0's original seeded `"משתמש"` - the display-name rename (2026-08-23) is
+ * deliberately NOT done by editing Phase 0's already-applied migration text
+ * (an immutable historical record), but by a later, standalone forward
+ * migration (`20260823000000_election_day_role_rename_caller.sql`) that
+ * `UPDATE`s the persisted row's `name` only - `permissions`/`scopeType` are
+ * completely unaffected and still match Phase 0's original seed byte-for-
+ * byte. This field therefore reflects the FINAL name after that forward
+ * migration replays, not Phase 0's own literal seed value, exactly mirroring
+ * how the permissions exceptions above already represent post-Phase-0 state
+ * for the same reason. `scripts/smoke-role-seed-parity.ts` parses both
+ * migration files and asserts this chain end-to-end.
  */
 export const BUILT_IN_ROLE_SEED: readonly RoleRecord[] = [
   {
@@ -67,7 +81,7 @@ export const BUILT_IN_ROLE_SEED: readonly RoleRecord[] = [
   },
   {
     id: "seed-user",
-    name: "משתמש",
+    name: "טלפן/ית",
     description:
       "ניהול תפעולי של אנשי קשר - תזכורות, הסעות, עדכון פרטים - ללא סימון הצבעה וללא פעולות ניהול.",
     permissions: [
