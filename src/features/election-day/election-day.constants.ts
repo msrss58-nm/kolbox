@@ -847,10 +847,6 @@ export const ELECTION_DAY_TEXT = {
       emptyNameBlocked: "יש להזין שם אחראי",
       endedBadge: "סיים פעילות",
       linkedBadge: (name: string) => `מקושר ל-"${name}"`,
-      linkSuggestion: (count: number, name: string) =>
-        `נמצאו ${count.toLocaleString("he-IL")} בוחרים שכבר משויכים ל-"${name}"`,
-      linkButton: "קשר לאחראי הזה",
-      relinkButton: "עדכן קישור",
       unlinkButton: "בטל קישור",
       /** Coordinator Delete safety guard (2026-08-21): client-side proxy for
        * "this coordinator currently has assigned voters" (via
@@ -875,8 +871,6 @@ export const ELECTION_DAY_TEXT = {
         editPhoneSummary: (name: string) => `עדכון מספר הטלפון של "${name}"`,
         removeTitle: "הסרת אחראי",
         removeSummary: (name: string) => `הסרת האחראי "${name}"`,
-        linkTitle: "קישור לרשומת אקסל",
-        linkSummary: (name: string) => `קישור האחראי "${name}" לרשומת האקסל שלו`,
         unlinkTitle: "ביטול קישור",
         unlinkSummary: (name: string) => `ביטול קישור האחראי "${name}" לרשומת האקסל`,
         confirmButton: "אישור",

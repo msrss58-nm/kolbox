@@ -10,13 +10,24 @@ import type { ReauthCopy } from "./useCoordinatorAllocation";
 const text = ELECTION_DAY_TEXT.coordinatorAllocation.roster;
 
 /**
- * Coordinator Management row-level actions (rename/phone/remove/link/relink/
- * unlink) for ONE coordinator - the same business logic both
- * `CoordinatorRow` (Setup's flex-column list) and
- * `CoordinatorAllocationLive`'s column-aligned grid table need, factored out
- * so neither layout has to duplicate the `onManage` wiring or the eligibility
- * computation. This hook owns state + handlers + derived booleans only -
- * every caller renders its own JSX.
+ * Coordinator Management row-level actions (rename/phone/remove/unlink) for
+ * ONE coordinator - the same business logic both `CoordinatorRow` (Setup's
+ * flex-column list) and `CoordinatorAllocationLive`'s column-aligned grid
+ * table need, factored out so neither layout has to duplicate the `onManage`
+ * wiring or the eligibility computation. This hook owns state + handlers +
+ * derived booleans only - every caller renders its own JSX.
+ *
+ * The "link"/"relink" suggestion UI (auto-detected from a raw Excel name
+ * match, used only to preserve a coordinator's voter-linkage across a
+ * pre-activity rename) was removed 2026-08-23 - product decision:
+ * responsibility changes now go through add-new/transfer/end, never a
+ * rename, so the suggestion was permanent noise with no normal-operation
+ * use. `handleUnlinkClick` and the `linkedAssignmentName`-aware
+ * `assignedCount`/eligibility logic below are untouched - they manage/read
+ * an EXISTING link, which is a different, still-supported concern; the
+ * `link`/`relink` actions themselves remain fully intact in
+ * `CoordinatorAction`/the RPC/API layer for any existing or future caller,
+ * only this hook's own UI-triggering wrapper was removed.
  */
 export function useCoordinatorRowActions(
   coordinator: Coordinator,
@@ -39,16 +50,6 @@ export function useCoordinatorRowActions(
       ? countVotersWithRawCoordinatorName(contacts, coordinator.linkedAssignmentName)
       : 0);
   const isEligibleForEditOrRemove = assignedCount === 0;
-  const suggestionCount = countVotersWithRawCoordinatorName(
-    contacts,
-    coordinator.displayName,
-  );
-  const showLinkSuggestion =
-    coordinator.linkedAssignmentName === null && suggestionCount > 0;
-  const showRelinkSuggestion =
-    coordinator.linkedAssignmentName !== null &&
-    coordinator.linkedAssignmentName !== coordinator.displayName &&
-    suggestionCount > 0;
 
   const isDuplicateActiveName = (candidate: string) =>
     allCoordinators.some(
@@ -123,22 +124,6 @@ export function useCoordinatorRowActions(
       confirmLabel: text.confirm.confirmButton,
     });
 
-  const handleLinkClick = (kind: "link" | "relink") =>
-    onManage(
-      [
-        {
-          action: kind,
-          coordinatorId: coordinator.id,
-          linkedAssignmentName: coordinator.displayName,
-        },
-      ],
-      {
-        title: text.confirm.linkTitle,
-        summary: text.confirm.linkSummary(coordinator.displayName),
-        confirmLabel: text.confirm.confirmButton,
-      },
-    );
-
   const handleUnlinkClick = () =>
     onManage([{ action: "unlink", coordinatorId: coordinator.id }], {
       title: text.confirm.unlinkTitle,
@@ -148,9 +133,6 @@ export function useCoordinatorRowActions(
 
   return {
     isEligibleForEditOrRemove,
-    showLinkSuggestion,
-    showRelinkSuggestion,
-    suggestionCount,
     isEditingName,
     editingName,
     setEditingName,
@@ -165,7 +147,6 @@ export function useCoordinatorRowActions(
     cancelPhoneEdit,
     confirmPhoneEdit,
     handleRemoveClick,
-    handleLinkClick,
     handleUnlinkClick,
   };
 }

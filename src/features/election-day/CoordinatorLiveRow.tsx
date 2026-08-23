@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Check, Link2, Pencil, Phone, Trash2, X } from "lucide-react";
+import { ArrowLeftRight, Check, Pencil, Phone, Trash2, X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Field";
 import { cn } from "../../lib/utils";
@@ -17,10 +17,10 @@ const rosterText = ELECTION_DAY_TEXT.coordinatorAllocation.roster;
  * 2026-08-22): `העבר הקצאות`/`סיום פעילות`/`הסר אחראי` now live together
  * here, clustered in the same actions cell - `הסר אחראי` moved OUT of the
  * "➕ הוסף אחראי" add-form panel, which now only ever adds a new coordinator
- * (see `CoordinatorRosterEditor.tsx`'s own comment). Rename/phone/link-
- * suggestion management also moved here for the same reason - managing an
- * existing coordinator is a property of ITS row, not of the add-form's
- * open/closed state. Shares its business logic (eligibility, onManage
+ * (see `CoordinatorRosterEditor.tsx`'s own comment). Rename/phone/unlink
+ * management also moved here for the same reason - managing an existing
+ * coordinator is a property of ITS row, not of the add-form's open/closed
+ * state. Shares its business logic (eligibility, onManage
  * wiring) with `CoordinatorRow.tsx` (Setup's flex-column list) via the same
  * `useCoordinatorRowActions` hook - only the layout differs, kept as its own
  * column-aligned grid here to match this table's existing
@@ -232,36 +232,6 @@ export function CoordinatorLiveRow({
       )}
       {row.phoneError && row.isEditingPhone && (
         <p className="text-xs text-opponent">{row.phoneError}</p>
-      )}
-
-      {row.showLinkSuggestion && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-800">
-          <Link2 className="size-3.5 shrink-0" />
-          <span>{rosterText.linkSuggestion(row.suggestionCount, c.displayName)}</span>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void row.handleLinkClick("link")}
-            className="ms-auto font-semibold underline hover:no-underline"
-          >
-            {rosterText.linkButton}
-          </button>
-        </div>
-      )}
-
-      {row.showRelinkSuggestion && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-800">
-          <Link2 className="size-3.5 shrink-0" />
-          <span>{rosterText.linkSuggestion(row.suggestionCount, c.displayName)}</span>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void row.handleLinkClick("relink")}
-            className="ms-auto font-semibold underline hover:no-underline"
-          >
-            {rosterText.relinkButton}
-          </button>
-        </div>
       )}
 
       {c.linkedAssignmentName !== null && (

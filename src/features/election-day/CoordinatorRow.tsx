@@ -1,4 +1,4 @@
-import { Check, Link2, Pencil, Phone, Trash2, X } from "lucide-react";
+import { Check, Pencil, Phone, Trash2, X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Field";
 import type { CoordinatorAction } from "../../services/api";
@@ -10,8 +10,8 @@ import { useCoordinatorRowActions } from "./useCoordinatorRowActions";
 const text = ELECTION_DAY_TEXT.coordinatorAllocation.roster;
 
 /**
- * One coordinator's full management row (rename, phone, remove, Excel-
- * assignment link/relink/unlink) - the flex-column layout used by the
+ * One coordinator's full management row (rename, phone, remove, unlink an
+ * existing Excel-assignment link) - the flex-column layout used by the
  * roster list (Setup's dedicated coordinators step, and any other future
  * "manage every coordinator in a simple list" context). `CoordinatorAllocationLive.tsx`'s
  * column-aligned grid table renders its own JSX instead (to fit the existing
@@ -199,36 +199,6 @@ export function CoordinatorRow({
       )}
       {row.phoneError && row.isEditingPhone && (
         <p className="text-xs text-opponent">{row.phoneError}</p>
-      )}
-
-      {row.showLinkSuggestion && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-800">
-          <Link2 className="size-3.5 shrink-0" />
-          <span>{text.linkSuggestion(row.suggestionCount, c.displayName)}</span>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void row.handleLinkClick("link")}
-            className="ms-auto font-semibold underline hover:no-underline"
-          >
-            {text.linkButton}
-          </button>
-        </div>
-      )}
-
-      {row.showRelinkSuggestion && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-800">
-          <Link2 className="size-3.5 shrink-0" />
-          <span>{text.linkSuggestion(row.suggestionCount, c.displayName)}</span>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void row.handleLinkClick("relink")}
-            className="ms-auto font-semibold underline hover:no-underline"
-          >
-            {text.relinkButton}
-          </button>
-        </div>
       )}
 
       {c.linkedAssignmentName !== null && (

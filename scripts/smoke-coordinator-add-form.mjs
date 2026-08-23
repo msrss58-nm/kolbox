@@ -4,27 +4,39 @@
 // (`CoordinatorAllocationSetup.tsx`, `collapsibleAddForm` prop) and the
 // live/day-of view's "➕ הוסף אחראי" panel (`CoordinatorAllocationLive.tsx`).
 //
-// Root cause this guards against: the same shared component/UX pattern had
-// two distinct consumers in two distinct application states (Setup vs
-// Live), but a UX change was only manually verified in Live - a later,
-// unrelated fixture cleanup then changed local state from Live back to
-// Setup and exposed that the Setup consumer had never actually been fixed.
-// See CLAUDE.md's "Shared component/UX change checklist" for the permanent
-// rule this test exists to satisfy.
+// Extended 2026-08-23 with 2 additive regression blocks (after the original
+// 2 above) guarding the removed "קשר לאחראי הזה"/"עדכן קישור" link-suggestion
+// banner (`useCoordinatorRowActions.ts`, `CoordinatorRow.tsx`,
+// `CoordinatorLiveRow.tsx`): each mocks a coordinator whose linked_assignment_name
+// is null alongside a raw-imported voter whose `coordinator` text matches
+// that coordinator's display_name exactly - the precise condition that, pre-
+// removal, made the banner appear unconditionally for every import-auto-
+// synced coordinator. Covers both consumers (CoordinatorRow/Setup via a
+// forced-setup-phase unassigned voter, CoordinatorLiveRow/Live) per CLAUDE.md's
+// "Shared component/UX change checklist" - a shared component with 2
+// consumers needs 2 verification passes, never one standing in for both.
+//
+// Root cause the original 2 blocks guard against: the same shared component/
+// UX pattern had two distinct consumers in two distinct application states
+// (Setup vs Live), but a UX change was only manually verified in Live - a
+// later, unrelated fixture cleanup then changed local state from Live back
+// to Setup and exposed that the Setup consumer had never actually been
+// fixed. See CLAUDE.md's "Shared component/UX change checklist" for the
+// permanent rule this test exists to satisfy.
 //
 // Never touches real coordinator/voter data: `election_day_coordinators`
 // and `election_day_voters` GET requests are intercepted client-side
 // (page.route) and answered with a fixed fake body before they ever reach
 // Supabase - which application state (Setup vs Live) renders is entirely
-// mock-controlled (0 vs 1 mocked coordinators; voters always mocked to `[]`
-// so `unassignedCount` is deterministically 0 regardless of the real local
-// dataset), never dependent on whatever real/disposable fixtures happen to
-// exist locally at run time. The session is injected directly into
-// localStorage using the real, pre-existing "מנהל" role id (which already
-// grants `electionDay.manageCoordinatorAllocation` in this local Docker
-// project) - no real login RPC call, no real roster read/write. Every
-// scenario below only ever clicks ביטול, never a real "add" - so the
-// coordinator-mutation RPC is asserted to never fire at all.
+// mock-controlled, never dependent on whatever real/disposable fixtures
+// happen to exist locally at run time. The session is injected directly
+// into localStorage using the real, pre-existing "מנהל" role id (which
+// already grants `electionDay.manageCoordinatorAllocation` in this local
+// Docker project) - no real login RPC call, no real roster read/write. The
+// original 2 scenarios only ever click ביטול, never a real "add" - so the
+// coordinator-mutation RPC is asserted to never fire at all; the 2 new
+// regression blocks perform no mutation at all (read-only navigation and
+// text assertions only).
 //
 // Requires the local dev server (`npm run dev`, default localhost:5173) and
 // local Supabase Docker running - unlike the pure-logic `smoke-*.ts` suite,
@@ -74,10 +86,10 @@ async function mockCoordinators(page, rows) {
   });
 }
 
-async function mockVoters(page) {
+async function mockVoters(page, rows = []) {
   await page.route(VOTERS_URL, (route) => {
     if (route.request().method() !== "GET") return route.continue();
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) });
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(rows) });
   });
 }
 
@@ -90,6 +102,49 @@ function fakeCoordinatorRow(name) {
     created_at: new Date().toISOString(),
     ended_at: null,
     phone: null,
+  };
+}
+
+// A raw imported voter row whose `coordinator` text matches a coordinator's
+// display_name exactly - the exact condition that, pre-2026-08-23, always
+// triggered the (now-removed) "קשר לאחראי הזה" link-suggestion banner for
+// every coordinator created by the 2026-08-20 import auto-sync (its
+// display_name is always seeded from this same raw string). Used below to
+// prove the banner cannot reappear.
+function fakeVoterRow(coordinatorName, overrides = {}) {
+  return {
+    id: "smoke-voter-1",
+    masad: "",
+    first_name: "SMOKE",
+    last_name: "voter",
+    street: "",
+    house_number: 0,
+    city: "",
+    phone: null,
+    coordinator: coordinatorName,
+    notes: null,
+    ride_requested: false,
+    ride_requested_at: null,
+    ride_arranged: false,
+    ride_arranged_at: null,
+    ride_completed: false,
+    ride_completed_at: null,
+    reminder_at: null,
+    reminder_closed_at: null,
+    reminder_closed_reason: null,
+    reminder_closed_by: null,
+    voted: false,
+    voted_at: null,
+    not_voting_reason_id: null,
+    not_voting_reason_set_at: null,
+    not_voting_reason_set_by: null,
+    call_attempts: 0,
+    call_attempts_threshold: null,
+    last_call_attempt_at: null,
+    no_answer_streak: 0,
+    no_answer_streak_threshold: null,
+    pending_call_id: null,
+    ...overrides,
   };
 }
 
@@ -242,6 +297,86 @@ async function openAllocationScreen(page) {
   assert(
     (await coordRow.locator("text=סיום פעילות").count()) > 0,
     `${label}: existing coordinator row still shows סיום פעילות`,
+  );
+
+  await context.close();
+}
+
+// =====================================================================
+// REGRESSION: removed link-suggestion banner ("קשר לאחראי הזה" / "עדכן
+// קישור") must never reappear, in either consumer, even in the exact
+// condition that used to trigger it unconditionally - a coordinator whose
+// linked_assignment_name is null and who has a raw-matching voter (see
+// useCoordinatorRowActions.ts's 2026-08-23 removal comment). Both blocks
+// below are purely additive - they open their own fresh browser context and
+// assert nothing the pre-existing Setup/Live blocks above already assert,
+// so they cannot interact with or weaken those checks.
+// =====================================================================
+{
+  const label = "live-with-matching-voter";
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  attachErrorListeners(page, label);
+  await mockVoters(page, [fakeVoterRow("SMOKE_live_coordinator")]);
+  await mockCoordinators(page, [fakeCoordinatorRow("SMOKE_live_coordinator")]);
+  await injectSession(page);
+  await openAllocationScreen(page);
+
+  const bodyText = await page.locator("body").innerText();
+  assert(
+    !bodyText.includes("קשר לאחראי הזה"),
+    `${label}: removed link-suggestion button text does not appear`,
+  );
+  assert(
+    !bodyText.includes("עדכן קישור"),
+    `${label}: removed relink-suggestion button text does not appear`,
+  );
+
+  const coordRow = page.locator("li", { hasText: "SMOKE_live_coordinator" });
+  assert(
+    (await coordRow.locator('button:has-text("הסר אחראי")').count()) > 0,
+    `${label}: unrelated action הסר אחראי still renders`,
+  );
+  assert(
+    (await coordRow.locator("text=העבר הקצאות").count()) > 0,
+    `${label}: unrelated action העבר הקצאות still renders`,
+  );
+  assert(
+    (await coordRow.locator("text=סיום פעילות").count()) > 0,
+    `${label}: unrelated action סיום פעילות still renders`,
+  );
+
+  await context.close();
+}
+
+{
+  const label = "setup-with-existing-coordinator-and-matching-voter";
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  attachErrorListeners(page, label);
+  // One unassigned voter (coordinator: "") forces resolveCoordinatorAllocationPhase
+  // to "setup" regardless of the coordinator below, so this exercises
+  // CoordinatorRow (Setup's list), not CoordinatorLiveRow.
+  await mockVoters(page, [
+    fakeVoterRow("SMOKE_setup_coordinator"),
+    fakeVoterRow("", { id: "smoke-voter-2" }),
+  ]);
+  await mockCoordinators(page, [fakeCoordinatorRow("SMOKE_setup_coordinator")]);
+  await injectSession(page);
+  await openAllocationScreen(page);
+
+  const bodyText = await page.locator("body").innerText();
+  assert(
+    bodyText.includes("SMOKE_setup_coordinator"),
+    `${label}: resolves to the Setup view with the existing coordinator listed`,
+  );
+  assert(
+    !bodyText.includes("קשר לאחראי הזה"),
+    `${label}: removed link-suggestion button text does not appear`,
+  );
+  assert(
+    !bodyText.includes("עדכן קישור"),
+    `${label}: removed relink-suggestion button text does not appear`,
   );
 
   await context.close();
