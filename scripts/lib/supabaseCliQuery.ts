@@ -76,6 +76,28 @@
  * both facts are reported together, path-only, with no SQL content
  * (impossible anyway, since SQL text never touches argv or any error
  * message in this path) and no credentials in either message.
+ *
+ * ============================================================================
+ * WHY `--output-format json --agent yes` ARE EXPLICITLY PASSED (do not rely
+ * on the CLI's default/"auto" output-format detection)
+ * ============================================================================
+ * `supabase db query --linked --file <path>` (this function's previous
+ * approach, no output-format flag) worked in some environments but failed in
+ * the real human operator's Windows PowerShell with `sqlQueryLinkedSync: no
+ * JSON object found in \`supabase db query --linked\` output` - the CLI's
+ * `--agent` flag defaults to `auto`, and its auto-detection of whether to
+ * emit machine-readable JSON vs. a human-readable text table evidently
+ * differs by environment/terminal, so the same command could return valid
+ * JSON in one shell and a JSON-free text table in another. Verified live
+ * against the real linked Production project from the operator's own
+ * PowerShell: the exact same query with `--output-format json --agent yes`
+ * added returned valid JSON with exit 0, while the flag-less form returned a
+ * human-readable table. Every call this module makes to `supabase db query`
+ * or `supabase migration list` now explicitly passes both flags - the
+ * intent is never left to the CLI's own environment-dependent default, and
+ * this module still does not add fallback parsing of human-table output;
+ * a still-non-JSON result after these flags is treated as a hard failure,
+ * exactly as before.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
@@ -174,7 +196,17 @@ export function sqlQueryLinkedSync<T>(sql: string): T {
   let out: string | undefined;
   let queryError: unknown;
   try {
-    out = invokeSupabaseCli(["db", "query", "--linked", "--file", tmpPath]);
+    out = invokeSupabaseCli([
+      "db",
+      "query",
+      "--linked",
+      "--file",
+      tmpPath,
+      "--output-format",
+      "json",
+      "--agent",
+      "yes",
+    ]);
   } catch (err) {
     queryError = err;
   }
@@ -234,7 +266,15 @@ export const sqlQueryLinked: SqlQueryOne = async <T>(sql: string) =>
  * "if safely obtainable" scope. */
 export function checkMigrationsInSyncLinked(): boolean | null {
   try {
-    const out = invokeSupabaseCli(["migration", "list", "--linked"]);
+    const out = invokeSupabaseCli([
+      "migration",
+      "list",
+      "--linked",
+      "--output-format",
+      "json",
+      "--agent",
+      "yes",
+    ]);
     const jsonStart = out.indexOf("{");
     if (jsonStart === -1) return null;
     const parsed = JSON.parse(out.slice(jsonStart)) as {
