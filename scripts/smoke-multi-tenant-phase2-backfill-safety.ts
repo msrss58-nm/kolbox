@@ -20,8 +20,21 @@
  * decideReconciliation's A/B/C branch logic is already covered exhaustively
  * (live and synthetic) by smoke-multi-tenant-phase2-backfill-functional.ts -
  * not duplicated here.
+ *
+ * One exception to "no Docker/Supabase/network required": the
+ * invokeSupabaseCli section below does invoke the real, already-locally-
+ * cached `supabase` CLI (`--version` only - harmless, read-only, no project
+ * targeted) to prove the shell-free Windows invocation fix actually works
+ * against the real binary, not just a synthetic probe.
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -48,6 +61,8 @@ import {
   OWNER_EMAIL,
   assertReceiptMatchesApprovedTarget,
 } from "./lib/backfillTarget";
+import { execFileSync } from "node:child_process";
+import { resolveNpxInvocation, invokeSupabaseCli } from "./lib/supabaseCliQuery";
 
 const assert = (cond: boolean, msg: string) => {
   if (!cond) {
@@ -463,6 +478,130 @@ async function main() {
 
   rmSync(fixtureRoot, { recursive: true, force: true });
   console.log("(fixture directory cleaned up)");
+
+  // ==========================================================================
+  // invokeSupabaseCli / resolveNpxInvocation - Windows-safe, shell-free
+  // Supabase CLI invocation (fixes the verified `execFileSync("npx", ...)`
+  // ENOENT/`.cmd` EINVAL failure on Windows - see the module doc comment).
+  // ==========================================================================
+  console.log("=== invokeSupabaseCli / resolveNpxInvocation ===");
+
+  // Structural regression guard: neither real caller may reintroduce a bare
+  // `execFileSync("npx", ...)` call - both must route through the one
+  // shared, shell-free helper. Comments stripped first so this doc comment's
+  // own description of the old, broken pattern doesn't self-trigger.
+  {
+    const src = readFileSync(join(__dirname, "lib", "supabaseCliQuery.ts"), "utf8");
+    const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    const execFileSyncCallSites = stripped.match(/execFileSync\(/g) ?? [];
+    assert(
+      execFileSyncCallSites.length === 1,
+      `execFileSync is called exactly once in supabaseCliQuery.ts's actual code (inside invokeSupabaseCli only) - found ${execFileSyncCallSites.length} call site(s)`,
+    );
+    assert(
+      !/execFileSync\(\s*["']npx["']/.test(stripped),
+      'no bare execFileSync("npx", ...) call remains anywhere in supabaseCliQuery.ts\'s actual code',
+    );
+  }
+
+  // resolveNpxInvocation resolves to something real and invokable.
+  {
+    const { command, prefixArgs } = resolveNpxInvocation();
+    assert(
+      existsSync(command) || command === "npx",
+      `resolveNpxInvocation's command ("${command}") exists on disk or is the bare "npx" fallback`,
+    );
+    console.log(
+      `(resolved: command="${command}", prefixArgs=${JSON.stringify(prefixArgs)})`,
+    );
+  }
+
+  // The real, already-locally-cached supabase CLI actually runs through the
+  // new mechanism - not a synthetic probe. Harmless: --version only, no
+  // project targeted, no network fetch needed (already cached this session).
+  {
+    let ok = true;
+    let versionOut = "";
+    try {
+      versionOut = invokeSupabaseCli(["--version"]).trim();
+    } catch (err) {
+      ok = false;
+      console.error("  (invokeSupabaseCli(['--version']) error:", err, ")");
+    }
+    assert(
+      ok && /^\d+\.\d+\.\d+/.test(versionOut),
+      `invokeSupabaseCli(["--version"]) succeeds against the real supabase CLI and returns a version string (got "${versionOut}")`,
+    );
+  }
+
+  // Argument round-trip / injection safety: dangerous content must reach a
+  // child process byte-for-byte, unreinterpreted by any shell. Uses the
+  // exact resolved command+prefixArgs (the same mechanism invokeSupabaseCli
+  // uses) against a tiny throwaway probe script instead of the real
+  // supabase binary, so this isolates the invocation MECHANISM itself.
+  {
+    const probeDir = mkdtempSync(join(tmpdir(), "kolbox-argv-probe-"));
+    const probeScript = join(probeDir, "probe.js");
+    writeFileSync(
+      probeScript,
+      "console.log(JSON.stringify(process.argv.slice(2)));",
+      "utf8",
+    );
+    const { command, prefixArgs } = resolveNpxInvocation();
+    // Only the JS-entry path is directly comparable to invokeSupabaseCli's
+    // own mechanism (prefixArgs non-empty means command === process.execPath,
+    // i.e. `node <probe.js> <args>` is a like-for-like substitution for
+    // `node <npx-cli.js> supabase <args>`). If the fallback ("npx", no
+    // prefixArgs) is in effect on this machine instead, run the probe via
+    // plain `node` directly - still a genuine, meaningful round-trip proof
+    // of shell-free argv passthrough, just not exercising the JS-entry path
+    // specifically (which isn't in play on this machine in that case).
+    const [probeCommand, probePrefixArgs] =
+      prefixArgs.length > 0
+        ? [command, [] as string[]]
+        : [process.execPath, [] as string[]];
+
+    const dangerousArgs = [
+      "select 1; DROP TABLE x; --",
+      'it\'s "quoted" and `backticked`',
+      "%PATH% & echo pwned | rm -rf /",
+      'עברית עם רווחים ומרכאות "כן"',
+      "newline\ninside\nstring",
+      "11111111-1111-1111-1111-111111111111",
+      "'; select pg_sleep(0); --",
+    ];
+    let allRoundTripped = true;
+    for (const arg of dangerousArgs) {
+      const out = execFileSync(probeCommand, [...probePrefixArgs, probeScript, arg], {
+        encoding: "utf8",
+        shell: false,
+      });
+      const roundTripped = (JSON.parse(out) as string[])[0];
+      if (roundTripped !== arg) {
+        allRoundTripped = false;
+        console.error(
+          `  MISMATCH for ${JSON.stringify(arg)} -> ${JSON.stringify(roundTripped)}`,
+        );
+      }
+    }
+    assert(
+      allRoundTripped,
+      "every dangerous argument (SQL punctuation, quotes, backticks, cmd.exe metacharacters, Hebrew/Unicode, embedded newlines, UUID-shaped, SQL-comment-shaped) round-trips byte-for-byte through the shell-free invocation mechanism",
+    );
+    rmSync(probeDir, { recursive: true, force: true });
+  }
+
+  // Fails closed: a genuinely bad subcommand must throw (non-zero exit),
+  // never resolve to an empty/silent success.
+  {
+    let threw = false;
+    try {
+      invokeSupabaseCli(["not-a-real-subcommand-xyz-nonsense"]);
+    } catch {
+      threw = true;
+    }
+    assert(threw, "invokeSupabaseCli throws (fails closed) for a nonexistent subcommand");
+  }
 
   if (process.exitCode) {
     console.error("\nsmoke-multi-tenant-phase2-backfill-safety: FAILED");
