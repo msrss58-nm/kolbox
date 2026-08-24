@@ -35,6 +35,25 @@
  * table row, all needed because this specific defect (multi-line SQL
  * truncation in `supabase db query --linked`) is a real CLI+Management-API
  * behavior no synthetic probe can stand in for.
+ *
+ * HISTORICAL CAVEAT (Multi-Tenant Phase 2 Contract, 2026-08-25): the
+ * checkRpcAcl()-shaped block's assertion only checks the *shape* of the
+ * returned snapshot (`typeof overloadCount === "number"`, `typeof
+ * securityDefiner === "boolean"`), not any specific value - so it remains
+ * accurate proof of the CLI transport mechanism regardless of what pg_proc
+ * currently holds for this function. It was last verified true against
+ * Production while `election_day_backfill_historical_workspace` still
+ * existed there (pre-Contract). Once a future, separately-authorized step
+ * applies the Contract migration (supabase/migrations/20260825000000_
+ * multi_tenant_phase2_contract_backfill_rpc_removal.sql) to Production, the
+ * function will have zero matching pg_proc rows there, `securityDefiner`
+ * will resolve to SQL NULL, and `typeof null === "object"` - only that one
+ * assertion will then fail. This is expected and does not indicate a CLI
+ * transport regression; this file's own purpose (proving the transport
+ * mechanism, not the RPC's continued existence) will still hold. Left
+ * unmodified deliberately - this file is historical evidence, not an
+ * automated gate (nothing in this repo invokes it automatically), and is
+ * never re-run against Production without a human choosing to.
  */
 import {
   existsSync,
