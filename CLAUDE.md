@@ -38,6 +38,13 @@ Do not optimize for agreement, reassurance, or politeness at the expense of corr
 
 Do not treat user approval as evidence that an approach is technically correct. If later evidence exposes a contradiction, unsafe assumption, inferior design, or insufficient verification, STOP and raise it before proceeding.
 
+## Permanent Engineering Guardrails
+
+Added 2026-08-24 after a live Production privilege-escalation incident (see task-plan.md's Progress Log for the full record: `election_day_backfill_historical_workspace` was correctly `REVOKE ALL FROM PUBLIC ... GRANT TO service_role` in the migration itself, but Production carried a project-level `pg_default_acl` entry that auto-granted EXECUTE to `anon`/`authenticated` on every newly-created function anyway - undetected until a direct post-apply `pg_proc.proacl` check on Production itself, since no local disposable replica of this project has that legacy default-privilege configuration).
+
+- **Every new privileged function in schema `public` must explicitly `REVOKE EXECUTE` from `PUBLIC`, `anon`, and `authenticated` by name, then `GRANT EXECUTE` only to the intended role(s).** `REVOKE ... FROM PUBLIC` alone is not sufficient - it does not undo an individually-named-role default privilege, which this project's hosted Production instance is confirmed to carry for functions. Never assume Supabase's hosted default privileges match a local/disposable replica's; after applying any such migration to Production, verify `pg_proc.proacl` there directly rather than trusting the local/disposable test result alone.
+- **Never directly read or display `.env*` files, tokens, signing secrets, service-role keys, OIDC tokens, or other credential values in Claude/tool output.** When credential use is legitimately required, use a mechanism that consumes the value internally and never prints, logs, or echoes it (a script that reads the file and only passes the value into an API call/header, redacting it from anything written to stdout/stderr or returned as tool output).
+
 ## Auth (real Supabase - see task-plan.md §5.5 for the full design)
 
 Single-campaign model: one Supabase project = one campaign, no multi-tenancy. First sign-up becomes manager; activists are invited by email (magic link) from the Activists page, never self-signup.
