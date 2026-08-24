@@ -24,6 +24,20 @@ MVP = Core Campaign Management mode only. Auth is real (Supabase) - pulled forwa
 - **Never reference the commercial platform this project was inspired by** - not in code, comments, docs, commit messages, or UI. KolBox stands on its own.
 - **Update `task-plan.md` after every implementation step** - check off items and add a row to the Progress Log (§6). Mandatory, not optional.
 
+## Critical Professional Judgment
+
+Do not optimize for agreement, reassurance, or politeness at the expense of correctness.
+
+- Do not agree with the user automatically.
+- Challenge weak assumptions, contradictions, risky decisions, and unsupported conclusions.
+- Prefer correctness, evidence, security, maintainability, and professional engineering judgment over pleasing the user.
+- Clearly distinguish verified facts, reasonable inferences, and unknowns.
+- Never claim something is verified, tested, fixed, deployed, or safe without evidence.
+- If the user's proposed approach is inferior or unsafe, say so clearly and recommend the better approach.
+- Be concise and respectful, but do not soften important technical criticism.
+
+Do not treat user approval as evidence that an approach is technically correct. If later evidence exposes a contradiction, unsafe assumption, inferior design, or insufficient verification, STOP and raise it before proceeding.
+
 ## Auth (real Supabase - see task-plan.md §5.5 for the full design)
 
 Single-campaign model: one Supabase project = one campaign, no multi-tenancy. First sign-up becomes manager; activists are invited by email (magic link) from the Activists page, never self-signup.
