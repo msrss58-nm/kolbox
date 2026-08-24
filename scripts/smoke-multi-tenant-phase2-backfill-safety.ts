@@ -25,12 +25,22 @@
  * invokeSupabaseCli section below does invoke the real, already-locally-
  * cached `supabase` CLI (`--version` only - harmless, read-only, no project
  * targeted) to prove the shell-free Windows invocation fix actually works
- * against the real binary, not just a synthetic probe.
+ * against the real binary, not just a synthetic probe. The sqlQueryLinkedSync
+ * temp-file-transport section extends this same exception with a handful of
+ * real calls against the real LINKED Production project - a single-line
+ * SELECT, a multi-line SELECT literal embedding Hebrew/quotes, the exact
+ * previously-failing checkRpcAcl()-shaped multi-line jsonb_build_object
+ * query (against pg_proc, not a business table), and one intentionally
+ * malformed query - all pure SELECTs, none read or write a single real
+ * table row, all needed because this specific defect (multi-line SQL
+ * truncation in `supabase db query --linked`) is a real CLI+Management-API
+ * behavior no synthetic probe can stand in for.
  */
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -62,7 +72,12 @@ import {
   assertReceiptMatchesApprovedTarget,
 } from "./lib/backfillTarget";
 import { execFileSync } from "node:child_process";
-import { resolveNpxInvocation, invokeSupabaseCli } from "./lib/supabaseCliQuery";
+import {
+  resolveNpxInvocation,
+  invokeSupabaseCli,
+  sqlQueryLinkedSync,
+  throwOnQueryOrCleanupFailure,
+} from "./lib/supabaseCliQuery";
 
 const assert = (cond: boolean, msg: string) => {
   if (!cond) {
@@ -601,6 +616,258 @@ async function main() {
       threw = true;
     }
     assert(threw, "invokeSupabaseCli throws (fails closed) for a nonexistent subcommand");
+  }
+
+  // ==========================================================================
+  // sqlQueryLinkedSync temp-file transport - multi-line SQL fix (fixes the
+  // verified `supabase db query --linked <sql-as-positional-arg>` multi-line
+  // truncation/silent-wrong-result bug - see the module doc comment).
+  // ==========================================================================
+  console.log("=== sqlQueryLinkedSync temp-file transport ===");
+
+  function listTempSqlFiles(): string[] {
+    try {
+      return readdirSync(tmpdir()).filter(
+        (f) => f.startsWith("kolbox-backfill-sql-") && f.endsWith(".sql"),
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  // Structural regression guard: no positional SQL argv element may return -
+  // sqlQueryLinkedSync must invoke --file with a temp path, never a raw sql
+  // string as its own argv element, and never opt into shell:true.
+  {
+    const src = readFileSync(join(__dirname, "lib", "supabaseCliQuery.ts"), "utf8");
+    const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    assert(
+      !/\[\s*"db"\s*,\s*"query"\s*,\s*"--linked"\s*,\s*sql\s*\]/.test(stripped),
+      "sqlQueryLinkedSync no longer passes `sql` as a positional argv element to invokeSupabaseCli",
+    );
+    assert(
+      /"--file"/.test(stripped) &&
+        /writeFileSync\(/.test(stripped) &&
+        /unlinkSync\(/.test(stripped),
+      "sqlQueryLinkedSync writes SQL to a temp file and invokes --file, with a matching unlinkSync cleanup",
+    );
+    assert(
+      !/shell:\s*true/.test(stripped),
+      "supabaseCliQuery.ts contains no shell:true anywhere",
+    );
+  }
+
+  // Real, harmless, read-only proof against the live linked Production
+  // project: single-line SQL still works, and its temp file is gone after.
+  {
+    let ok = true;
+    let row: { v?: number } | undefined;
+    try {
+      row = await sqlQueryLinkedSync<{ v: number }>("select 1 as v");
+    } catch (err) {
+      ok = false;
+      console.error("  (single-line sqlQueryLinkedSync error:", err, ")");
+    }
+    assert(
+      ok && row?.v === 1,
+      "sqlQueryLinkedSync: single-line SQL still works against real linked Production",
+    );
+    assert(
+      listTempSqlFiles().length === 0,
+      "sqlQueryLinkedSync: temp SQL file is removed after a successful call",
+    );
+  }
+
+  // Real multi-line SQL, embedding Hebrew + quotes + a literal backslash-n in
+  // the string content itself - proves multi-line transport AND exact
+  // verbatim content preservation (no normalization/collapsing) in one live
+  // round trip, plus cleanup after success.
+  {
+    const hebrewVal = 'עברית עם "מרכאות" ותו newline\\nבתוך המחרוזת';
+    const sql = `select\n  '${hebrewVal.replace(/'/g, "''")}' as hebrew_val,\n  2 as marker`;
+    let ok = true;
+    let row: { hebrew_val?: string; marker?: number } | undefined;
+    try {
+      row = await sqlQueryLinkedSync<{ hebrew_val: string; marker: number }>(sql);
+    } catch (err) {
+      ok = false;
+      console.error("  (multi-line sqlQueryLinkedSync error:", err, ")");
+    }
+    assert(
+      ok && row?.hebrew_val === hebrewVal && row?.marker === 2,
+      "sqlQueryLinkedSync: multi-line SQL with Hebrew/quotes round-trips exactly against real linked Production",
+    );
+    assert(
+      listTempSqlFiles().length === 0,
+      "sqlQueryLinkedSync: temp SQL file is removed after a successful multi-line call",
+    );
+  }
+
+  // throwOnQueryOrCleanupFailure: the fail-closed combination logic, tested
+  // directly for all four query/cleanup outcome combinations (pure function,
+  // no fs/CLI access - no need to fabricate real filesystem failures).
+  {
+    let threw = false;
+    try {
+      throwOnQueryOrCleanupFailure("/tmp/does-not-matter.sql", undefined, undefined);
+    } catch {
+      threw = true;
+    }
+    assert(
+      !threw,
+      "throwOnQueryOrCleanupFailure: query succeeds + cleanup succeeds => does not throw",
+    );
+  }
+  {
+    let threw = false;
+    let message = "";
+    try {
+      throwOnQueryOrCleanupFailure(
+        "/tmp/does-not-matter.sql",
+        new Error("query boom"),
+        undefined,
+      );
+    } catch (err) {
+      threw = true;
+      message = err instanceof Error ? err.message : String(err);
+    }
+    assert(
+      threw,
+      "throwOnQueryOrCleanupFailure: query fails + cleanup succeeds => throws",
+    );
+    assert(
+      message.includes("query boom") && !message.includes("could not be removed"),
+      "throwOnQueryOrCleanupFailure: query-only failure message reports the query error, not a spurious cleanup failure",
+    );
+  }
+  {
+    let threw = false;
+    let message = "";
+    try {
+      throwOnQueryOrCleanupFailure(
+        "/tmp/does-not-matter.sql",
+        undefined,
+        new Error("cleanup boom"),
+      );
+    } catch (err) {
+      threw = true;
+      message = err instanceof Error ? err.message : String(err);
+    }
+    assert(
+      threw,
+      "throwOnQueryOrCleanupFailure: query succeeds + cleanup fails => overall failure (caller does NOT receive a successful result)",
+    );
+    assert(
+      message.includes("cleanup boom") && message.includes("succeeded"),
+      "throwOnQueryOrCleanupFailure: cleanup-only failure message makes clear the query succeeded but cleanup did not - never silently treated as success",
+    );
+  }
+  {
+    let threw = false;
+    let message = "";
+    try {
+      throwOnQueryOrCleanupFailure(
+        "/tmp/does-not-matter.sql",
+        new Error("query boom"),
+        new Error("cleanup boom"),
+      );
+    } catch (err) {
+      threw = true;
+      message = err instanceof Error ? err.message : String(err);
+    }
+    assert(threw, "throwOnQueryOrCleanupFailure: query fails + cleanup fails => throws");
+    assert(
+      message.includes("query boom") && message.includes("cleanup boom"),
+      "throwOnQueryOrCleanupFailure: query-and-cleanup failure reports BOTH facts, neither masking the other",
+    );
+  }
+  {
+    // ENOENT is explicitly excluded from being treated as a cleanup failure
+    // by sqlQueryLinkedSync's own caller-side check (the file is already
+    // gone = already-cleaned) - throwOnQueryOrCleanupFailure itself only
+    // ever receives a defined cleanupError for a genuine non-ENOENT failure,
+    // so this documents that contract rather than re-testing the ENOENT
+    // filter (which lives in sqlQueryLinkedSync, exercised live below).
+    let threw = false;
+    try {
+      throwOnQueryOrCleanupFailure("/tmp/does-not-matter.sql", undefined, undefined);
+    } catch {
+      threw = true;
+    }
+    assert(
+      !threw,
+      "throwOnQueryOrCleanupFailure: an absent (undefined) cleanupError - the ENOENT/already-cleaned case - never triggers a failure",
+    );
+  }
+
+  // Live proof that a thrown error's message never contains the SQL text
+  // itself, even when the query is invalid - the SQL never touches argv or
+  // any error path in the --file transport, so a distinctive marker
+  // embedded in a deliberately-invalid query must never leak into the
+  // thrown message.
+  {
+    const marker = "KOLBOX_SQL_CONTENT_MARKER_SHOULD_NEVER_LEAK";
+    let message = "";
+    try {
+      await sqlQueryLinkedSync(`select ${marker} this is not valid sql !!!`);
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    assert(
+      message.length > 0 && !message.includes(marker),
+      "sqlQueryLinkedSync: a thrown error's message never contains the SQL text itself, even for an invalid query with a distinctive marker embedded",
+    );
+  }
+
+  // The exact previously-failing multi-line jsonb_build_object shape that
+  // checkRpcAcl() in backfillPreflight.ts constructs (reproduced verbatim
+  // here, not imported, since checkRpcAcl is not exported) - proven live
+  // against pg_proc, not a business table.
+  {
+    const RPC_FUNCTION_NAME = "election_day_backfill_historical_workspace";
+    const sql = `
+      select jsonb_build_object(
+        'overloadCount', (select count(*) from pg_proc where proname = '${RPC_FUNCTION_NAME}' and pronamespace = 'public'::regnamespace),
+        'securityDefiner', (select prosecdef from pg_proc where proname = '${RPC_FUNCTION_NAME}' and pronamespace = 'public'::regnamespace limit 1)
+      ) as snapshot
+    `;
+    let ok = true;
+    let row:
+      | { snapshot?: { overloadCount: number; securityDefiner: boolean } }
+      | undefined;
+    try {
+      row = await sqlQueryLinkedSync<{
+        snapshot: { overloadCount: number; securityDefiner: boolean };
+      }>(sql);
+    } catch (err) {
+      ok = false;
+      console.error("  (checkRpcAcl-shaped sqlQueryLinkedSync error:", err, ")");
+    }
+    assert(
+      ok &&
+        typeof row?.snapshot?.overloadCount === "number" &&
+        typeof row?.snapshot?.securityDefiner === "boolean",
+      "sqlQueryLinkedSync: real checkRpcAcl()-shaped multi-line jsonb_build_object query works against real linked Production",
+    );
+  }
+
+  // Malformed query must fail closed - never a silent/empty success - and
+  // must still clean up its temp file even on failure.
+  {
+    let threw = false;
+    try {
+      await sqlQueryLinkedSync("select this is not valid sql !!!");
+    } catch {
+      threw = true;
+    }
+    assert(
+      threw,
+      "sqlQueryLinkedSync throws (fails closed) for a malformed query, not a silent/empty success",
+    );
+    assert(
+      listTempSqlFiles().length === 0,
+      "sqlQueryLinkedSync: temp SQL file is removed after a failed call too",
+    );
   }
 
   if (process.exitCode) {
