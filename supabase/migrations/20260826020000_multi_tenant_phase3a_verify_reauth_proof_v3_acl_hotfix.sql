@@ -1,0 +1,64 @@
+-- Multi-Tenant Phase 3A - SECURITY HOTFIX: close a confirmed ACL deviation
+-- on election_day_verify_reauth_proof_v3, found by direct Production
+-- postflight inspection after Migration 56's apply (not simulated, not
+-- assumed).
+--
+-- Incident: election_day_verify_reauth_proof_v3 was designed as an
+-- internal-only helper - "Not granted to any role, including service_role
+-- - callable only from inside a future privileged mutation RPC's own
+-- SECURITY DEFINER body" (its own comment in 20260826010000). That
+-- migration's ACL block for this one function only explicitly revoked
+-- EXECUTE from public/anon/authenticated - it never explicitly revoked
+-- from service_role, on the (locally-true, Production-false) assumption
+-- that omitting a GRANT statement would leave service_role without
+-- access. Direct inspection of Production's own pg_default_acl (read-only,
+-- not simulated) confirms the same per-role default-privilege entry for
+-- role postgres, schema public, objtype 'f' (functions) already documented
+-- by the original 20260824020000 Backfill-RPC hotfix:
+-- `{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,
+-- service_role=X/postgres}` - this hosted project auto-grants EXECUTE to
+-- service_role (and anon/authenticated) on every newly-created function
+-- unless explicitly revoked by name. REVOKE ... FROM PUBLIC alone never
+-- touches this individually-named-role default grant - only an explicit
+-- REVOKE naming the role does. This migration is that explicit, targeted
+-- fix, following the exact same shape as the original hotfix.
+--
+-- Not a novel mistake unique to this function: the same gap (revoke from
+-- public/anon/authenticated only, no explicit service_role revoke) already
+-- exists, previously unflagged, on the legacy election_day_verify_
+-- reauth_proof this function was directly modeled on (confirmed live via
+-- the same postflight query) - out of scope for this narrow hotfix, which
+-- touches only the one function this turn is authorized to fix.
+--
+-- Not browser-exploitable: PUBLIC/anon/authenticated already have zero
+-- EXECUTE on this function (confirmed unaffected by the incident - only
+-- service_role, a credential no browser ever holds, gained the extra
+-- access). Still a real, confirmed deviation from this function's own
+-- stated design intent, closed here rather than left unaddressed.
+--
+-- Scope, deliberately narrow, mirroring 20260824020000 exactly: only the
+-- EXECUTE ACL on this one function, this one overload
+-- (bytea, bytea, text) - the verified live signature (identity arguments
+-- p_session_hash bytea, p_proof_hash bytea, p_action text; confirmed via
+-- direct pg_proc/regprocedure inspection immediately before authoring this
+-- file - NOT the (bytea, uuid, uuid, text) signature that had been assumed
+-- in this fix's own authorization request, which does not match the
+-- function as actually defined by 20260826010000 or as actually deployed).
+-- Does NOT modify ALTER DEFAULT PRIVILEGES (the underlying legacy
+-- configuration that causes this - fixing that globally remains a
+-- separate, larger, not-yet-approved change, exactly as the original
+-- hotfix scoped it). Does NOT modify the function body, does NOT drop or
+-- recreate the function, does NOT touch any other function's ACL.
+revoke execute on function public.election_day_verify_reauth_proof_v3(bytea, bytea, text) from public;
+revoke execute on function public.election_day_verify_reauth_proof_v3(bytea, bytea, text) from anon;
+revoke execute on function public.election_day_verify_reauth_proof_v3(bytea, bytea, text) from authenticated;
+revoke execute on function public.election_day_verify_reauth_proof_v3(bytea, bytea, text) from service_role;
+
+-- ============================================================================
+-- ROLLBACK (manual - copy/paste and run against the target database if this
+-- hotfix needs to be reversed; not expected to ever be needed, since it
+-- only narrows access - reversing it would re-open the gap this migration
+-- exists to close):
+--
+--   grant execute on function public.election_day_verify_reauth_proof_v3(bytea, bytea, text) to service_role;
+-- ============================================================================
