@@ -58,6 +58,20 @@ function getServiceClient() {
   const url = process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SECRET_KEY;
   if (!url || !serviceKey) {
+    // TEMPORARY DIAGNOSTIC - added 2026-08-26 to investigate a Production
+    // SERVER_CONFIG_MISSING failure with both names reportedly configured.
+    // Fires ONLY on this exact failure path (never on success), and only
+    // via `vercel logs` - never an HTTP response, never a value/length/
+    // prefix/suffix/hash of either credential. Remove this console.log
+    // line in the same commit that closes the diagnosis.
+    console.log(
+      "SESSION_CONFIG_DIAG",
+      JSON.stringify({
+        supabaseUrlPresent: Boolean(url),
+        supabaseSecretPresent: Boolean(serviceKey),
+        vercelEnv: process.env.VERCEL_ENV,
+      }),
+    );
     throw new Error("SERVER_CONFIG_MISSING");
   }
   return createClient(url, serviceKey, {
@@ -118,17 +132,30 @@ function clearSessionCookie(res: MinimalResponse): void {
   );
 }
 
+// Only constructs the service client once a request has survived every
+// check that doesn't need one (method, Origin, cookie presence, blank
+// input) - so a malformed/forged/no-op request fails fast without ever
+// touching Supabase, and never spuriously surfaces SERVER_CONFIG_MISSING
+// for a request that didn't need the DB anyway.
+function requireServiceClient(
+  res: MinimalResponse,
+): ReturnType<typeof createClient> | null {
+  try {
+    return getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return null;
+  }
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
 ): Promise<void> {
   const method = req.method ?? "GET";
 
-  let supabase: ReturnType<typeof createClient>;
-  try {
-    supabase = getServiceClient();
-  } catch {
-    sendError(res, 500, "SERVER_CONFIG_MISSING");
+  if (method !== "POST" && method !== "GET" && method !== "DELETE") {
+    sendError(res, 405, "METHOD_NOT_ALLOWED");
     return;
   }
 
@@ -151,6 +178,9 @@ export default async function handler(
       sendError(res, 401, "UNAUTHORIZED");
       return;
     }
+
+    const supabase = requireServiceClient(res);
+    if (!supabase) return;
 
     // Rate-limit registration is a SEPARATE call, made and enforced here,
     // BEFORE election_day_login_v2 is ever invoked - see that function's
@@ -230,6 +260,9 @@ export default async function handler(
       return;
     }
 
+    const supabase = requireServiceClient(res);
+    if (!supabase) return;
+
     const { data, error } = await supabase.rpc("election_day_resolve_session", {
       p_session_hash: toPgBytea(sha256Hex(rawToken)),
     });
@@ -262,6 +295,12 @@ export default async function handler(
 
     const rawToken = req.cookies?.[SESSION_COOKIE_NAME];
     if (rawToken) {
+      // A DB call is only ever made when there's actually a cookie to
+      // resolve/invalidate - a logout with no cookie is a pure no-op and
+      // never needs a service client at all.
+      const supabase = requireServiceClient(res);
+      if (!supabase) return;
+
       // Idempotent RPC - a missing/unknown hash is a silent no-op, so
       // logout never fails client-side regardless of prior session state.
       await supabase.rpc("election_day_logout_v2", {
@@ -273,6 +312,4 @@ export default async function handler(
     res.status(200).json({ ok: true });
     return;
   }
-
-  sendError(res, 405, "METHOD_NOT_ALLOWED");
 }
