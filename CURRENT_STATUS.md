@@ -940,3 +940,20 @@ New supervisory dashboard section, manager-only (`role.scopeType === "all"` - th
 6. ~~The Vercel CLI needs a fresh interactive login~~ - **stale as of 2026-08-21**: `npx vercel ls`/`inspect` both worked with an authenticated session this rollout (no interactive login needed), confirming a valid CLI session now exists. Deployment/`readyState` checks are usable going forward; `vercel inspect --json` still exposes no `meta.githubCommitSha`/`gitSource` for this project's deployments specifically (a data-shape limitation of what Vercel returns here, not an auth issue) - the bundle-hash comparison method remains the proof-of-record for live-code identity regardless.
 
 **Recommended next step**: none of the items above were assigned or approved as the next piece of work as of this update - check with whoever's driving before starting on any of them. If a next step is wanted purely from a hygiene standpoint, item 1 (Reminder History Backfill Portability Debt) is the only one already named as a specific, scoped standing item rather than an open-ended checklist category.
+
+## Follow-up (2026-08-26) - dedicated Supabase Secret API Key created for the Vercel Session runtime
+
+A dedicated modern Supabase Secret API Key was created for project `nbymfgphnsounqncfjgl`, named `kolbox_vercel_runtime_20260826`, exclusively for the Vercel Session endpoint (`api/election-day/session.ts`) - created manually via the Supabase Dashboard (the installed Supabase CLI's `projects api-keys` subcommand only lists existing keys, it has no create capability, and extracting the CLI's own Management API token from Windows Credential Manager to script the creation was judged too high a secret-leak-surface risk to attempt - see the prior turn's report for the full reasoning). Does not reuse `historical_backfill_20260824`; is not a legacy JWT `service_role` key.
+
+Configured in Vercel Production (verified read-only via `vercel env ls`, value never read/printed):
+- `SUPABASE_SECRET_KEY` - present, scope = Production only, type = Sensitive (value hidden).
+- No `VITE_SUPABASE_SECRET_KEY` exists (would leak into the client bundle - confirmed absent).
+- No `SUPABASE_SERVICE_ROLE_KEY` was added (the pre-rename name - confirmed absent, matching the intentional rename documented above).
+- `VITE_SUPABASE_PUBLISHABLE_KEY` and `VITE_SUPABASE_URL` unchanged (same scope/type, same creation timestamp as before).
+- No Preview or Development entry exists for `SUPABASE_SECRET_KEY` - Production only, confirmed via an unscoped `vercel env ls`.
+
+Secret value was never recorded anywhere - not in this file, not in any tracked/untracked repo file, not in any command argument or log.
+
+Current state: Production DB remains 57/57 migrations applied, zero pending, zero drift. Local git remains 3 commits ahead of `origin/master`, 0 behind (unchanged by this turn - no commit was made). The Session endpoint (`api/election-day/session.ts`, committed in `93a0b66`) is still not pushed and not deployed. Frontend login cutover has not started. Vercel Production now holds every environment variable the Session endpoint's code expects at runtime, but the endpoint itself is not yet live to consume it.
+
+Next step: review and commit this checkpoint (this file only, or alongside any other explicitly-authorized file), then a separately-authorized push/deploy before the Session endpoint can actually run in Production.
