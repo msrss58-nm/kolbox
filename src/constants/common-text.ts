@@ -6,6 +6,7 @@ export const COMMON_TEXT = {
   loading: "טוען…",
   genericError: "אירעה שגיאה, נסו שוב",
   networkError: "אין חיבור לאינטרנט - בדקו את החיבור ונסו שוב",
+  retry: "נסה שוב",
   multiSelect: {
     selectedCount: (n: number) => `${n} נבחרו`,
     clearAll: "נקה הכל",

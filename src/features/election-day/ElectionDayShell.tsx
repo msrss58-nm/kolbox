@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
-import { Outlet, useOutletContext } from "react-router";
+import { Outlet, useNavigate, useOutletContext } from "react-router";
 import { PageHeader } from "../../components/PageHeader";
-import { ELECTION_DAY_NAV_SECTION_LABEL, NAV_ITEMS } from "../../constants/routes";
+import { toast } from "../../components/ui/Toast";
+import { COMMON_TEXT } from "../../constants/common-text";
+import { ELECTION_DAY_NAV_SECTION_LABEL, NAV_ITEMS, ROUTES } from "../../constants/routes";
 import { useAuth } from "../auth/authStore";
 import { usePermissions } from "../../permissions/usePermissions";
 import { AppShell } from "../../app/AppShell";
@@ -48,8 +50,34 @@ export function ElectionDayShell() {
   const countdownParts = useCountdown(electionDay.deadline);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
 
+  const navigate = useNavigate();
   const sessionUser = useElectionDaySession((s) => s.user);
-  const logout = useElectionDaySession((s) => s.logout);
+  const logoutAction = useElectionDaySession((s) => s.logout);
+  // Phase 3B logout cutover: `logout()` makes a real server DELETE and
+  // throws on failure. `ElectionDayGuard`'s own `sessionResult` (from its
+  // own `useAsyncData(bootstrap)` call) is intentionally independent of
+  // this store's `user` field - that's what stops a stale `user` from ever
+  // granting route access - but it also means the Guard has no way to
+  // notice `user` becoming `null` here on its own; nothing re-triggers its
+  // bootstrap fetch. Confirmed empirically (not just by code reading): a
+  // real browser, already on the authenticated protected route, stayed
+  // there indefinitely after a successful logout DELETE with no explicit
+  // navigation. So this handler navigates explicitly on success - the
+  // Guard doesn't need to authorize from `user` for this to work, it just
+  // needs to unmount, which leaving its route does directly. On failure,
+  // no navigation happens and the authenticated screen (and `user`, which
+  // the store itself left untouched) stays exactly as it was - same
+  // toast-on-error convention as every other mutation in this codebase.
+  // Duplicate-click protection is the store's own `loggingOut` guard, not
+  // anything tracked here.
+  const logout = async () => {
+    try {
+      await logoutAction();
+      navigate(ROUTES.electionDayLogin, { replace: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : COMMON_TEXT.genericError);
+    }
+  };
   const { can } = usePermissions();
 
   // Same managerOnly filter AppLayout.tsx applies to NAV_ITEMS, reused as-is

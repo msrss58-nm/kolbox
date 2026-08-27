@@ -1037,6 +1037,9 @@ export const ELECTION_DAY_TEXT = {
     signOut: "התנתקות",
     errors: {
       invalidCredentials: "שם משתמש או סיסמה שגויים",
+      /** Phase 3B: no legacy equivalent existed - the pre-cutover login had
+       * no rate limiting at all. */
+      rateLimited: "יותר מדי ניסיונות התחברות. נסו שוב בעוד כמה דקות",
     },
   },
 } as const;

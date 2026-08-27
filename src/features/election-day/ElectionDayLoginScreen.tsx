@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router";
 import { LogoMark } from "../../components/Logo";
@@ -6,17 +6,25 @@ import { Button } from "../../components/ui/Button";
 import { Field, Input } from "../../components/ui/Field";
 import { ROUTES } from "../../constants/routes";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
-import { useElectionDaySession } from "./electionDaySession";
+import { clearLegacySession, useElectionDaySession } from "./electionDaySession";
 
 const text = ELECTION_DAY_TEXT.session;
 const passwordText = ELECTION_DAY_TEXT.permissionsManager;
 
 /** Username+password gate for `/election-day` only - checks against the
- * local roster managed in "ניהול הרשאות משתמשים" (`useElectionDaySession`),
- * not the rest of the app's auth. */
+ * server-verified roster (`useElectionDaySession`, Phase 3B), not the rest
+ * of the app's auth. This route is standalone (not nested under
+ * `ElectionDayGuard`), so it runs its own one-time legacy-localStorage
+ * cleanup on mount rather than relying on the Guard's `bootstrap()` to
+ * always run first - a user who lands here directly and never submits
+ * would otherwise never hit that cleanup at all. */
 export function ElectionDayLoginScreen() {
   const login = useElectionDaySession((s) => s.login);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    clearLegacySession();
+  }, []);
 
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
