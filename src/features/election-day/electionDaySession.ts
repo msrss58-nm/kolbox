@@ -15,6 +15,28 @@ import {
 
 const LEGACY_SESSION_KEY = "election-day-session-v1";
 
+/**
+ * `login()`'s result contract. Deliberately a 3-way discriminated union, not
+ * `string | null` - a suppressed duplicate submit must resolve to a value
+ * the caller cannot mistake for a real, server-confirmed outcome. (Found and
+ * fixed: the previous `string | null` contract had the duplicate-guard's
+ * synchronous early-return resolve to the same `null` a real success
+ * returned, so `ElectionDayLoginScreen.tsx`'s `if (err) {...} else
+ * navigate(...)` could - and in a real near-simultaneous double-submit, did
+ * - navigate away before the real, still-in-flight attempt had actually
+ * resolved, regardless of whether that real attempt was going to succeed or
+ * fail.)
+ */
+export type LoginActionResult =
+  | { status: "success" }
+  | { status: "error"; message: string }
+  /** A duplicate/overlapping call was suppressed while a real attempt was
+   * already in flight - no network request was made, `user` is untouched,
+   * and the caller must take NO action (no navigation, no error message):
+   * the real, already-in-flight call owns this outcome and will resolve it
+   * on its own turn. */
+  | { status: "ignored" };
+
 export interface ElectionDaySessionUser {
   id: string;
   name: string;
@@ -30,19 +52,31 @@ export interface ElectionDaySessionUser {
 
 interface ElectionDaySessionState {
   user: ElectionDaySessionUser | null;
+  /** Guards against a double-submit firing a second overlapping POST while
+   * one is already in flight - checked/set at the very top of `login()`,
+   * before any `await`, independent of whatever the calling component's own
+   * render/disabled-state cycle looks like (a fast enough double-click or
+   * double Enter can fire a second submit event before React re-renders the
+   * form's own `submitting` state, let alone the `Button`'s `disabled`
+   * prop). A suppressed duplicate resolves to `{status:"ignored"}` (see
+   * `LoginActionResult` above) without making any network request, so it
+   * never consumes an additional rate-limited login attempt. Mirrors
+   * `loggingOut` below. */
+  loggingIn: boolean;
   /** Guards against a double-click firing a second overlapping DELETE while
    * one is already in flight - checked/set at the very top of `logout()`,
    * independent of whatever the calling component's own render cycle looks
    * like (a component-level `busy` flag alone can't guarantee this, since a
    * fast enough double-click can fire before React re-renders). */
   loggingOut: boolean;
-  /** Returns an error message on failure, or null on success. Deliberately
-   * does NOT hydrate `user` on success - the POST response only proves
-   * credentials and establishes the `__Host-kb_ed_session` cookie;
-   * `ElectionDayGuard`'s own GET (`bootstrap()` below) is the single
+  /** Deliberately does NOT hydrate `user` on `"success"` - the POST response
+   * only proves credentials and establishes the `__Host-kb_ed_session`
+   * cookie; `ElectionDayGuard`'s own GET (`bootstrap()` below) is the single
    * revalidation gate before `user` is ever set and the protected route
-   * renders (Phase 3B Step 2/3). */
-  login: (name: string, password: string) => Promise<string | null>;
+   * renders (Phase 3B Step 2/3). See `LoginActionResult` above for why a
+   * suppressed duplicate resolves to `"ignored"` rather than something a
+   * caller could mistake for `"success"`. */
+  login: (name: string, password: string) => Promise<LoginActionResult>;
   /** Phase 3B logout cutover: DELETE `/api/election-day/session` first: on
    * success, clears the cached reauth proof (best-effort server revoke +
    * local clear) and `user`; on failure, throws and touches NOTHING else -
@@ -104,26 +138,40 @@ function toStoredUser(user: ServerSessionUser): ElectionDaySessionUser {
  */
 export const useElectionDaySession = create<ElectionDaySessionState>((set, get) => ({
   user: null,
+  loggingIn: false,
   loggingOut: false,
 
   login: async (name, password) => {
-    const result = await loginRequest(name, password);
-    // Security Hardening (Reauth): a successful login changes the signed-in
-    // actor - drop any reauth proof left over from a previous session
-    // regardless of this attempt's outcome, same defensive reasoning as
-    // before this rewrite.
-    useElectionDayReauthProof.getState().clearProof();
-    if (result.status === "authenticated") {
-      // Kick off the role-catalog fetch immediately on a real, interactive
-      // login (Dynamic Roles & Permissions Phase 1) instead of waiting for
-      // the first `usePermissions()` mount - a no-op if already
-      // loading/loaded. Fire-and-forget: this doesn't depend on `user`
-      // being hydrated yet (the catalog itself isn't role-specific), so it
-      // can start before `ElectionDayGuard`'s own GET even runs.
-      void useRoleCatalogStore.getState().ensureLoaded();
-      return null;
+    // Duplicate-submit guard - a login POST is already in flight, so this
+    // call is a silent no-op (no network request, no rate-limit attempt
+    // consumed) rather than firing a second overlapping request. Checked
+    // before any `await`, so it's synchronous with the call itself -
+    // independent of React's own render timing (see this field's own doc
+    // comment above).
+    if (get().loggingIn) return { status: "ignored" };
+    set({ loggingIn: true });
+    try {
+      const result = await loginRequest(name, password);
+      // Security Hardening (Reauth): a successful login changes the
+      // signed-in actor - drop any reauth proof left over from a previous
+      // session regardless of this attempt's outcome, same defensive
+      // reasoning as before this rewrite.
+      useElectionDayReauthProof.getState().clearProof();
+      if (result.status === "authenticated") {
+        // Kick off the role-catalog fetch immediately on a real,
+        // interactive login (Dynamic Roles & Permissions Phase 1) instead
+        // of waiting for the first `usePermissions()` mount - a no-op if
+        // already loading/loaded. Fire-and-forget: this doesn't depend on
+        // `user` being hydrated yet (the catalog itself isn't
+        // role-specific), so it can start before `ElectionDayGuard`'s own
+        // GET even runs.
+        void useRoleCatalogStore.getState().ensureLoaded();
+        return { status: "success" };
+      }
+      return { status: "error", message: mapLoginFailureMessage(result) };
+    } finally {
+      set({ loggingIn: false });
     }
-    return mapLoginFailureMessage(result);
   },
 
   logout: async () => {

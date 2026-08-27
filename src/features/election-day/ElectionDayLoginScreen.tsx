@@ -36,10 +36,18 @@ export function ElectionDayLoginScreen() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const err = await login(name, password);
+    const result = await login(name, password);
+    if (result.status === "ignored") {
+      // A duplicate submit was suppressed at the store boundary - a real
+      // attempt is already in flight and owns this form's pending state; it
+      // will resolve it (re-enable/error/navigate) on its own turn. Taking
+      // no action here is what prevents a suppressed duplicate from ever
+      // navigating away before the real attempt has actually resolved.
+      return;
+    }
     setSubmitting(false);
-    if (err) {
-      setError(err);
+    if (result.status === "error") {
+      setError(result.message);
       return;
     }
     void navigate(ROUTES.electionDay, { replace: true });

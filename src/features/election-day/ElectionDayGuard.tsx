@@ -15,6 +15,37 @@ export interface ElectionDayOutletContext {
   isBootstrap: boolean;
 }
 
+function FullScreenSpinner() {
+  return (
+    <div className="grid min-h-dvh place-items-center bg-surface">
+      <LogoMark className="size-12 animate-pulse" />
+    </div>
+  );
+}
+
+/** Shared by the roster-fetch and session-fetch error branches below so the
+ * two independent failures (each with its own retry) don't duplicate this
+ * markup/copy. */
+function ConnectionErrorScreen({
+  onRetry,
+  loading,
+}: {
+  onRetry: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="grid min-h-dvh place-items-center bg-surface p-6">
+      <div className="w-full max-w-sm space-y-4 text-center">
+        <LogoMark className="mx-auto size-12" />
+        <p className="text-sm text-slate-600">{COMMON_TEXT.networkError}</p>
+        <Button onClick={onRetry} loading={loading}>
+          {COMMON_TEXT.retry}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Gates `/election-day` behind the trusted server-side session (Phase 3B
  * Step 2/3 - `electionDaySession.ts`'s `bootstrap()`, replacing the
@@ -32,7 +63,12 @@ export interface ElectionDayOutletContext {
  */
 export function ElectionDayGuard() {
   const fetchPermissionUsers = useCallback(() => api.listPermissionUsers(), []);
-  const { data: permissionUsers } = useAsyncData(fetchPermissionUsers);
+  const {
+    data: permissionUsers,
+    error: rosterError,
+    loading: rosterLoading,
+    reload: retryRoster,
+  } = useAsyncData(fetchPermissionUsers);
 
   const bootstrap = useElectionDaySession((s) => s.bootstrap);
   const fetchSession = useCallback(() => bootstrap(), [bootstrap]);
@@ -49,17 +85,33 @@ export function ElectionDayGuard() {
   // while bootstrap is unresolved or errored (Phase 3B Step 2/3).
   const user = useElectionDaySession((s) => s.user);
 
-  // Wait for BOTH fetches to resolve at least once before making any
-  // routing decision - never a partial-information decision, which is what
-  // would otherwise cause a login-screen flash while one fetch is still in
-  // flight. A later retry (see the error branch below) doesn't re-trigger
-  // this full-screen spinner - see `sessionLoading`'s use below instead.
-  if (permissionUsers === null || sessionResult === null) {
-    return (
-      <div className="grid min-h-dvh place-items-center bg-surface">
-        <LogoMark className="size-12 animate-pulse" />
-      </div>
-    );
+  // Wait for the roster fetch to settle - successful data OR an explicit
+  // error. An errored fetch must never be read as "still loading" (which
+  // spun forever before this fix) nor fall through to the empty-roster
+  // check below (which would wrongly grant the bootstrap exception on a
+  // transient RPC failure instead of a genuinely empty roster).
+  if (permissionUsers === null && !rosterError) {
+    return <FullScreenSpinner />;
+  }
+
+  if (rosterError) {
+    return <ConnectionErrorScreen onRetry={retryRoster} loading={rosterLoading} />;
+  }
+
+  if (!permissionUsers) {
+    // Unreachable given the two branches above (the roster has settled
+    // successfully at this point) - narrows the type explicitly rather than
+    // relying on the compiler to connect facts across the compound
+    // condition above. No protected route access is granted from here.
+    return <FullScreenSpinner />;
+  }
+
+  // Only now wait for the session fetch too - matches the pre-existing
+  // combined gate's behavior (both fetches settle before any routing
+  // decision), just split so a roster error surfaces immediately instead of
+  // being masked behind a still-pending session fetch.
+  if (sessionResult === null) {
+    return <FullScreenSpinner />;
   }
 
   // Roster-empty bootstrap is checked BEFORE the session-error gate below -
@@ -82,17 +134,7 @@ export function ElectionDayGuard() {
   }
 
   if (sessionResult.status === "error") {
-    return (
-      <div className="grid min-h-dvh place-items-center bg-surface p-6">
-        <div className="w-full max-w-sm space-y-4 text-center">
-          <LogoMark className="mx-auto size-12" />
-          <p className="text-sm text-slate-600">{COMMON_TEXT.networkError}</p>
-          <Button onClick={() => retrySession()} loading={sessionLoading}>
-            {COMMON_TEXT.retry}
-          </Button>
-        </div>
-      </div>
-    );
+    return <ConnectionErrorScreen onRetry={retrySession} loading={sessionLoading} />;
   }
 
   if (sessionResult.status !== "authenticated") {
