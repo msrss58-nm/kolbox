@@ -180,12 +180,19 @@ export function ElectionDayShell() {
       />
 
       {/* Security Hardening (Reauth): the shared password-reauth prompt for
-          this hook's admin/import mutations (add/delete permission user,
-          reset password, import) - reuses `AllocationPasswordDialog`'s
-          existing visual pattern, same as the coordinator-allocation
-          mutations already do. */}
+          this hook's remaining legacy admin/import mutations (delete
+          permission user, reset password, import) - reuses
+          `AllocationPasswordDialog`'s existing visual pattern, same as the
+          coordinator-allocation mutations already do. */}
       {electionDay.reauthDialog && (
         <AllocationPasswordDialog {...electionDay.reauthDialog} />
+      )}
+
+      {/* Phase 3C: the independent trusted-v3 password prompt for
+          `addPermissionUser` alone - a SEPARATE dialog instance from the
+          legacy one above, never sharing its pending/proof state. */}
+      {electionDay.createUserReauthDialog && (
+        <AllocationPasswordDialog {...electionDay.createUserReauthDialog} />
       )}
 
       <OverdueReminderStack contacts={electionDay.scopedContacts} onOpen={setOpenContactId} />

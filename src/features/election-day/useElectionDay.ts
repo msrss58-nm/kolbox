@@ -20,6 +20,7 @@ import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDaySession } from "./electionDaySession";
 import { useElectionDayReauthProof } from "./electionDayReauthProof";
 import { useElectionDayReauth } from "./useElectionDayReauth";
+import { useCreatePermissionUserTrusted } from "./useCreatePermissionUserTrusted";
 import { resolveVisibleContacts } from "./electionDayScope";
 import { matchesElectionDaySearch } from "./electionDaySearch";
 import {
@@ -121,13 +122,16 @@ export function useElectionDay() {
     };
   }
 
-  // Security Hardening (Reauth): the shared gate for the 4 admin/import
-  // mutations this hook owns (addPermissionUser/deletePermissionUser/
+  // Security Hardening (Reauth): the shared gate for the 3 remaining legacy
+  // admin/import mutations this hook owns (deletePermissionUser/
   // resetPermissionUserPassword/importFile) - see useElectionDayReauth.ts's
   // own doc comment for the full flow. `reauthDialog` is rendered once, by
   // ElectionDayShell.tsx (which already renders this hook's other shared
-  // dialog, ElectionDayContactModal).
+  // dialog, ElectionDayContactModal). `addPermissionUser` was cut over to
+  // the trusted v3 path (Phase 3C) - see `trustedCreateUser` below, which
+  // owns its own independent dialog/proof flow, never this one.
   const reauth = useElectionDayReauth();
+  const trustedCreateUser = useCreatePermissionUserTrusted();
 
   const fetchContacts = useCallback(() => api.listElectionDayVoters(), []);
   const {
@@ -1133,52 +1137,20 @@ export function useElectionDay() {
   );
 
   // Security Hardening (Reauth): reads the currently-cached proof directly
-  // from the store rather than taking it as an argument - same reasoning as
-  // `runImport`/`runDeletePermissionUser`. No bootstrap fallback of any
-  // kind - `election_day_create_permission_user_v2` has no empty-roster
-  // exception (removed, see the Security Phase 1 audit), so `addPermissionUser`
-  // below always goes through `reauth.gate` first and this always runs with
-  // a real, freshly-verified proof. The very first account (fresh install /
-  // local test bootstrap) is created out-of-band, never through this path -
-  // see `ElectionDayPermissionsPage`'s setup-required state.
-  const { run: runAddPermissionUser } = useAsyncAction(
+  // Phase 3C: create-user is cut over to the trusted, session-derived v3
+  // path (useCreatePermissionUserTrusted.ts) - its own dedicated dialog/
+  // proof flow, completely independent of `reauth`/`useElectionDayReauthProof`
+  // above. The v3 proof it mints never enters that legacy cache. The
+  // remaining 10 reauth-gated actions in this file (delete/reset-password/
+  // import/role-management/coordinator-allocation) are untouched and still
+  // go through `reauth.gate` exactly as before.
+  const addPermissionUser = guardedAction(
+    "electionDay.manageUsers",
     async (input: NewPermissionUser) => {
-      const proof = useElectionDayReauthProof.getState().proof ?? "";
-      try {
-        return await api.createPermissionUser(proof, input);
-      } catch (err) {
-        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
-          useElectionDayReauthProof.getState().clearProof();
-        }
-        throw err;
-      }
-    },
-    { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.added },
-  );
-
-  const addPermissionUserRaw = useCallback(
-    async (input: NewPermissionUser) => {
-      const result = await runAddPermissionUser(input);
+      const result = await trustedCreateUser.createUser(input);
       if (result) reloadPermissionUsers();
       return result;
     },
-    [runAddPermissionUser, reloadPermissionUsers],
-  );
-  // Security Hardening (Reauth): plain `guardedAction`, no bootstrap
-  // widening of any kind - identical shape to `deletePermissionUser` below.
-  // A denied session never sees a mutation attempted, let alone a call with
-  // an empty/synthetic proof.
-  const addPermissionUser = guardedAction(
-    "electionDay.manageUsers",
-    (input: NewPermissionUser) =>
-      reauth.gate(
-        {
-          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
-          summary: ELECTION_DAY_TEXT.reauth.dialogs.addPermissionUser(input.name),
-          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
-        },
-        () => addPermissionUserRaw(input),
-      ),
     "addPermissionUser",
   );
 
@@ -1481,9 +1453,13 @@ export function useElectionDay() {
     resetPermissionUserPassword,
     roles,
     // Security Hardening (Reauth): the shared password-reauth dialog for
-    // this hook's 4 gated mutations - `null` while no reauth is pending.
-    // Rendered once by `ElectionDayShell.tsx`.
+    // this hook's 3 remaining legacy gated mutations - `null` while no
+    // reauth is pending. Rendered once by `ElectionDayShell.tsx`.
     reauthDialog: reauth.reauthDialog,
+    // Phase 3C: the independent trusted-v3 dialog for `addPermissionUser`
+    // alone - a SEPARATE instance from `reauthDialog` above, never sharing
+    // its pending/proof state. Also rendered by `ElectionDayShell.tsx`.
+    createUserReauthDialog: trustedCreateUser.reauthDialog,
   };
 }
 

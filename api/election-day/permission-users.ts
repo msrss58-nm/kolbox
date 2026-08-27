@@ -96,8 +96,41 @@ function requireServiceClient(
 // messages to a fixed, safe HTTP status/code pair. Never forwards the raw
 // Postgres message for anything unrecognized - falls back to a generic
 // SERVER_ERROR so an unexpected DB-side change can never leak detail here.
-function mapRpcError(message: string | undefined): { status: number; code: string } {
-  switch (message) {
+//
+// Phase 3C: election_day_permission_users.name carries a real, global
+// `unique` constraint (`election_day_permission_users_name_key`) - the v3
+// RPC's own INSERT has no exception handler around it, so a duplicate name
+// previously fell through to the generic 500 SERVER_ERROR below (an
+// ordinary business error, not a server fault). Fixed by matching this ONE
+// specific constraint violation, narrowly, before the generic switch below:
+// PostgREST passes through the real Postgres SQLSTATE for a genuine DB-level
+// error (never P0001, which is what a plain `raise exception '<text>'` -
+// every other case below - actually produces), so `error.code === "23505"`
+// is a reliable, library-level signal, not a project-specific guess -
+// empirically confirmed against a local disposable instance calling this
+// exact RPC twice with the same name (real error object logged:
+// `{code:"23505", message:'duplicate key value violates unique constraint
+// "election_day_permission_users_name_key"', details:"Key (name)=(...)
+// already exists.", hint:null}`). Both the code AND the specific constraint
+// name are required to match - deliberately narrower than the generic
+// `message.includes("duplicate key")` pattern used elsewhere in this
+// codebase (mapRoleRpcErrorMessage/mapNonVotingReasonRpcErrorMessage), so
+// this can never misfire on an unrelated unique-violation this RPC might
+// someday raise. Never exposes the constraint name or any workspace detail
+// to the browser - only the generic 409 DUPLICATE_NAME code, mapped to a
+// single generic "name unavailable" message client-side.
+function mapRpcError(error: { message?: string; code?: string } | undefined): {
+  status: number;
+  code: string;
+} {
+  if (
+    error?.code === "23505" &&
+    typeof error.message === "string" &&
+    error.message.includes("election_day_permission_users_name_key")
+  ) {
+    return { status: 409, code: "DUPLICATE_NAME" };
+  }
+  switch (error?.message) {
     case "UNAUTHORIZED":
       return { status: 401, code: "UNAUTHORIZED" };
     case "FORBIDDEN":
@@ -199,7 +232,7 @@ export default async function handler(
   });
 
   if (error) {
-    const { status, code } = mapRpcError(error.message);
+    const { status, code } = mapRpcError(error);
     sendError(res, status, code);
     return;
   }

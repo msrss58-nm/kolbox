@@ -647,6 +647,20 @@ export const ELECTION_DAY_TEXT = {
         `כדי לשכפל את התפקיד "${name}" יש לאמת מחדש את הסיסמה שלך.`,
       importVoters: "כדי לטעון את קובץ הבוחרים יש לאמת מחדש את הסיסמה שלך.",
     },
+    /** Phase 3C frontend cutover: error copy for the trusted v3
+     * create_permission_user flow (POST /api/election-day/reauth then POST
+     * /api/election-day/permission-users) - a separate, session-derived
+     * path from the legacy proof flow above, so it gets its own small copy
+     * block rather than reusing `dialogs`/legacy RPC error text verbatim. */
+    trustedCreateErrors: {
+      wrongPassword: "הסיסמה שהזנת אינה נכונה",
+      rateLimited: "יותר מדי ניסיונות. נסו שוב בעוד כמה דקות",
+      sessionExpired: "פג תוקף האימות. נסו שוב",
+      forbidden: "אין לך הרשאה לבצע פעולה זו",
+      roleNotFound: "התפקיד שנבחר אינו זמין עוד. רעננו את העמוד ונסו שוב",
+      duplicateName: "שם המשתמש אינו זמין. בחר שם אחר.",
+      generic: "אירעה שגיאה, נסו שוב",
+    },
   },
 
   permissionsManager: {
