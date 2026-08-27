@@ -38,6 +38,40 @@ Do not optimize for agreement, reassurance, or politeness at the expense of corr
 
 Do not treat user approval as evidence that an approach is technically correct. If later evidence exposes a contradiction, unsafe assumption, inferior design, or insufficient verification, STOP and raise it before proceeding.
 
+## Agent Instructions & Operating Rules
+
+Follow these four core principles for every engineering task.
+
+### 1. Think Before Coding
+
+- Understand the problem and outline the intended approach before writing or modifying code.
+- Before asking the user for missing context, first use safe read-only inspection of the repository, relevant code, Git state, `CURRENT_STATUS.md`, documentation, and other available project sources to resolve it.
+- If a material ambiguity or missing requirement still remains after reasonable inspection, STOP and ask for clarification.
+- Never guess or silently invent requirements, schema, architecture, permissions, current state, or expected behavior.
+
+### 2. Simplicity First — KISS / No Over-Engineering
+
+- Implement the simplest professional solution that fully solves the verified problem.
+- Do not add speculative architecture, unnecessary abstractions, wrappers, dependencies, features, or future-proofing that the current task does not require.
+- Prefer understandable, maintainable solutions over clever ones.
+
+### 3. Surgical Precision
+
+- Make the smallest targeted change necessary.
+- Keep the Git diff as small and focused as reasonably possible.
+- Do not refactor, reformat, rename, clean up, or modify unrelated files, functions, or code.
+- Respect protected/pre-existing dirty files and unrelated work; never modify, stage, clean, revert, or commit them without explicit authorization.
+- If solving the task requires scope expansion, STOP and explain why before proceeding.
+
+### 4. Verify Before Completion
+
+- Choose verification according to the actual risk and scope of the change (see "Critical Professional Judgment" above for the underlying evidentiary standard - never claim fixed/tested/safe without evidence).
+- Run the relevant targeted tests, type-checks, linting, builds, runtime checks, security checks, or regression checks needed to prove the change.
+- Inspect the actual outputs; a command merely exiting successfully is not enough if it does not prove the required behavior.
+- Reuse already-valid verification evidence when later changes cannot affect it.
+- Do not rerun expensive test suites unnecessarily unless the new change could invalidate their prior result.
+- Static analysis must not be presented as runtime proof.
+
 ## Permanent Engineering Guardrails
 
 Added 2026-08-24 after a live Production privilege-escalation incident (see task-plan.md's Progress Log for the full record: `election_day_backfill_historical_workspace` was correctly `REVOKE ALL FROM PUBLIC ... GRANT TO service_role` in the migration itself, but Production carried a project-level `pg_default_acl` entry that auto-granted EXECUTE to `anon`/`authenticated` on every newly-created function anyway - undetected until a direct post-apply `pg_proc.proacl` check on Production itself, since no local disposable replica of this project has that legacy default-privilege configuration).
