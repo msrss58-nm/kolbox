@@ -58,20 +58,6 @@ function getServiceClient() {
   const url = process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SECRET_KEY;
   if (!url || !serviceKey) {
-    // TEMPORARY DIAGNOSTIC - added 2026-08-26 to investigate a Production
-    // SERVER_CONFIG_MISSING failure with both names reportedly configured.
-    // Fires ONLY on this exact failure path (never on success), and only
-    // via `vercel logs` - never an HTTP response, never a value/length/
-    // prefix/suffix/hash of either credential. Remove this console.log
-    // line in the same commit that closes the diagnosis.
-    console.log(
-      "SESSION_CONFIG_DIAG",
-      JSON.stringify({
-        supabaseUrlPresent: Boolean(url),
-        supabaseSecretPresent: Boolean(serviceKey),
-        vercelEnv: process.env.VERCEL_ENV,
-      }),
-    );
     throw new Error("SERVER_CONFIG_MISSING");
   }
   return createClient(url, serviceKey, {
