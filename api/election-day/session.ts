@@ -219,6 +219,7 @@ export default async function handler(
     }
 
     const row = (Array.isArray(data) ? data[0] : data) as {
+      actor_id: string;
       actor_name: string;
       role_id: string;
       workspace_id: string;
@@ -231,7 +232,13 @@ export default async function handler(
     // Raw token is returned to the browser ONLY via the HttpOnly cookie
     // above - it never appears in this JSON body, matching the hard
     // requirement that the raw token never appears in a response body/log.
+    // `id` is a bare identifier, not a secret - included so the frontend
+    // can source it from a server-verified response instead of trusting an
+    // unverified client-held value (needed for the still-legacy reauth
+    // path's actor_id parameter; does not by itself make that legacy path
+    // server-trusted - see CURRENT_STATUS.md).
     res.status(200).json({
+      id: row.actor_id,
       name: row.actor_name,
       roleId: row.role_id,
       workspaceId: row.workspace_id,
@@ -259,12 +266,14 @@ export default async function handler(
     }
 
     const row = (Array.isArray(data) ? data[0] : data) as {
+      actor_id: string;
       actor_name: string;
       role_id: string;
       workspace_id: string;
     };
 
     res.status(200).json({
+      id: row.actor_id,
       name: row.actor_name,
       roleId: row.role_id,
       workspaceId: row.workspace_id,
