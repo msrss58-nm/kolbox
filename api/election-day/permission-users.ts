@@ -145,13 +145,56 @@ function mapRpcError(error: { message?: string; code?: string } | undefined): {
   }
 }
 
+// Phase 3C Users EXPAND: session-derived, workspace-scoped roster read.
+// Mirrors session.ts's own GET handling - no Origin check (browsers do not
+// reliably send Origin on a same-origin simple GET, so enforcing it here
+// would break legitimate same-origin reads, not just reject forged
+// cross-site ones), just the session cookie requirement. No reauth proof -
+// a read carries no step-up requirement, matching election_day_list_
+// permission_users_v3's own "reads don't require reauth" convention. NOT
+// called by any live frontend code yet - see this file's own header.
+async function handleGet(req: MinimalRequest, res: MinimalResponse): Promise<void> {
+  const rawSessionToken = req.cookies?.[SESSION_COOKIE_NAME];
+  if (!rawSessionToken) {
+    sendError(res, 401, "UNAUTHORIZED");
+    return;
+  }
+
+  const supabase = requireServiceClient(res);
+  if (!supabase) return;
+
+  const { data, error } = await supabase.rpc("election_day_list_permission_users_v3", {
+    p_session_hash: toPgBytea(sha256Hex(rawSessionToken)),
+  });
+
+  if (error) {
+    sendError(res, 401, "UNAUTHORIZED");
+    return;
+  }
+
+  const rows = (Array.isArray(data) ? data : []) as Array<{
+    id: string;
+    name: string;
+    role_id: string;
+  }>;
+
+  res
+    .status(200)
+    .json(rows.map((row) => ({ id: row.id, name: row.name, roleId: row.role_id })));
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
 ): Promise<void> {
   const method = req.method ?? "GET";
 
-  // 1. Method validation - create only in this phase.
+  if (method === "GET") {
+    await handleGet(req, res);
+    return;
+  }
+
+  // 1. Method validation - create/list only in this phase.
   if (method !== "POST") {
     sendError(res, 405, "METHOD_NOT_ALLOWED");
     return;

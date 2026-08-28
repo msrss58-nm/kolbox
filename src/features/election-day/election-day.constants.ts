@@ -321,7 +321,8 @@ export const ELECTION_DAY_TEXT = {
     reminderSupervision: {
       title: "תזכורות לטיפול",
       empty: "אין תזכורות שממתינות לטיפול",
-      dueCount: (count: number) => (count === 1 ? "תזכורת אחת ממתינה" : `${count} תזכורות ממתינות`),
+      dueCount: (count: number) =>
+        count === 1 ? "תזכורת אחת ממתינה" : `${count} תזכורות ממתינות`,
       oldestWaiting: (duration: string) => `הוותיקה ממתינה ${duration}`,
       showAll: (count: number) => `הצג את כל האחראים (${count})`,
       showFewer: "הצג פחות",
@@ -531,7 +532,8 @@ export const ELECTION_DAY_TEXT = {
     /** Always-visible label near the call controls (unlike `totalCount`
      * below, which only shows once no outcome is pending) - same "X/Y" shape
      * as `count` above, just with the Hebrew label prefixed. */
-    streakLabel: (streak: number, threshold: number) => `ללא מענה: ${streak}/${threshold}`,
+    streakLabel: (streak: number, threshold: number) =>
+      `ללא מענה: ${streak}/${threshold}`,
     /** Total raw dial-button clicks (`callAttempts`), shown only while no
      * outcome is pending - distinct from `count`/`streakLabel` above. */
     totalCount: (totalDials: number) => `סה"כ חיוגים: ${totalDials}`,
@@ -659,6 +661,22 @@ export const ELECTION_DAY_TEXT = {
       forbidden: "אין לך הרשאה לבצע פעולה זו",
       roleNotFound: "התפקיד שנבחר אינו זמין עוד. רעננו את העמוד ונסו שוב",
       duplicateName: "שם המשתמש אינו זמין. בחר שם אחר.",
+      generic: "אירעה שגיאה, נסו שוב",
+    },
+    /** Phase 3C Users (EXPAND, not yet wired to the frontend): error copy for
+     * the trusted, one-time-consumed-proof v3 delete/reset-password flows
+     * (useDeletePermissionUserTrusted.ts / useResetPermissionUserPasswordTrusted.ts).
+     * Shares wrongPassword/rateLimited/sessionExpired/forbidden/generic
+     * wording with trustedCreateErrors above (identical failure meaning),
+     * adds the two error shapes specific to these two RPCs. */
+    trustedUserErrors: {
+      wrongPassword: "הסיסמה שהזנת אינה נכונה",
+      rateLimited: "יותר מדי ניסיונות. נסו שוב בעוד כמה דקות",
+      sessionExpired: "פג תוקף האימות. נסו שוב",
+      forbidden: "אין לך הרשאה לבצע פעולה זו",
+      cannotDeleteSelf: "לא ניתן למחוק את המשתמש שלך",
+      userNotFound: "המשתמש אינו קיים",
+      invalidPassword: "יש להזין סיסמה חדשה",
       generic: "אירעה שגיאה, נסו שוב",
     },
   },

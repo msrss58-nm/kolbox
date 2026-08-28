@@ -10,18 +10,32 @@ import { createHash, randomBytes } from "node:crypto";
 // @vercel/node dependency, request-order hardening, generic fixed error
 // codes only).
 //
-// Server-side action allowlist for this phase is intentionally exactly one
-// entry - see this repo's Phase 3B planning record (CURRENT_STATUS.md) for
-// why: election_day_verify_reauth_proof_v3 (the function that actually
-// enforces one-proof-one-action binding) is only ever called today from
-// inside election_day_create_permission_user_v3's own body. The LEGACY
-// election_day_verify_reauth_proof ignores the `action` column entirely, so
-// a proof minted here for any action without a real v3 consumer would be
-// just as usable against an unrelated legacy _v2 mutation as the real proof
-// for that mutation - allowlisting more than the one action with a genuine
-// v3 consumer would advertise a narrowing property that does not actually
-// hold yet. Widen this list only in lockstep with each new _v3 RPC.
-const ALLOWED_REAUTH_ACTIONS = new Set<string>(["create_permission_user"]);
+// Server-side action allowlist - see this repo's Phase 3B/3C planning
+// records (CURRENT_STATUS.md) for why this must only ever contain actions
+// with a real v3 consumer: election_day_verify_reauth_proof_v3 (reusable-
+// within-TTL) and election_day_verify_and_consume_reauth_proof_v3
+// (one-time-consumed, Phase 3C) are the only functions that actually enforce
+// one-proof-one-action binding. The LEGACY election_day_verify_reauth_proof
+// ignores the `action` column entirely (it only accepts rows with action IS
+// NULL, since Phase 3C's isolation fix - see that migration) - so a proof
+// minted here is already correctly excluded from the legacy path. It is,
+// however, also correctly excluded from a DIFFERENT v3 action's own
+// verifier, since every v3 verifier's own p_action match rejects a
+// mismatched action. Widen this list only in lockstep with each new _v3 RPC
+// that actually consumes the corresponding action.
+//
+// Phase 3C Users (EXPAND, not yet wired to the frontend): added
+// delete_permission_user and reset_permission_user_password for the new
+// election_day_delete_permission_user_v3 / election_day_reset_permission_
+// user_password_v3 RPCs (one-time-consumed via election_day_verify_and_
+// consume_reauth_proof_v3 - see that migration's header for exact
+// semantics). No frontend code calls this endpoint with either action yet -
+// the dedicated trusted hooks exist but are not wired into useElectionDay.ts.
+const ALLOWED_REAUTH_ACTIONS = new Set<string>([
+  "create_permission_user",
+  "delete_permission_user",
+  "reset_permission_user_password",
+]);
 
 // Fail-closed body-key allowlist - see the body-validation step below for why.
 const ALLOWED_REAUTH_BODY_KEYS = new Set<string>(["password", "action"]);
