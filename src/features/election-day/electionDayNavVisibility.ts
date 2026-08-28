@@ -11,19 +11,19 @@ import type { Permission } from "../../permissions/types";
  * main app sidebar (`AppLayout.tsx`) and Election Day's own shell
  * (`ElectionDayShell.tsx`) filter identically. Mirrors exactly what the
  * retired `ElectionDayNav.tsx` accordion's per-category gating checked, just
- * applied to a route instead of an accordion section. `isBootstrap` widens
- * ONLY the permissions screen (same one deliberate exception as before - see
- * `useElectionDay.ts`'s `addPermissionUser` and CLAUDE.md).
+ * applied to a route instead of an accordion section. No `isBootstrap`
+ * widening anymore - the legacy unauthenticated bootstrap window
+ * (`ElectionDayGuard.tsx`'s empty-roster bypass) was removed since it had no
+ * reachable create-first-user path left to unlock (`ElectionDayPermissionsPage`
+ * already dead-ended on it) and only left an unauthenticated-browsing
+ * exposure - see CURRENT_STATUS.md.
  */
 export function getVisibleElectionDayNavItems(
   can: (permission: Permission) => boolean,
-  isBootstrap: boolean,
 ): NavItem[] {
   const showFiles = can("electionDay.import") || can("electionDay.clearData");
   const showPermissions =
-    can("electionDay.manageUsers") ||
-    can("electionDay.manageRolesAndPermissions") ||
-    isBootstrap;
+    can("electionDay.manageUsers") || can("electionDay.manageRolesAndPermissions");
   const showRides = can("electionDay.manageRideCoordinators");
   const showReasons =
     can("electionDay.manageNonVotingReasons") || can("voter.viewVotedStatus");

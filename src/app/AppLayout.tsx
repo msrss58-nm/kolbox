@@ -10,16 +10,9 @@ import { AppShell } from "./AppShell";
 
 /** Main app shell - AppShell chrome + Supabase auth identity, plus (UX v3.1)
  * an "יום הבחירות" section built from the SAME `getVisibleElectionDayNavItems`
- * filter `ElectionDayShell` uses, so the two never drift. `isBootstrap` is
- * always `false` here on purpose - computing it for real requires the
- * roster fetch `ElectionDayGuard` already does inside `/election-day`, and
- * doing that again here would be a new RPC call on every main-app page for
- * no benefit (a session with no real permissions sees nothing extra either
- * way - the one deliberate bootstrap exception on the permissions item never
- * needs to be visible from outside `/election-day`, since dashboard/voters
- * stay reachable and the real state renders correctly once inside the
- * shell). Election Day still has its own shell (`ElectionDayShell`) with its
- * own nav/identity - the two don't share a mounted layout (see router.tsx). */
+ * filter `ElectionDayShell` uses, so the two never drift. Election Day still
+ * has its own shell (`ElectionDayShell`) with its own nav/identity - the two
+ * don't share a mounted layout (see router.tsx). */
 export function AppLayout() {
   const user = useAuth((s) => s.user);
   const signOut = useAuth((s) => s.signOut);
@@ -36,7 +29,7 @@ export function AppLayout() {
     () => [
       {
         label: ELECTION_DAY_NAV_SECTION_LABEL,
-        items: getVisibleElectionDayNavItems(can, false),
+        items: getVisibleElectionDayNavItems(can),
       },
     ],
     [can],

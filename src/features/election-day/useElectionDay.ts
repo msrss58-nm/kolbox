@@ -21,6 +21,7 @@ import { useElectionDaySession } from "./electionDaySession";
 import { useElectionDayReauthProof } from "./electionDayReauthProof";
 import { useElectionDayReauth } from "./useElectionDayReauth";
 import { useCreatePermissionUserTrusted } from "./useCreatePermissionUserTrusted";
+import { fetchTrustedPermissionUsersRoster } from "./electionDayTrustedUsersClient";
 import { resolveVisibleContacts } from "./electionDayScope";
 import { matchesElectionDaySearch } from "./electionDaySearch";
 import {
@@ -91,13 +92,13 @@ function ridePipelineStage(c: ElectionDayVoter): number {
  * ride-status mutation, and the countdown deadline - so `ElectionDayPage`
  * stays a thin view.
  *
- * Security Hardening (Reauth): this hook no longer takes an `isBootstrap`
- * parameter - `addPermissionUser` below carries no bootstrap exception of
- * any kind (one briefly existed, both here and server-side, and was
- * explicitly removed). `ElectionDayPermissionsPage` reads `isBootstrap`
- * directly from `ElectionDayShell`'s own outlet-context re-export instead,
- * purely to decide whether to render a static setup-required state - never
- * to widen what this hook's handlers are allowed to do. */
+ * Security Hardening (Reauth): this hook takes no `isBootstrap` parameter
+ * and never did in its own scope - `addPermissionUser` below carries no
+ * bootstrap exception of any kind. The wider `isBootstrap` concept
+ * (`ElectionDayGuard`'s pre-session, roster-emptiness unauthenticated
+ * bypass, and `ElectionDayPermissionsPage`'s corresponding setup-required
+ * dead-end) has since been removed entirely - see `ElectionDayGuard.tsx`
+ * and CURRENT_STATUS.md. */
 export function useElectionDay() {
   const { can, role, catalogStatus, roles } = usePermissions();
 
@@ -162,7 +163,24 @@ export function useElectionDay() {
   const { data: rideCoordinators, reload: reloadRideCoordinators } =
     useAsyncData(fetchRideCoordinators);
 
-  const fetchPermissionUsers = useCallback(() => api.listPermissionUsers(), []);
+  // Phase 3C Users: roster READ cut over to the trusted, session-derived v3
+  // path - this hook only runs inside the already-authenticated shell (past
+  // ElectionDayGuard), so the HttpOnly session cookie the trusted GET
+  // requires always exists here. Throws on a non-"ok" result so this
+  // fetcher's error contract matches the legacy `api.listPermissionUsers()`
+  // call it replaces (which threw via `unwrapArray` on an RPC error) -
+  // `useAsyncData`'s existing loading/error handling is unchanged.
+  // `ElectionDayGuard.tsx` intentionally still calls the legacy, unscoped
+  // `election_day_list_permission_users()` RPC - it runs BEFORE any session
+  // exists (deciding whether the roster-empty bootstrap exception applies),
+  // so the session-cookie-gated trusted endpoint cannot serve that check.
+  const fetchPermissionUsers = useCallback(async () => {
+    const result = await fetchTrustedPermissionUsersRoster();
+    if (result.status !== "ok") {
+      throw new Error(result.status);
+    }
+    return result.users;
+  }, []);
   const { data: permissionUsers, reload: reloadPermissionUsers } =
     useAsyncData(fetchPermissionUsers);
 
@@ -1020,7 +1038,8 @@ export function useElectionDay() {
   // as the call button itself - whoever can dial is exactly who can report
   // the outcome.
   const { run: runRecordNoAnswer, busy: recordingNoAnswer } = useAsyncAction(
-    (id: string, callId: string) => api.recordNoAnswer(id, callId, sessionUser?.name ?? ""),
+    (id: string, callId: string) =>
+      api.recordNoAnswer(id, callId, sessionUser?.name ?? ""),
   );
   const recordNoAnswerRaw = useCallback(
     async (id: string, callId: string) => {
@@ -1039,7 +1058,8 @@ export function useElectionDay() {
   // Call Outcome Tracking: "✅ ענה" - resets the no-answer streak
   // unconditionally. Same `callId`/permission contract as `recordNoAnswer`.
   const { run: runRecordCallAnswered, busy: recordingCallAnswered } = useAsyncAction(
-    (id: string, callId: string) => api.recordCallAnswered(id, callId, sessionUser?.name ?? ""),
+    (id: string, callId: string) =>
+      api.recordCallAnswered(id, callId, sessionUser?.name ?? ""),
   );
   const recordCallAnsweredRaw = useCallback(
     async (id: string, callId: string) => {

@@ -3,7 +3,11 @@ import { Outlet, useNavigate, useOutletContext } from "react-router";
 import { PageHeader } from "../../components/PageHeader";
 import { toast } from "../../components/ui/Toast";
 import { COMMON_TEXT } from "../../constants/common-text";
-import { ELECTION_DAY_NAV_SECTION_LABEL, NAV_ITEMS, ROUTES } from "../../constants/routes";
+import {
+  ELECTION_DAY_NAV_SECTION_LABEL,
+  NAV_ITEMS,
+  ROUTES,
+} from "../../constants/routes";
 import { useAuth } from "../auth/authStore";
 import { usePermissions } from "../../permissions/usePermissions";
 import { AppShell } from "../../app/AppShell";
@@ -13,7 +17,6 @@ import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { ElectionDayContactModal } from "./ElectionDayContactModal";
 import { getVisibleElectionDayNavItems } from "./electionDayNavVisibility";
 import { useElectionDaySession } from "./electionDaySession";
-import type { ElectionDayOutletContext as BootstrapContext } from "./ElectionDayGuard";
 import { OverdueReminderStack } from "./OverdueReminderStack";
 import { roleDisplayName } from "./roleDisplayName";
 import { useCountdown } from "./useCountdown";
@@ -30,14 +33,6 @@ import { useElectionDay, type ElectionDayHook } from "./useElectionDay";
  * screen row click would). */
 export interface ElectionDayShellContext extends ElectionDayHook {
   openContact: (id: string) => void;
-  /** From `ElectionDayGuard`'s Outlet context - re-exposed here so screens
-   * nested under this Shell's own `<Outlet context={shellContext}>` (which
-   * shadows the Guard's context) can still read it. Security Hardening
-   * (Reauth): `useElectionDay()` itself no longer takes or needs this - the
-   * only remaining consumer is `ElectionDayPermissionsPage`, which renders a
-   * static, non-mutating setup-required state while this is true (never
-   * widens what any mutation is allowed to do). */
-  isBootstrap: boolean;
 }
 
 export function useElectionDayShell() {
@@ -45,7 +40,6 @@ export function useElectionDayShell() {
 }
 
 export function ElectionDayShell() {
-  const { isBootstrap } = useOutletContext<BootstrapContext>();
   const electionDay = useElectionDay();
   const countdownParts = useCountdown(electionDay.deadline);
   const [openContactId, setOpenContactId] = useState<string | null>(null);
@@ -92,10 +86,7 @@ export function ElectionDayShell() {
     [supabaseUser?.role],
   );
 
-  const visibleNavItems = useMemo(
-    () => getVisibleElectionDayNavItems(can, isBootstrap),
-    [can, isBootstrap],
-  );
+  const visibleNavItems = useMemo(() => getVisibleElectionDayNavItems(can), [can]);
 
   const electionDaySections = useMemo(
     () => [{ label: ELECTION_DAY_NAV_SECTION_LABEL, items: visibleNavItems }],
@@ -111,7 +102,6 @@ export function ElectionDayShell() {
   const shellContext: ElectionDayShellContext = {
     ...electionDay,
     openContact: setOpenContactId,
-    isBootstrap,
   };
 
   return (
@@ -195,7 +185,10 @@ export function ElectionDayShell() {
         <AllocationPasswordDialog {...electionDay.createUserReauthDialog} />
       )}
 
-      <OverdueReminderStack contacts={electionDay.scopedContacts} onOpen={setOpenContactId} />
+      <OverdueReminderStack
+        contacts={electionDay.scopedContacts}
+        onOpen={setOpenContactId}
+      />
     </AppShell>
   );
 }

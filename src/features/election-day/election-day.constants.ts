@@ -68,15 +68,6 @@ export const ELECTION_DAY_TEXT = {
     rolesTab: "תפקידים",
   },
 
-  /** Security Hardening (Reauth): rendered by `ElectionDayPermissionsPage`
-   * instead of the users/roles tabs while `isBootstrap` is true - the first
-   * PermissionUser can no longer be created through the normal in-app form
-   * (the proof-based `_v2` RPC has no empty-roster exception, by design).
-   * Deliberately non-technical - never mentions RPCs, proofs, or auth. */
-  bootstrapSetupRequired: {
-    title: "נדרשת הגדרה ראשונית",
-    hint: "לא ניתן ליצור את המשתמש הראשון מתוך הממשק הרגיל. יש לבצע הגדרה ראשונית מאובטחת לפני השימוש במערכת.",
-  },
   ridesPage: {
     coordinatorsTab: "אחראי הסעות",
     tableTab: "טבלת ההיסעים",
