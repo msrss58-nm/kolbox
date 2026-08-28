@@ -1,0 +1,61 @@
+-- Phase 3C Roles - CONTRACT step. Retires the legacy, global/unscoped
+-- `election_day_list_roles()` role-catalog RPC from anon/authenticated
+-- access, now that the trusted, workspace-scoped `election_day_list_roles_v3`
+-- (via `GET /api/election-day/roles`, migration `20260828040000`) is live and
+-- verified in Production and the deployed frontend has zero live callers of
+-- the legacy function.
+--
+-- Verified before writing this migration (exact deployed signature/ACL, not
+-- guessed): `election_day_list_roles()` takes NO arguments and its current
+-- ACL is `{postgres=X/postgres, anon=X/postgres, authenticated=X/postgres,
+-- service_role=X/postgres}` - confirmed via a fresh local disposable replay
+-- immediately before authoring this file, matching the same signature/ACL
+-- already independently confirmed live against Production during the Role
+-- Read v3 rollout.
+--
+-- Repo-wide caller inventory (not `src/`-only, re-confirmed this same
+-- session): `api.listElectionDayRoles()` (the one remaining code path that
+-- ever calls this RPC, inside `SupabaseElectionDayApi`) has zero live call
+-- sites anywhere in `src/` - both former callers (`useRoleManagement.ts`'s
+-- Role Management screen, `roleCatalogStore.ts`'s live permission engine)
+-- were cut over to the trusted v3 path in commit `8188f95`, already pushed,
+-- deployed, and independently re-confirmed against the live Production
+-- bundle (the legacy RPC string appears exactly once in the deployed
+-- bundle, inside that one dead method definition, never called). No other
+-- database function's body calls this RPC internally, and no view or
+-- trigger anywhere in this project's migration history depends on it.
+--
+-- REVOKE EXECUTE only, not DROP FUNCTION and not CREATE OR REPLACE -
+-- matching this project's own established retirement precedent
+-- (20260813130000_election_day_retire_legacy_rpcs.sql,
+-- 20260828010000_election_day_retire_legacy_list_permission_users.sql,
+-- 20260828020000_election_day_retire_legacy_delete_reset_permission_user.sql):
+-- the function body stays completely intact, so a single re-GRANT (see
+-- ROLLBACK below) is enough to restore compatibility if an unexpected
+-- dependency ever surfaces - no re-authoring, no schema risk, no data
+-- touched (this function owns no table, performs no write of any kind).
+-- `postgres` (owner) and `service_role` keep EXECUTE, unchanged - neither
+-- was ever the point of this revoke, and nothing in this project calls this
+-- RPC as `service_role` (the trusted v3 replacement,
+-- `election_day_list_roles_v3`, is its own, separate, already
+-- service_role-only function, untouched by this migration).
+--
+-- No business-data mutation of any kind - this migration touches only one
+-- function's grants.
+--
+-- Wrapped in explicit begin;/commit; for the same reason as every other
+-- migration in this project: the Supabase CLI's migration runner pipelines
+-- a file's statements via wire-protocol batching, not an implicit
+-- transaction.
+begin;
+
+revoke execute on function public.election_day_list_roles() from anon, authenticated;
+
+commit;
+
+-- ============================================================================
+-- ROLLBACK (manual, restores legacy compatibility - the function was never
+-- dropped, so this is the only step needed):
+--
+--   grant execute on function public.election_day_list_roles() to anon, authenticated;
+-- ============================================================================
