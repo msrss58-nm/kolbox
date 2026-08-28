@@ -1,4 +1,4 @@
-import { extractBearerToken, getServiceClient, verifyOwnerJwt } from "./_ownerAuth";
+import { extractBearerToken, getServiceClient, verifyOwnerJwt } from "./_ownerAuth.js";
 
 // Phase 3C Roles Mutations - minimal, read-only Owner-session/context
 // endpoint. GET-only. Lets a future frontend (none wired yet - this is

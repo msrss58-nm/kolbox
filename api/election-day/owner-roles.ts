@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { extractBearerToken, getServiceClient, verifyOwnerJwt } from "./_ownerAuth";
+import { extractBearerToken, getServiceClient, verifyOwnerJwt } from "./_ownerAuth.js";
 
 // Phase 3C Roles Mutations - Owner-only Role mutation endpoint (create /
 // update / delete / clone, selected by body.op). Browser -> Supabase Owner

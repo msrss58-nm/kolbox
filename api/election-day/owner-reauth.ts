@@ -4,7 +4,7 @@ import {
   getAnonAuthClient,
   getServiceClient,
   verifyOwnerJwt,
-} from "./_ownerAuth";
+} from "./_ownerAuth.js";
 
 // Phase 3C Roles Mutations - Owner password step-up + action-bound proof
 // issuance. Browser holds a real Supabase Auth session (its own JWT) ->
