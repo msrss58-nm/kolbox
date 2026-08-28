@@ -1,10 +1,27 @@
 import { create } from "zustand";
-import { api } from "../services/api";
+import { fetchTrustedRoles } from "../features/election-day/electionDayTrustedRolesClient";
 import {
   createRoleCatalogController,
   INITIAL_ROLE_CATALOG_STATE,
   type RoleCatalogState,
 } from "./roleCatalogController";
+import { normalizeRoleRecord } from "./roleRecordMapper";
+
+// Phase 3C Roles: role-catalog READ cut over to the trusted, session-derived
+// v3 path (`electionDayTrustedRolesClient.ts` + `api/election-day/roles.ts`
+// + `election_day_list_roles_v3`) - mirrors `useRoleManagement.ts`'s own
+// cutover exactly. A non-"ok" result throws so this fetcher's error contract
+// matches the legacy `api.listElectionDayRoles()` call it replaces (which
+// threw via `unwrapArray` on an RPC error) - `createRoleCatalogController`'s
+// existing loading/error handling is unchanged. Row validation (permissions/
+// scope_type fail-closed handling via `normalizeRoleRecord`) is unchanged.
+async function fetchRolesTrusted() {
+  const result = await fetchTrustedRoles();
+  if (result.status !== "ok") {
+    throw new Error(result.status);
+  }
+  return result.rows.map(normalizeRoleRecord);
+}
 
 interface RoleCatalogStore extends RoleCatalogState {
   ensureLoaded: () => Promise<void>;
@@ -30,7 +47,7 @@ interface RoleCatalogStore extends RoleCatalogState {
  */
 export const useRoleCatalogStore = create<RoleCatalogStore>((set, get) => {
   const controller = createRoleCatalogController(
-    () => api.listElectionDayRoles(),
+    fetchRolesTrusted,
     () => get(),
     (next) => set(next),
   );

@@ -3,12 +3,14 @@ import { toast } from "../../components/ui/Toast";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { reportPermissionDenied } from "../../permissions/permissionAudit";
+import { normalizeRoleRecord } from "../../permissions/roleRecordMapper";
 import { useRoleCatalogStore } from "../../permissions/roleCatalogStore";
 import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
 import { api, ElectionDayReauthError } from "../../services/api";
 import type { NewRole, RoleUpdate } from "../../services/api";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { fetchTrustedRoles } from "./electionDayTrustedRolesClient";
 import { useElectionDayReauthProof } from "./electionDayReauthProof";
 import { useElectionDayReauth } from "./useElectionDayReauth";
 
@@ -49,7 +51,22 @@ export function useRoleManagement() {
   // for the full flow. `reauthDialog` is rendered by `RoleManagementPanel.tsx`.
   const reauth = useElectionDayReauth();
 
-  const fetchRoles = useCallback(() => api.listElectionDayRoles(), []);
+  // Phase 3C Roles: role-catalog READ cut over to the trusted, session-
+  // derived v3 path - this hook only runs inside the already-authenticated
+  // shell (past ElectionDayGuard), so the HttpOnly session cookie the
+  // trusted GET requires always exists here. Throws on a non-"ok" result so
+  // this fetcher's error contract matches the legacy `api.listElectionDayRoles()`
+  // call it replaces (which threw via `unwrapArray` on an RPC error) -
+  // `useAsyncData`'s existing loading/error handling is unchanged. Row
+  // shape validation (permissions/scope_type fail-closed handling) is
+  // unchanged too - every row still goes through `normalizeRoleRecord`.
+  const fetchRoles = useCallback(async () => {
+    const result = await fetchTrustedRoles();
+    if (result.status !== "ok") {
+      throw new Error(result.status);
+    }
+    return result.rows.map(normalizeRoleRecord);
+  }, []);
   const { data: roles, reload: reloadRoles } = useAsyncData(fetchRoles);
 
   // Security Hardening (Reauth): each `runXRole` action below reads the
