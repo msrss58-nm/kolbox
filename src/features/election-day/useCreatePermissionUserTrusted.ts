@@ -72,15 +72,31 @@ export function useCreatePermissionUserTrusted() {
   // of AllocationPasswordDialog's own `submitting` state (defense in depth,
   // same reasoning as electionDaySession.login's own duplicate-submit guard).
   const inFlightRef = useRef(false);
+  // Synchronous "a flow is currently open" guard - true from the moment
+  // `createUser` opens the dialog until it's fully settled (success or
+  // cancel), independent of React's own render timing. Without this, a fast
+  // enough double-invocation of `createUser` itself (e.g. a double-click on
+  // the "add" button before React re-renders the calling form's own busy/
+  // disabled state) would call `setPending` twice - the second call silently
+  // overwrites the first call's `{resolve}`, permanently orphaning the first
+  // caller's promise (found in a security/correctness review of this hook -
+  // `inFlightRef` above only guards the later confirm step, not this one).
+  const hasPendingRef = useRef(false);
 
   /** Opens the dedicated password dialog for `input` and resolves once the
    * whole flow concludes: the created user on success, `undefined` on
    * cancel or on a failure the user doesn't retry (dialog stays open on a
    * failed attempt, mirroring every other `useAsyncAction`/gate contract in
    * this codebase - the caller decides whether to retry by confirming
-   * again, which always mints a fresh proof, never reuses the failed one). */
+   * again, which always mints a fresh proof, never reuses the failed one).
+   * A second call while a flow is already open is a safe no-op (resolves
+   * immediately to `undefined`) rather than orphaning the first caller. */
   const createUser = useCallback(
     (input: NewPermissionUser): Promise<PermissionUser | undefined> => {
+      if (hasPendingRef.current) {
+        return Promise.resolve(undefined);
+      }
+      hasPendingRef.current = true;
       return new Promise((resolve) => {
         setPending({ input, resolve });
       });
@@ -110,6 +126,7 @@ export function useCreatePermissionUserTrusted() {
         toast.success(ELECTION_DAY_TEXT.permissionsManager.toast.added);
         pending.resolve(createResult.user);
         setPending(null);
+        hasPendingRef.current = false;
         return createResult.user;
       } finally {
         setBusy(false);
@@ -119,9 +136,22 @@ export function useCreatePermissionUserTrusted() {
     [pending],
   );
 
+  /** Once a reauth/create request has actually started (`inFlightRef`),
+   * Cancel is a safe no-op rather than resolving the caller as "cancelled" -
+   * the server mutation may still complete (the v3 proof is non-consuming/
+   * replayable within its approved 5-minute TTL, unchanged here), and
+   * resolving early would let the caller believe the operation was
+   * cancelled while `onConfirm`'s own success branch later independently
+   * toasts success and tries to resolve the SAME promise a second time (a
+   * no-op once already settled) - leaving the roster stale and the caller's
+   * result contradicting the actual outcome (found in the same review).
+   * While idle (no request in flight - the common case, before the user has
+   * even clicked confirm once), Cancel behaves exactly as before. */
   const onCancel = useCallback(() => {
+    if (inFlightRef.current) return;
     if (pending) pending.resolve(undefined);
     setPending(null);
+    hasPendingRef.current = false;
   }, [pending]);
 
   const reauthDialog: ElectionDayReauthDialogProps | null = pending
