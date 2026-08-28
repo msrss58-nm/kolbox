@@ -1,11 +1,14 @@
 /**
- * Phase 3C Users (EXPAND, not yet wired to the frontend): pure fetch
- * wrappers around the trusted, session-derived roster/delete/reset-password
- * v3 flow (`api/election-day/permission-users.ts`'s GET handler,
+ * Phase 3C Users: pure fetch wrappers around the trusted, session-derived
+ * roster/delete/reset-password v3 flow
+ * (`api/election-day/permission-users.ts`'s GET handler,
  * `api/election-day/permission-users-delete.ts`,
- * `api/election-day/permission-users-reset-password.ts`). No React/Zustand
- * dependency, mirroring `electionDayTrustedPermissionUserClient.ts`'s own
- * pattern exactly.
+ * `api/election-day/permission-users-reset-password.ts`) - the roster read
+ * is wired into `useElectionDay.ts`'s `fetchPermissionUsers`, and the
+ * delete/reset-password wrappers are consumed by
+ * `useDeletePermissionUserTrusted.ts`/`useResetPermissionUserPasswordTrusted.ts`.
+ * No React/Zustand dependency, mirroring
+ * `electionDayTrustedPermissionUserClient.ts`'s own pattern exactly.
  *
  * Neither `deletePermissionUserTrusted` nor `resetPermissionUserPasswordTrusted`
  * caches the reauth proof passed to them - the caller (the dedicated trusted

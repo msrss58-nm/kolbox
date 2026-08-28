@@ -48,15 +48,15 @@ function deleteErrorMessage(
 }
 
 /**
- * Phase 3C Users (EXPAND, not yet wired to the frontend/useElectionDay.ts):
- * dedicated trusted delete-user flow, session + one-time-consumed-proof
- * (`api/election-day/permission-users-delete.ts` +
+ * Phase 3C Users: dedicated trusted delete-user flow, wired into
+ * `useElectionDay.ts`'s `deletePermissionUser`, session +
+ * one-time-consumed-proof (`api/election-day/permission-users-delete.ts` +
  * `election_day_delete_permission_user_v3`). Deliberately independent of
  * `useElectionDayReauth`/`electionDayReauthProof.ts` (the legacy 15-minute,
- * reusable, general-purpose proof cache shared by the remaining 9 `_v2`
- * reauth-gated actions) and of `useCreatePermissionUserTrusted.ts` - its own
- * `pending`/`busy` state, its own dialog instance, own one-time proof for
- * exactly this call.
+ * reusable, general-purpose proof cache shared by the 9 remaining `_v2`
+ * reauth-gated actions) and of `useCreatePermissionUserTrusted.ts`/
+ * `useResetPermissionUserPasswordTrusted.ts` - its own `pending`/`busy`
+ * state, its own dialog instance, own one-time proof for exactly this call.
  *
  * The raw proof exists only as a local `const` inside `onConfirm`'s one
  * continuous async flow (mint -> immediately consume -> function returns) -

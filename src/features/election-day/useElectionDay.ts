@@ -21,6 +21,8 @@ import { useElectionDaySession } from "./electionDaySession";
 import { useElectionDayReauthProof } from "./electionDayReauthProof";
 import { useElectionDayReauth } from "./useElectionDayReauth";
 import { useCreatePermissionUserTrusted } from "./useCreatePermissionUserTrusted";
+import { useDeletePermissionUserTrusted } from "./useDeletePermissionUserTrusted";
+import { useResetPermissionUserPasswordTrusted } from "./useResetPermissionUserPasswordTrusted";
 import { fetchTrustedPermissionUsersRoster } from "./electionDayTrustedUsersClient";
 import { resolveVisibleContacts } from "./electionDayScope";
 import { matchesElectionDaySearch } from "./electionDaySearch";
@@ -123,16 +125,20 @@ export function useElectionDay() {
     };
   }
 
-  // Security Hardening (Reauth): the shared gate for the 3 remaining legacy
-  // admin/import mutations this hook owns (deletePermissionUser/
-  // resetPermissionUserPassword/importFile) - see useElectionDayReauth.ts's
-  // own doc comment for the full flow. `reauthDialog` is rendered once, by
+  // Security Hardening (Reauth): the shared gate for the remaining legacy
+  // admin/import mutations this hook owns (importFile/role-management/
+  // coordinator-allocation) - see useElectionDayReauth.ts's own doc comment
+  // for the full flow. `reauthDialog` is rendered once, by
   // ElectionDayShell.tsx (which already renders this hook's other shared
-  // dialog, ElectionDayContactModal). `addPermissionUser` was cut over to
-  // the trusted v3 path (Phase 3C) - see `trustedCreateUser` below, which
-  // owns its own independent dialog/proof flow, never this one.
+  // dialog, ElectionDayContactModal). `addPermissionUser`/`deletePermissionUser`/
+  // `resetPermissionUserPassword` were all cut over to the trusted v3 path
+  // (Phase 3C) - see `trustedCreateUser`/`trustedDeleteUser`/
+  // `trustedResetPassword` below, each of which owns its own independent
+  // dialog/proof flow, never this one.
   const reauth = useElectionDayReauth();
   const trustedCreateUser = useCreatePermissionUserTrusted();
+  const trustedDeleteUser = useDeletePermissionUserTrusted();
+  const trustedResetPassword = useResetPermissionUserPasswordTrusted();
 
   const fetchContacts = useCallback(() => api.listElectionDayVoters(), []);
   const {
@@ -1156,14 +1162,16 @@ export function useElectionDay() {
     "deleteRideCoordinator",
   );
 
-  // Security Hardening (Reauth): reads the currently-cached proof directly
-  // Phase 3C: create-user is cut over to the trusted, session-derived v3
-  // path (useCreatePermissionUserTrusted.ts) - its own dedicated dialog/
-  // proof flow, completely independent of `reauth`/`useElectionDayReauthProof`
-  // above. The v3 proof it mints never enters that legacy cache. The
-  // remaining 10 reauth-gated actions in this file (delete/reset-password/
-  // import/role-management/coordinator-allocation) are untouched and still
-  // go through `reauth.gate` exactly as before.
+  // Phase 3C: create/delete/reset-password-user are all cut over to the
+  // trusted, session-derived v3 path (useCreatePermissionUserTrusted.ts/
+  // useDeletePermissionUserTrusted.ts/useResetPermissionUserPasswordTrusted.ts)
+  // - each its own dedicated dialog/proof flow, completely independent of
+  // `reauth`/`useElectionDayReauthProof` above. None of the v3 proofs they
+  // mint ever enter that legacy cache. `importFile` above and the 8
+  // role-management/coordinator-allocation actions in useRoleManagement.ts/
+  // useCoordinatorAllocation.ts are untouched and still go through
+  // `reauth.gate` exactly as before (9 legacy `_v2` reauth-gated actions
+  // remain in total).
   const addPermissionUser = guardedAction(
     "electionDay.manageUsers",
     async (input: NewPermissionUser) => {
@@ -1174,119 +1182,55 @@ export function useElectionDay() {
     "addPermissionUser",
   );
 
-  // Wrapped to resolve to an explicit `true` sentinel on success (the
-  // underlying `api.deletePermissionUser` resolves void, otherwise
-  // indistinguishable from a blocked/failed call) - same pattern as
-  // `useRoleManagement.ts`'s `deleteRole`. Security Hardening (Reauth): reads
-  // the cached proof from the store, same pattern as `runAddPermissionUser`
-  // above - `deletePermissionUser` below carries no bootstrap exception, so
-  // a session (and therefore an eventual valid proof) always exists by the
-  // time this runs.
-  const { run: runDeletePermissionUser, busy: deletingPermissionUser } = useAsyncAction(
-    async (id: string) => {
-      const proof = useElectionDayReauthProof.getState().proof ?? "";
-      try {
-        await api.deletePermissionUser(proof, id);
-        return true;
-      } catch (err) {
-        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
-          useElectionDayReauthProof.getState().clearProof();
-        }
-        throw err;
-      }
-    },
-    { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.deleted },
-  );
-
+  // Phase 3C Users (DELETE cutover): dedicated trusted delete flow
+  // (useDeletePermissionUserTrusted.ts) - its own independent dialog/proof,
+  // same pattern as `trustedCreateUser` above. Self-delete protection stays
+  // as a client-side first layer (defense in depth, UX only - the trusted
+  // server RPC independently rejects self-delete too, see
+  // `deleteErrorMessage` in useDeletePermissionUserTrusted.ts).
   const deletePermissionUserRaw = useCallback(
     async (id: string) => {
-      // Self-delete protection, second layer: even if this handler is ever
-      // invoked outside the normal (already-disabled-for-self) row button,
-      // never call the delete RPC against the signed-in session's own id.
-      // Client-side only - the RPC itself takes no caller identity, see
-      // task-plan.md's "Known Security Limitations".
       if (sessionUser && id === sessionUser.id) {
         toast.error(ELECTION_DAY_TEXT.permissionsManager.selfDelete.blockedError);
         return undefined;
       }
-      const result = await runDeletePermissionUser(id);
+      const targetName = (permissionUsers ?? []).find((u) => u.id === id)?.name ?? "";
+      const result = await trustedDeleteUser.deleteUser(id, targetName);
       if (result === undefined) return undefined;
       reloadPermissionUsers();
       return true;
     },
-    [runDeletePermissionUser, reloadPermissionUsers, sessionUser],
+    [trustedDeleteUser, reloadPermissionUsers, sessionUser, permissionUsers],
   );
   const deletePermissionUser = guardedAction(
     "electionDay.manageUsers",
-    (id: string) => {
-      const targetName = (permissionUsers ?? []).find((u) => u.id === id)?.name ?? "";
-      return reauth.gate(
-        {
-          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
-          summary: ELECTION_DAY_TEXT.reauth.dialogs.deletePermissionUser(targetName),
-          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
-        },
-        () => deletePermissionUserRaw(id),
-      );
-    },
+    deletePermissionUserRaw,
     "deletePermissionUser",
   );
 
-  // No `successMessage` - the dialog itself shows the success toast (needs
-  // the target user's name, which this hook layer doesn't carry), same
-  // division of responsibility documented in `ResetPasswordDialog.tsx`.
-  // Security Hardening (Reauth): the acting manager's own password is no
-  // longer collected by this dialog/handler at all - it's supplied once,
-  // up front, by the shared `reauth.gate` flow (see `resetPermissionUserPassword`
-  // below), and the RPC re-authenticates that password server-side via the
-  // resulting proof, deriving `reset_by` from the verified actor - not from
-  // any text this layer sends. The `!sessionUser` branch is unreachable in
-  // practice (guardedAction's `can("electionDay.manageUsers")` check below
-  // already requires a resolved session - see usePermissions.ts's
-  // `sessionUser?.roleId ?? null`) - kept only so this closure never needs a
-  // non-null assertion on `sessionUser`.
-  const { run: runResetPermissionUserPassword } = useAsyncAction(
-    async (targetId: string, newPassword: string) => {
-      if (!sessionUser) {
-        return Promise.reject(new Error(ELECTION_DAY_TEXT.permissionDenied));
-      }
-      const proof = useElectionDayReauthProof.getState().proof ?? "";
-      try {
-        return await api.resetPermissionUserPassword(proof, targetId, newPassword);
-      } catch (err) {
-        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
-          useElectionDayReauthProof.getState().clearProof();
-        }
-        throw err;
-      }
-    },
-  );
-  // No bootstrap exception here (unlike `addPermissionUser` above) - resetting
-  // a password is never needed to stand up the very first account, so this is
-  // a plain `can(...)` check like every other mutation.
+  // Phase 3C Users (RESET cutover): dedicated trusted reset-password flow
+  // (useResetPermissionUserPasswordTrusted.ts) - its own independent
+  // dialog/proof, same pattern as `trustedCreateUser`/`trustedDeleteUser`
+  // above. No `successMessage` here - `ResetPasswordDialog.tsx` shows its
+  // own success toast (needs the target user's name), same division of
+  // responsibility as before this cutover.
   const resetPermissionUserPasswordRaw = useCallback(
     async (targetId: string, newPassword: string) => {
-      const result = await runResetPermissionUserPassword(targetId, newPassword);
+      const targetName =
+        (permissionUsers ?? []).find((u) => u.id === targetId)?.name ?? "";
+      const result = await trustedResetPassword.resetPassword(
+        targetId,
+        targetName,
+        newPassword,
+      );
       if (result) reloadPermissionUsers();
       return result;
     },
-    [runResetPermissionUserPassword, reloadPermissionUsers],
+    [trustedResetPassword, reloadPermissionUsers, permissionUsers],
   );
   const resetPermissionUserPassword = guardedAction(
     "electionDay.manageUsers",
-    (targetId: string, newPassword: string) => {
-      const targetName =
-        (permissionUsers ?? []).find((u) => u.id === targetId)?.name ?? "";
-      return reauth.gate(
-        {
-          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
-          summary:
-            ELECTION_DAY_TEXT.reauth.dialogs.resetPermissionUserPassword(targetName),
-          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
-        },
-        () => resetPermissionUserPasswordRaw(targetId, newPassword),
-      );
-    },
+    resetPermissionUserPasswordRaw,
     "resetPermissionUserPassword",
   );
 
@@ -1469,17 +1413,20 @@ export function useElectionDay() {
     permissionUsers: permissionUsers ?? [],
     addPermissionUser,
     deletePermissionUser,
-    deletingPermissionUser,
     resetPermissionUserPassword,
     roles,
     // Security Hardening (Reauth): the shared password-reauth dialog for
-    // this hook's 3 remaining legacy gated mutations - `null` while no
-    // reauth is pending. Rendered once by `ElectionDayShell.tsx`.
+    // this hook's remaining legacy gated mutations (import/role-management/
+    // coordinator-allocation) - `null` while no reauth is pending. Rendered
+    // once by `ElectionDayShell.tsx`.
     reauthDialog: reauth.reauthDialog,
-    // Phase 3C: the independent trusted-v3 dialog for `addPermissionUser`
-    // alone - a SEPARATE instance from `reauthDialog` above, never sharing
-    // its pending/proof state. Also rendered by `ElectionDayShell.tsx`.
+    // Phase 3C: the independent trusted-v3 dialogs for
+    // create/delete/reset-password - each a SEPARATE instance from
+    // `reauthDialog` above and from one another, never sharing pending/proof
+    // state. All rendered by `ElectionDayShell.tsx`.
     createUserReauthDialog: trustedCreateUser.reauthDialog,
+    deleteUserReauthDialog: trustedDeleteUser.reauthDialog,
+    resetPasswordReauthDialog: trustedResetPassword.reauthDialog,
   };
 }
 

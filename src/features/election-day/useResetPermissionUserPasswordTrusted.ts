@@ -50,10 +50,10 @@ function resetErrorMessage(
 }
 
 /**
- * Phase 3C Users (EXPAND, not yet wired to the frontend/useElectionDay.ts):
- * dedicated trusted reset-password flow, session + one-time-consumed-proof
- * (`api/election-day/permission-users-reset-password.ts` +
- * `election_day_reset_permission_user_password_v3`). Deliberately
+ * Phase 3C Users: dedicated trusted reset-password flow, wired into
+ * `useElectionDay.ts`'s `resetPermissionUserPassword`, session +
+ * one-time-consumed-proof (`api/election-day/permission-users-reset-password.ts`
+ * + `election_day_reset_permission_user_password_v3`). Deliberately
  * independent of `useElectionDayReauth`/`electionDayReauthProof.ts` and of
  * the create/delete trusted hooks - its own `pending`/`busy` state, own
  * dialog instance, own one-time proof for exactly this call.

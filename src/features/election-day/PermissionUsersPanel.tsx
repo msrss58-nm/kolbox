@@ -23,7 +23,6 @@ export function PermissionUsersPanel({
   roles,
   onAdd,
   onDelete,
-  deleting,
   onReset,
   canManageUsers,
 }: {
@@ -34,9 +33,12 @@ export function PermissionUsersPanel({
   onAdd: (input: NewPermissionUser) => Promise<unknown>;
   /** Resolves to `undefined` on a blocked/failed delete (permission denial,
    * self-delete, or a thrown error) - only `!== undefined` means it actually
-   * succeeded, same "undefined on failure" contract as `onAdd`. */
+   * succeeded, same "undefined on failure" contract as `onAdd`. Busy state
+   * while this (and any stacked trusted-reauth dialog it triggers) is in
+   * flight is tracked locally below (`deleteBusy`), same pattern as
+   * `handleAdd`'s own local `busy` - the underlying trusted delete flow
+   * (Phase 3C) has no `useAsyncAction`-style busy of its own to read. */
   onDelete: (id: string) => Promise<unknown>;
-  deleting: boolean;
   onReset: (id: string, newPassword: string) => Promise<unknown>;
   /** `electionDay.manageUsers` (widened by the same bootstrap exception
    * `addPermissionUser` itself applies) - Add/Reset/Delete are all gated by
@@ -54,6 +56,7 @@ export function PermissionUsersPanel({
   const [busy, setBusy] = useState(false);
   const [resetTarget, setResetTarget] = useState<PermissionUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PermissionUser | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   // The signed-in Election Day session's own id - never lets that account's
   // row offer self-delete, see `text.selfDelete` and `useElectionDay.ts`'s
   // matching handler-level guard.
@@ -252,11 +255,16 @@ export function PermissionUsersPanel({
         message={deleteTarget ? text.confirmDelete.message(deleteTarget.name) : ""}
         confirmLabel={text.confirmDelete.confirmButton}
         danger
-        busy={deleting}
+        busy={deleteBusy}
         onConfirm={async () => {
           if (!deleteTarget) return;
-          const result = await onDelete(deleteTarget.id);
-          if (result !== undefined) setDeleteTarget(null);
+          setDeleteBusy(true);
+          try {
+            const result = await onDelete(deleteTarget.id);
+            if (result !== undefined) setDeleteTarget(null);
+          } finally {
+            setDeleteBusy(false);
+          }
         }}
         onCancel={() => setDeleteTarget(null)}
       />
