@@ -1353,3 +1353,27 @@ An independent read-only review of commit `a5a0c68` (already committed locally, 
 **Not done this turn**: no commit, no push, no deploy, no Production mutation, no migration, no change to the remaining 10 legacy reauth actions, no change to `AllocationPasswordDialog.tsx` or `useElectionDayReauth.ts`.
 
 **Current state**: both verified races are fixed and runtime-proven (both the defect and the fix, via a real before/after control), with a full targeted regression pass also green. `create_permission_user` trusted-v3 cutover is **COMMIT-READY**. Exact next step: separate, explicit authorization to commit.
+
+## Follow-up (2026-08-29) - `create_permission_user` trusted-v3 cutover pushed and deployed to Production; non-destructive Production gate PASS
+
+Commits `a5a0c68` ("feat: cut permission-user creation to trusted v3") and `397172d` ("fix: harden trusted create-user flow against add/cancel races") were pushed to `origin/master` (`d81093a..397172d`). Confirmed HEAD == origin/master == `397172d986898b35ece707ac4da458541640b183`, sync 0/0.
+
+**Vercel**: the push triggered the normal Git-integration auto-deploy - `dpl_FFP2MttgHgC3p16RxxKtHGqVunjp`, `target: production`, `readyState: READY`, created ~1-2 minutes after the push, aliased to `kolbox-gamma.vercel.app` (plus `kolbox-nahom10.vercel.app` / `kolbox-git-master-nahom10.vercel.app`). Builds list includes all 4 current serverless functions (`api/election-day/session`, `reauth`, `permission-users`, `health`). **Commit-identity limitation, stated explicitly**: this CLI version's `vercel inspect --json` output for this deployment does not expose a `meta`/`gitSource` field (top-level keys were only `id/name/url/target/readyState/createdAt/aliases/builds/contextName`) - unlike an earlier session's use of `meta.githubCommitSha`, that field was not available this time, so exact commit-SHA identity is **not independently confirmed via Vercel metadata**. The evidence tying this deployment to `397172d` is circumstantial but strong: it is the single newest production deployment, created within ~1-2 minutes of the push, aliased under the git-integration's own `kolbox-git-master-nahom10.vercel.app` branch alias (which by construction tracks the latest deployment for the `master` branch specifically), and its live behavior (below) matches the newly-deployed `permission-users.ts` code exactly. This is not claimed as cryptographic proof of commit identity.
+
+**Non-destructive Production Gate** (real HTTP requests against the live, just-deployed `https://kolbox-gamma.vercel.app`, zero mutation - no session, no proof, no account, no business-data write of any kind):
+- `GET /` -> `200`; `GET /api/health` -> `200 {"ok":true}` (reachability).
+- `POST /api/election-day/reauth` with no session cookie, correct Origin -> `401 {"error":"UNAUTHORIZED"}` (session-required gate is live).
+- `POST /api/election-day/permission-users` with no session cookie, correct Origin -> `401 {"error":"UNAUTHORIZED"}` (session-required gate is live).
+- `POST /api/election-day/reauth` with a wrong Origin -> `403 {"error":"FORBIDDEN_ORIGIN"}` (Origin allowlist is live).
+- `GET /api/election-day/reauth` (wrong method) -> `405 {"error":"METHOD_NOT_ALLOWED"}`.
+- `POST /api/election-day/permission-users` with a well-formed body PLUS an injected `actorId` key -> `400 {"error":"INVALID_REQUEST"}` - **direct live confirmation that the fail-closed body-key allowlist (the trust-boundary control that keeps `actorId`/`workspaceId` from ever reaching the RPC) is deployed and enforcing correctly in Production**, without needing any real session/proof to prove it.
+
+No frontend/browser interception pass was run against real Production this turn - the direct-HTTP evidence above already exercises the real, currently-deployed endpoint code for real (a stronger category than simulated interception), so an additional simulated pass was judged unnecessary for this gate.
+
+**What was explicitly NOT done, per this turn's own scope**: no synthetic Production `PermissionUser` was created; no successful real Production create was performed; no wrong-password Production reauth was attempted as a test; no synthetic Production session/proof was created; no Production business-data mutation of any kind; no migration was run. **Positive proof of an actual successful Production account creation through this new path remains deferred** to the first legitimate real use (or a separately-approved future gate) - not performed here.
+
+**DB/migration state**: `supabase migration list --linked` re-checked post-deploy - 58/58 matched, zero pending, zero drift, unchanged (this push shipped no migration).
+
+**Repository state**: `git status` shows only the same 15 protected pre-existing dirty scripts, unstaged, unchanged - all 15 SHA-256 hashes re-verified byte-identical to baseline both before and after the push/deploy. No other repository changes occurred.
+
+**Milestone status**: `create_permission_user` trusted-v3 frontend cutover is **live in Production** as of this deploy, including both race-hardening fixes. The remaining 10 legacy reauth-gated actions are unchanged and still live on their pre-existing `_v2`/legacy paths. Exact next step: a real, legitimate first account creation through the new path (or a separately-approved synthetic Production test) to obtain positive create-success evidence - not performed this turn.
