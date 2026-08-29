@@ -3,6 +3,7 @@ import { COMMON_TEXT } from "../../constants/common-text";
 import { useRoleCatalogStore } from "../../permissions/roleCatalogStore";
 import { api } from "../../services/api";
 import { removeKey } from "../../services/storage/localStore";
+import { useCoordinatorAllocationReauthProof } from "./coordinatorAllocationReauthProof";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDayReauthProof } from "./electionDayReauthProof";
 import {
@@ -155,8 +156,13 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set, get) 
       // Security Hardening (Reauth): a successful login changes the
       // signed-in actor - drop any reauth proof left over from a previous
       // session regardless of this attempt's outcome, same defensive
-      // reasoning as before this rewrite.
+      // reasoning as before this rewrite. Coordinator/Allocation V3 Frontend
+      // Cutover: the dedicated coordinator_allocation proof cache is a
+      // separate bearer credential from the legacy one (see
+      // coordinatorAllocationReauthProof.ts) and must be dropped at the
+      // same lifecycle point for the same reason.
       useElectionDayReauthProof.getState().clearProof();
+      useCoordinatorAllocationReauthProof.getState().clearProof();
       if (result.status === "authenticated") {
         // Kick off the role-catalog fetch immediately on a real,
         // interactive login (Dynamic Roles & Permissions Phase 1) instead
@@ -205,6 +211,13 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set, get) 
       const { proof, clearProof } = useElectionDayReauthProof.getState();
       if (proof) void api.revokeReauthProof(proof);
       clearProof();
+      // Coordinator/Allocation V3 Frontend Cutover: the dedicated
+      // coordinator_allocation proof has no server-side revoke call (unlike
+      // the legacy proof's best-effort `revokeReauthProof` - the v3 proof
+      // simply becomes unusable the instant the session row it's bound to
+      // is gone, see election_day_verify_reauth_proof_v3's own workspace/
+      // actor re-check) - only the local cache needs clearing here.
+      useCoordinatorAllocationReauthProof.getState().clearProof();
       set({ user: null });
     } finally {
       set({ loggingOut: false });
@@ -217,6 +230,16 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set, get) 
     if (result.status === "authenticated") {
       set({ user: toStoredUser(result.user) });
     } else if (result.status === "unauthenticated") {
+      // Coordinator/Allocation V3 Frontend Cutover: a bootstrap-detected
+      // session loss (expiry, revocation, or any other server-confirmed
+      // "no longer authenticated" outcome) must not leave a client-side-
+      // "valid" coordinator_allocation proof cached - the approved design
+      // requires clearing it at this exact lifecycle point, not only on an
+      // explicit logout click. The legacy proof's own cleanup here is
+      // deliberately left unchanged (it was never cleared at this branch
+      // before this fix, and this correction is scoped to the new store
+      // only).
+      useCoordinatorAllocationReauthProof.getState().clearProof();
       set({ user: null });
     }
     // status === "error": `user` is left exactly as it was - a transport/
