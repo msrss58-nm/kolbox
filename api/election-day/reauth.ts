@@ -35,9 +35,23 @@ import { createHash, randomBytes } from "node:crypto";
 // Phase 3C Coordinator/Allocation Dual-Principal V3 (EXPAND, not yet wired
 // to the frontend): added manage_coordinators/apply_initial_allocation/
 // rebalance_assignments/end_coordinator_activity for the new election_day_
-// <op>_v3 RPCs (20260829030000, one-time-consumed via the same election_
-// day_verify_and_consume_reauth_proof_v3 helper). No frontend code calls
-// this endpoint with any of these four actions yet.
+// <op>_v3 RPCs (20260829030000, originally one-time-consumed via election_
+// day_verify_and_consume_reauth_proof_v3). No frontend code calls this
+// endpoint with any of these four actions yet.
+//
+// Phase 3C Coordinator/Allocation Reauth Compatibility Patch
+// (20260829040000): the 4 action names above are now superseded by one
+// feature-scoped action, coordinator_allocation - all 4 Coordinator/
+// Allocation _v3 wrappers were repointed to the REUSABLE-WITHIN-TTL
+// election_day_verify_reauth_proof_v3 (Phase 3A precedent, same verifier
+// election_day_create_permission_user_v3 already uses) bound to this one
+// action, so a single minted proof verifies against all 4 mutations for its
+// 5-minute TTL - see that migration's header for the full root-cause/design
+// record. The 4 granular names are deliberately left in this allowlist,
+// unremoved, for rollback compatibility (approved decision) - they are
+// harmless dead entries now: no _v3 RPC checks for them anymore, so a proof
+// minted with one of those literals can never successfully verify against
+// anything. They may be retired later, after a verified frontend cutover.
 const ALLOWED_REAUTH_ACTIONS = new Set<string>([
   "create_permission_user",
   "delete_permission_user",
@@ -46,6 +60,7 @@ const ALLOWED_REAUTH_ACTIONS = new Set<string>([
   "apply_initial_allocation",
   "rebalance_assignments",
   "end_coordinator_activity",
+  "coordinator_allocation",
 ]);
 
 // Fail-closed body-key allowlist - see the body-validation step below for why.
