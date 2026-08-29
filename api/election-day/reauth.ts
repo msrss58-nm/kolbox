@@ -31,10 +31,21 @@ import { createHash, randomBytes } from "node:crypto";
 // consume_reauth_proof_v3 - see that migration's header for exact
 // semantics). No frontend code calls this endpoint with either action yet -
 // the dedicated trusted hooks exist but are not wired into useElectionDay.ts.
+//
+// Phase 3C Coordinator/Allocation Dual-Principal V3 (EXPAND, not yet wired
+// to the frontend): added manage_coordinators/apply_initial_allocation/
+// rebalance_assignments/end_coordinator_activity for the new election_day_
+// <op>_v3 RPCs (20260829030000, one-time-consumed via the same election_
+// day_verify_and_consume_reauth_proof_v3 helper). No frontend code calls
+// this endpoint with any of these four actions yet.
 const ALLOWED_REAUTH_ACTIONS = new Set<string>([
   "create_permission_user",
   "delete_permission_user",
   "reset_permission_user_password",
+  "manage_coordinators",
+  "apply_initial_allocation",
+  "rebalance_assignments",
+  "end_coordinator_activity",
 ]);
 
 // Fail-closed body-key allowlist - see the body-validation step below for why.

@@ -24,11 +24,21 @@ import {
 // PermissionUser session cookie; this endpoint derives its actor from a
 // verified Supabase Owner JWT instead.
 
+// Phase 3C Coordinator/Allocation Dual-Principal V3 (EXPAND, not yet wired
+// to the frontend): added the 4 Coordinator/Allocation actions for the new
+// election_day_<op>_owner_v3 RPCs (20260829030000, one-time-consumed via
+// election_day_verify_and_consume_owner_proof - see that migration's
+// header). No frontend code calls this endpoint with any of these four
+// actions yet - no Owner Coordinator/Allocation UI route exists.
 const ALLOWED_OWNER_ACTIONS = new Set<string>([
   "create_role",
   "update_role",
   "delete_role",
   "clone_role",
+  "manage_coordinators",
+  "apply_initial_allocation",
+  "rebalance_assignments",
+  "end_coordinator_activity",
 ]);
 
 const ALLOWED_BODY_KEYS = new Set<string>(["password", "action"]);
