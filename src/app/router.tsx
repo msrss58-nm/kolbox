@@ -13,6 +13,9 @@ import { ElectionDayReportsPage } from "../features/election-day/ElectionDayRepo
 import { ElectionDayRidesPage } from "../features/election-day/ElectionDayRidesPage";
 import { ElectionDayShell } from "../features/election-day/ElectionDayShell";
 import { ElectionDayVotersPage } from "../features/election-day/ElectionDayVotersPage";
+import { OwnerAuthGuard } from "../features/election-day/OwnerAuthGuard";
+import { OwnerLoginScreen } from "../features/election-day/OwnerLoginScreen";
+import { OwnerRolesPage } from "../features/election-day/OwnerRolesPage";
 import { ImportPage } from "../features/import/ImportPage";
 import { TeamPage } from "../features/team/TeamPage";
 import { VotersPage } from "../features/voters/VotersPage";
@@ -22,6 +25,16 @@ import { AuthGuard } from "./AuthGuard";
 export const router = createBrowserRouter([
   { path: ROUTES.login, element: <LoginPage /> },
   { path: ROUTES.electionDayLogin, element: <ElectionDayLoginScreen /> },
+  { path: ROUTES.electionDayOwnerLogin, element: <OwnerLoginScreen /> },
+  {
+    // Phase 3C Roles Mutations: the Election Owner route tree - its own
+    // independent guard (OwnerAuthGuard), deliberately NOT nested under
+    // ElectionDayGuard (a PermissionUser session) or AuthGuard (the main
+    // app's Supabase Auth) - see ownerSession.ts's own doc comment for why
+    // these three identities must stay structurally independent.
+    element: <OwnerAuthGuard />,
+    children: [{ path: ROUTES.electionDayOwnerRoles, element: <OwnerRolesPage /> }],
+  },
   {
     // Main app shell (Supabase-authenticated routes only).
     element: <AppLayout />,

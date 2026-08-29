@@ -22,6 +22,15 @@ export const ROUTES = {
   team: "/team",
   electionDay: "/election-day",
   electionDayLogin: "/election-day/login",
+  /** Phase 3C Roles Mutations: the Election Owner login bridge - a third,
+   * independent identity from both the main app's Supabase Auth and the
+   * PermissionUser session above (see `ownerSession.ts`'s own doc comment).
+   * Deliberately NOT nested under `ROUTES.electionDay` in the router (its
+   * guard, `OwnerAuthGuard`, is independent of `ElectionDayGuard`) even
+   * though the path happens to share the `/election-day` prefix for
+   * discoverability from `ElectionDayLoginScreen`. */
+  electionDayOwnerLogin: "/election-day/owner-login",
+  electionDayOwnerRoles: "/election-day/owner/roles",
 } as const;
 
 /** Election Day's own sub-navigation (UX v3 - "shell" architecture, see

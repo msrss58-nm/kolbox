@@ -47,12 +47,23 @@ function formFromRole(role: RoleRecord): RoleFormState {
 /** Navigation Refactor: extracted from the old `RoleManagementModal` - same
  * content, no `Modal` wrapper, now rendered as a tab on `/election-day/permissions`
  * instead of a dialog. The nested create/edit form and `ConfirmDialog` below
- * are unchanged - the extraction only un-modal-ifies the outermost container. */
+ * are unchanged - the extraction only un-modal-ifies the outermost container.
+ *
+ * Phase 3C Roles Mutations: also reused, unchanged, by the Owner-only Role
+ * Management surface (`OwnerRolesPage.tsx`, fed by `useOwnerRoleManagement`
+ * instead of `useRoleManagement`) - `permissionUsers` is optional there since
+ * the Owner surface has no live PermissionUser-roster visibility in this
+ * phase (Users management stays PermissionUser-session-only until a
+ * separate, later Owner migration); it only ever drives the per-role
+ * assigned-count badge and the disabled-delete hint, never an authorization
+ * decision, so an empty list there degrades to "no known assignments"
+ * without misrepresenting anything - the server-side ROLE_HAS_ASSIGNED_USERS
+ * check still blocks a real deletion regardless. */
 export function RoleManagementPanel({
-  permissionUsers,
+  permissionUsers = [],
   roleManagement,
 }: {
-  permissionUsers: PermissionUser[];
+  permissionUsers?: PermissionUser[];
   roleManagement: RoleManagementHook;
 }) {
   const {

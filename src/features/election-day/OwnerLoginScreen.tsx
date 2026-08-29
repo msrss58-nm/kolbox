@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router";
 import { LogoMark } from "../../components/Logo";
@@ -6,27 +6,24 @@ import { Button } from "../../components/ui/Button";
 import { Field, Input } from "../../components/ui/Field";
 import { ROUTES } from "../../constants/routes";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
-import { clearLegacySession, useElectionDaySession } from "./electionDaySession";
+import { useOwnerSession } from "./ownerSession";
 
-const text = ELECTION_DAY_TEXT.session;
-const passwordText = ELECTION_DAY_TEXT.permissionsManager;
+const text = ELECTION_DAY_TEXT.owner.login;
 
-/** Username+password gate for `/election-day` only - checks against the
- * server-verified roster (`useElectionDaySession`, Phase 3B), not the rest
- * of the app's auth. This route is standalone (not nested under
- * `ElectionDayGuard`), so it runs its own one-time legacy-localStorage
- * cleanup on mount rather than relying on the Guard's `bootstrap()` to
- * always run first - a user who lands here directly and never submits
- * would otherwise never hit that cleanup at all. */
-export function ElectionDayLoginScreen() {
-  const login = useElectionDaySession((s) => s.login);
+/**
+ * Phase 3C Roles Mutations: email+password login for an Election Owner - a
+ * real Supabase Auth account, verified against the live `election_owners`
+ * table via `useOwnerSession.login()`. Deliberately mirrors
+ * `ElectionDayLoginScreen.tsx`'s visual pattern exactly (same layout/inputs/
+ * show-password toggle), but authenticates a structurally different identity
+ * (see `ownerSession.ts`'s own doc comment) - a completely separate route,
+ * never nested under `ElectionDayGuard` or `AuthGuard`.
+ */
+export function OwnerLoginScreen() {
+  const login = useOwnerSession((s) => s.login);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    clearLegacySession();
-  }, []);
-
-  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -36,13 +33,8 @@ export function ElectionDayLoginScreen() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const result = await login(name, password);
+    const result = await login(email, password);
     if (result.status === "ignored") {
-      // A duplicate submit was suppressed at the store boundary - a real
-      // attempt is already in flight and owns this form's pending state; it
-      // will resolve it (re-enable/error/navigate) on its own turn. Taking
-      // no action here is what prevents a suppressed duplicate from ever
-      // navigating away before the real attempt has actually resolved.
       return;
     }
     setSubmitting(false);
@@ -50,7 +42,7 @@ export function ElectionDayLoginScreen() {
       setError(result.message);
       return;
     }
-    void navigate(ROUTES.electionDay, { replace: true });
+    void navigate(ROUTES.electionDayOwnerRoles, { replace: true });
   };
 
   return (
@@ -66,10 +58,12 @@ export function ElectionDayLoginScreen() {
             <p className="text-sm text-slate-500">{text.subtitle}</p>
           </div>
 
-          <Field label={text.nameLabel}>
+          <Field label={text.emailLabel}>
             <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              dir="ltr"
               autoFocus
               required
             />
@@ -83,16 +77,13 @@ export function ElectionDayLoginScreen() {
                 dir="ltr"
                 invalid={!!error}
                 className="flex-1"
+                autoComplete="current-password"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                aria-label={
-                  showPassword
-                    ? passwordText.hidePasswordAriaLabel
-                    : passwordText.showPasswordAriaLabel
-                }
+                aria-label={showPassword ? "הסתר סיסמה" : "הצג סיסמה"}
                 className="touch-target grid shrink-0 place-items-center rounded-xl text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50"
               >
                 {showPassword ? (
@@ -109,22 +100,18 @@ export function ElectionDayLoginScreen() {
             size="lg"
             loading={submitting}
             className="w-full"
-            disabled={!name.trim() || !password}
+            disabled={!email.trim() || !password}
           >
             {text.submit}
           </Button>
 
-          {/* Phase 3C Roles Mutations: entry point into the separate
-              Election Owner login bridge (a real Supabase Auth account, not
-              a PermissionUser roster entry) - see ownerSession.ts's own doc
-              comment for why these two identities are kept independent. */}
           <div className="text-center">
             <button
               type="button"
-              onClick={() => void navigate(ROUTES.electionDayOwnerLogin)}
+              onClick={() => void navigate(ROUTES.electionDayLogin)}
               className="text-sm font-semibold text-slate-500 hover:text-slate-700"
             >
-              {ELECTION_DAY_TEXT.owner.entryLinkLabel}
+              {text.backToElectionDayLogin}
             </button>
           </div>
         </form>

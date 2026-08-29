@@ -1,19 +1,18 @@
-import { Tabs } from "../../components/ui/Tabs";
 import { usePermissions } from "../../permissions/usePermissions";
-import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDayShell } from "./ElectionDayShell";
 import { PermissionUsersPanel } from "./PermissionUsersPanel";
-import { RoleManagementPanel } from "./RoleManagementPanel";
-import { useRoleManagement } from "./useRoleManagement";
 
 /** Navigation Refactor: `/election-day/permissions` - the old accordion's
- * "ניהול הרשאות ומשתמשים" category, now a standalone page with a
- * users/roles tab pair instead of two separate modals. `useRoleManagement`
- * is screen-specific (not lifted to `ElectionDayShell`), same as it was
- * called directly inside `ElectionDayPage.tsx` before this refactor. */
+ * "ניהול הרשאות ומשתמשים" category. Phase 3C Roles Mutations: the "roles"
+ * tab (backed by `useRoleManagement`/the legacy `election_day_*_role_v2`
+ * mutation RPCs) was removed here - Role Management moved to Election Owner
+ * authority exclusively (`OwnerRolesPage.tsx`, `/election-day/owner/roles`,
+ * behind `OwnerAuthGuard`, never a PermissionUser permission). This screen
+ * now only ever renders the Users tab's content directly (no `Tabs` needed
+ * for a single tab); the Users flow itself is completely untouched by this
+ * change - PermissionUser/Users management stays exactly as it was. */
 export function ElectionDayPermissionsPage() {
   const electionDay = useElectionDayShell();
-  const roleManagement = useRoleManagement();
   const { can } = usePermissions();
 
   // This page only ever renders behind `ElectionDayGuard`'s authenticated
@@ -25,33 +24,13 @@ export function ElectionDayPermissionsPage() {
   const canManageUsers = can("electionDay.manageUsers");
 
   return (
-    <Tabs
-      tabs={[
-        {
-          id: "users",
-          label: ELECTION_DAY_TEXT.permissionsPage.usersTab,
-          content: (
-            <PermissionUsersPanel
-              users={electionDay.permissionUsers}
-              roles={electionDay.roles}
-              onAdd={electionDay.addPermissionUser}
-              onDelete={electionDay.deletePermissionUser}
-              onReset={electionDay.resetPermissionUserPassword}
-              canManageUsers={canManageUsers}
-            />
-          ),
-        },
-        {
-          id: "roles",
-          label: ELECTION_DAY_TEXT.permissionsPage.rolesTab,
-          content: (
-            <RoleManagementPanel
-              permissionUsers={electionDay.permissionUsers}
-              roleManagement={roleManagement}
-            />
-          ),
-        },
-      ]}
+    <PermissionUsersPanel
+      users={electionDay.permissionUsers}
+      roles={electionDay.roles}
+      onAdd={electionDay.addPermissionUser}
+      onDelete={electionDay.deletePermissionUser}
+      onReset={electionDay.resetPermissionUserPassword}
+      canManageUsers={canManageUsers}
     />
   );
 }

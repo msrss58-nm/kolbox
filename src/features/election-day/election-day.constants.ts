@@ -1065,4 +1065,46 @@ export const ELECTION_DAY_TEXT = {
       rateLimited: "יותר מדי ניסיונות התחברות. נסו שוב בעוד כמה דקות",
     },
   },
+
+  /** Phase 3C Roles Mutations: the Election Owner login bridge + Owner-only
+   * Role Management surface - a third, independent identity from both the
+   * main app's Supabase Auth and the PermissionUser session above (see
+   * `ownerSession.ts`'s own doc comment). `rolesManager`/`reauth` above are
+   * reused as-is for the Owner Role Management screen itself (the labels are
+   * generic UI copy, not tied to a specific actor type) - this block only
+   * holds copy specific to the Owner login/session/error surface. */
+  owner: {
+    login: {
+      title: "כניסת בעלים",
+      subtitle: "ניהול תפקידים והרשאות ברמת הבעלים",
+      emailLabel: "אימייל",
+      passwordLabel: "סיסמה",
+      submit: "התחברות",
+      backToElectionDayLogin: "כניסה רגילה ליום הבחירות",
+      errors: {
+        invalidCredentials: "פרטי ההתחברות שגויים",
+        notAnOwner: "המשתמש אינו בעלים רשום של קמפיין",
+        generic: "אירעה שגיאה, נסו שוב",
+      },
+    },
+    entryLinkLabel: "כניסת בעלים",
+    rolesPage: {
+      title: "ניהול תפקידים - בעלים",
+      signedInAs: (email: string) => `מחובר כ-${email}`,
+      logout: "התנתקות",
+    },
+    /** Maps a fixed error code from `api/election-day/owner-roles.ts`'s own
+     * `mapRpcError`/body-validation responses to Hebrew copy - see
+     * `useOwnerRoleManagement.ts`'s `mapOwnerMutationErrorCode`. */
+    mutationErrors: {
+      UNAUTHORIZED: "האימות נכשל. נסו שוב",
+      ROLE_NOT_FOUND: "התפקיד אינו קיים",
+      ROLE_HAS_ASSIGNED_USERS: "לא ניתן למחוק תפקיד עם משתמשים משויכים",
+      ROLE_NAME_REQUIRED: "יש להזין שם לתפקיד",
+      INVALID_SCOPE_TYPE: "תחום עבודה לא תקין",
+      INVALID_PERMISSION: "הרשאה לא תקינה",
+      INVALID_REQUEST: "בקשה לא תקינה",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    },
+  },
 } as const;

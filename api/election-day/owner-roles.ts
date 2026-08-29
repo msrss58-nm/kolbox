@@ -1,29 +1,31 @@
 import { createHash } from "node:crypto";
 import { extractBearerToken, getServiceClient, verifyOwnerJwt } from "./_ownerAuth.js";
 
-// Phase 3C Roles Mutations - Owner-only Role mutation endpoint (create /
-// update / delete / clone, selected by body.op). Browser -> Supabase Owner
-// JWT (Authorization: Bearer) + a previously-issued action-bound Owner proof
-// (from POST /api/election-day/owner-reauth) -> this function verifies the
-// JWT via auth.getUser(jwt), hashes the raw proof in Node, and calls the
-// matching Owner-only, one-time-consumed-proof RPC (election_day_
-// create_role_owner_v3 / _update_role_owner_v3 / _delete_role_owner_v3 /
-// _clone_role_owner_v3 - see 20260828070000). Actor/workspace are derived
-// entirely server-side inside those RPCs from the verified auth_user_id -
-// this endpoint never accepts or forwards a client-supplied ownerId/
-// workspaceId.
+// Phase 3C Roles Mutations - Owner-only Role read + mutation endpoint.
+// GET -> workspace-scoped role list (election_day_list_roles_owner_v3,
+// 20260829000000). POST -> create/update/delete/clone, selected by
+// body.op. Browser -> Supabase Owner JWT (Authorization: Bearer) [+, for
+// POST, a previously-issued action-bound Owner proof from POST
+// /api/election-day/owner-reauth] -> this function verifies the JWT via
+// auth.getUser(jwt), and for POST hashes the raw proof in Node, then calls
+// the matching Owner-only RPC (election_day_list_roles_owner_v3 for GET;
+// election_day_create_role_owner_v3 / _update_role_owner_v3 /
+// _delete_role_owner_v3 / _clone_role_owner_v3 for POST - see 20260828070000).
+// Actor/workspace are derived entirely server-side inside those RPCs from
+// the verified auth_user_id - this endpoint never accepts or forwards a
+// client-supplied ownerId/workspaceId.
 //
-// NOT wired into any live frontend - this is backend-only proof work so the
-// complete Owner trust chain can be exercised end-to-end locally. The
-// legacy election_day_create_role_v2/_update_role_v2/_delete_role_v2/
-// _clone_role_v2 remain the frontend's only reachable Role mutation path
-// until a separate, later, explicitly-approved cutover.
+// Wired into the frontend Owner Role Management surface (useOwnerRoleManagement.ts)
+// as of this task's frontend cutover. The legacy election_day_create_role_v2/
+// _update_role_v2/_delete_role_v2/_clone_role_v2 remain defined (dead
+// compatibility RPCs, per this task's own DO NOT list barring their
+// retirement) but have zero live frontend callers after this cutover.
 //
-// One file for all four mutations (rather than four near-identical files)
-// - deliberate: the four RPCs share the exact same auth/proof-verification
-// preamble, differ only in which RPC is called and which body fields are
-// relevant, and every error path already funnels through one shared,
-// generic error-code mapper.
+// One file for the read + all four mutations (rather than five near-
+// identical files) - deliberate: they share the exact same Owner JWT
+// verification preamble, differ only in which RPC is called and which
+// request fields are relevant, and every mutation error path already
+// funnels through one shared, generic error-code mapper.
 
 const ALLOWED_OPS = new Set<string>(["create", "update", "delete", "clone"]);
 
@@ -119,11 +121,67 @@ function mapRpcError(error: { message?: string } | undefined): {
   }
 }
 
+// No Origin check on GET - same reasoning as roles.ts's/session.ts's own GET
+// handling: browsers do not reliably send an Origin header on a same-origin
+// simple GET, so enforcing it here would break legitimate same-origin reads,
+// not just reject forged cross-site ones.
+async function handleGet(req: MinimalRequest, res: MinimalResponse): Promise<void> {
+  const rawToken = extractBearerToken(req);
+  if (!rawToken) {
+    sendError(res, 401, "UNAUTHORIZED");
+    return;
+  }
+
+  const verified = await verifyOwnerJwt(rawToken);
+  if (!verified) {
+    sendError(res, 401, "UNAUTHORIZED");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("election_day_list_roles_owner_v3", {
+    p_auth_user_id: verified.authUserId,
+  });
+
+  if (error) {
+    sendError(res, 401, "UNAUTHORIZED");
+    return;
+  }
+
+  // Row shape preserved exactly as election_day_list_roles_v3's/the legacy
+  // election_day_list_roles()'s own output (snake_case id/name/description/
+  // permissions/scope_type/scope_value) - the frontend's existing
+  // RawRoleRow/normalizeRoleRecord validation consumes this response body
+  // directly, unchanged.
+  const rows = (Array.isArray(data) ? data : []) as Array<{
+    id: unknown;
+    name: unknown;
+    description: unknown;
+    permissions: unknown;
+    scope_type: unknown;
+    scope_value: unknown;
+  }>;
+
+  res.status(200).json(rows);
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
 ): Promise<void> {
   const method = req.method ?? "GET";
+
+  if (method === "GET") {
+    await handleGet(req, res);
+    return;
+  }
 
   if (method !== "POST") {
     sendError(res, 405, "METHOD_NOT_ALLOWED");
