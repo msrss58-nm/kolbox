@@ -192,6 +192,15 @@ export function ElectionDayShell() {
         <AllocationPasswordDialog {...electionDay.resetPasswordReauthDialog} />
       )}
 
+      {/* Phase 3 Import/Clear frontend cutover: same independent-dialog
+          pattern as the 3 PermissionUser flows above. */}
+      {electionDay.importVotersReauthDialog && (
+        <AllocationPasswordDialog {...electionDay.importVotersReauthDialog} />
+      )}
+      {electionDay.clearVotersReauthDialog && (
+        <AllocationPasswordDialog {...electionDay.clearVotersReauthDialog} />
+      )}
+
       <OverdueReminderStack
         contacts={electionDay.scopedContacts}
         onOpen={setOpenContactId}

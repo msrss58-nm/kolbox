@@ -8,27 +8,23 @@ import { whatsAppShareHref } from "../../lib/phone";
 import { reportPermissionDenied } from "../../permissions/permissionAudit";
 import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
-import { api, ElectionDayReauthError } from "../../services/api";
+import { api } from "../../services/api";
 import type { NewPermissionUser, NewRideCoordinator } from "../../services/api";
-import {
-  exportElectionDayVotersToExcel,
-  parseSpreadsheet,
-  parseJsonFile,
-} from "../../services/excel/excel";
+import { exportElectionDayVotersToExcel } from "../../services/excel/excel";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDaySession } from "./electionDaySession";
-import { useElectionDayReauthProof } from "./electionDayReauthProof";
 import { useElectionDayReauth } from "./useElectionDayReauth";
 import { useCreatePermissionUserTrusted } from "./useCreatePermissionUserTrusted";
 import { useDeletePermissionUserTrusted } from "./useDeletePermissionUserTrusted";
 import { useResetPermissionUserPasswordTrusted } from "./useResetPermissionUserPasswordTrusted";
+import { useImportVotersTrusted } from "./useImportVotersTrusted";
+import { useClearVotersTrusted } from "./useClearVotersTrusted";
 import { fetchTrustedPermissionUsersRoster } from "./electionDayTrustedUsersClient";
 import { resolveVisibleContacts } from "./electionDayScope";
 import { matchesElectionDaySearch } from "./electionDaySearch";
 import {
   exportRejectedElectionDayRowsToExcel,
-  parseElectionDaySheet,
   type ElectionDayImportResult,
 } from "./electionDayImport";
 import { addNoteTag, hasNoteTag, removeNoteTag } from "./notesTags";
@@ -139,6 +135,11 @@ export function useElectionDay() {
   const trustedCreateUser = useCreatePermissionUserTrusted();
   const trustedDeleteUser = useDeletePermissionUserTrusted();
   const trustedResetPassword = useResetPermissionUserPasswordTrusted();
+  // Phase 3 Import/Clear frontend cutover: same independent-hook pattern as
+  // the 3 PermissionUser flows above - own dialog/proof, never touching
+  // `reauth`/`useElectionDayReauthProof`.
+  const trustedImportVoters = useImportVotersTrusted();
+  const trustedClearVoters = useClearVotersTrusted();
 
   const fetchContacts = useCallback(() => api.listElectionDayVoters(), []);
   const {
@@ -592,54 +593,19 @@ export function useElectionDay() {
   const [lastImportSummary, setLastImportSummary] =
     useState<ElectionDayImportResult | null>(null);
 
-  // Security Hardening (Reauth): the actual `importElectionDayVoters` call
-  // reads the currently-cached proof directly from the store (rather than
-  // having it threaded in as an argument) - by the time this action runs,
-  // `reauth.gate` (see `importFileRaw` below) has already guaranteed a
-  // valid proof is cached, either because one already was, or because the
-  // gate's own dialog just obtained and cached a fresh one. On the RPC's own
-  // `UNAUTHORIZED` (the proof was rejected server-side - expired/revoked
-  // mid-flow), the stale proof is cleared here before the error propagates
-  // to this `useAsyncAction`'s normal toast handling - see
-  // `useElectionDayReauth.ts`'s doc comment for why this deliberately does
-  // NOT auto-retry the import itself.
-  const { run: runImport, busy: importing } = useAsyncAction(
-    async (file: File) => {
-      const sheet = file.name.toLowerCase().endsWith(".json")
-        ? await parseJsonFile(file)
-        : await parseSpreadsheet(file);
-      const parsed = parseElectionDaySheet(sheet);
-      const proof = useElectionDayReauthProof.getState().proof ?? "";
-      try {
-        const { count } = await api.importElectionDayVoters(proof, parsed.imported);
-        return { ...parsed, count };
-      } catch (err) {
-        if (err instanceof ElectionDayReauthError && err.code === "UNAUTHORIZED") {
-          useElectionDayReauthProof.getState().clearProof();
-        }
-        throw err;
-      }
-    },
-    {
-      successMessage: (result) =>
-        ELECTION_DAY_TEXT.import.toast.loaded(
-          result.count,
-          result.totalRows,
-          result.rejected.length,
-        ),
-    },
-  );
-
+  // Phase 3 Import/Clear frontend cutover: dedicated trusted flows
+  // (useImportVotersTrusted.ts/useClearVotersTrusted.ts), same independent-
+  // dialog pattern as `trustedCreateUser`/`trustedDeleteUser`/
+  // `trustedResetPassword` above - own proof, never entering
+  // `useElectionDayReauthProof`'s legacy cache, no `_v2` fallback on
+  // failure. File parsing and the rejected-row/summary shape are completely
+  // unchanged (see useImportVotersTrusted.ts's own doc comment); Clear now
+  // requires a one-time step-up proof it never did before (the legacy raw
+  // PostgREST delete had no reauth step at all), a deliberate, explicitly
+  // requested part of this cutover.
   const importFileRaw = useCallback(
     async (file: File) => {
-      const result = await reauth.gate(
-        {
-          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
-          summary: ELECTION_DAY_TEXT.reauth.dialogs.importVoters,
-          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
-        },
-        () => runImport(file),
-      );
+      const result = await trustedImportVoters.importVoters(file);
       if (result) {
         setLastImportSummary(result);
         reloadContacts();
@@ -647,36 +613,25 @@ export function useElectionDay() {
       }
       return result;
     },
-    [reauth, runImport, reloadContacts, reloadEvents],
+    [trustedImportVoters, reloadContacts, reloadEvents],
   );
   const importFile = guardedAction("electionDay.import", importFileRaw, "importFile");
-
-  // Wrapped to resolve to an explicit `true` sentinel on success (instead of
-  // the underlying `void`) - `clearElectionDayDataRaw` below needs a way to
-  // tell "succeeded" apart from "blocked/failed" (both otherwise `undefined`)
-  // so its `ConfirmDialog` caller never closes as if a blocked/failed clear
-  // had gone through.
-  const { run: runClearAll, busy: clearing } = useAsyncAction(
-    async () => {
-      await api.clearElectionDayVoters();
-      return true;
-    },
-    { successMessage: ELECTION_DAY_TEXT.clearAll.toast.cleared },
-  );
+  const importing = trustedImportVoters.busy;
 
   const clearElectionDayDataRaw = useCallback(async () => {
-    const result = await runClearAll();
+    const result = await trustedClearVoters.clearVoters();
     if (result === undefined) return undefined;
     setLastImportSummary(null);
     reloadContacts();
     reloadEvents();
     return true;
-  }, [runClearAll, reloadContacts, reloadEvents]);
+  }, [trustedClearVoters, reloadContacts, reloadEvents]);
   const clearElectionDayData = guardedAction(
     "electionDay.clearData",
     clearElectionDayDataRaw,
     "clearElectionDayData",
   );
+  const clearing = trustedClearVoters.busy;
 
   const downloadRejectedRows = useCallback(() => {
     if (lastImportSummary && lastImportSummary.rejected.length > 0) {
@@ -1416,9 +1371,12 @@ export function useElectionDay() {
     resetPermissionUserPassword,
     roles,
     // Security Hardening (Reauth): the shared password-reauth dialog for
-    // this hook's remaining legacy gated mutations (import/role-management/
-    // coordinator-allocation) - `null` while no reauth is pending. Rendered
-    // once by `ElectionDayShell.tsx`.
+    // Legacy shared gate - no remaining caller inside this hook since the
+    // Phase 3 Import/Clear cutover below (role-management/coordinator-
+    // allocation each instantiate their own independent
+    // `useElectionDayReauth()`, not this one) - always `null` now, kept
+    // wired/rendered as-is rather than removed, out of scope for this
+    // cutover. Rendered once by `ElectionDayShell.tsx`.
     reauthDialog: reauth.reauthDialog,
     // Phase 3C: the independent trusted-v3 dialogs for
     // create/delete/reset-password - each a SEPARATE instance from
@@ -1427,6 +1385,10 @@ export function useElectionDay() {
     createUserReauthDialog: trustedCreateUser.reauthDialog,
     deleteUserReauthDialog: trustedDeleteUser.reauthDialog,
     resetPasswordReauthDialog: trustedResetPassword.reauthDialog,
+    // Phase 3 Import/Clear frontend cutover: same independent-dialog
+    // pattern as the 3 PermissionUser flows above.
+    importVotersReauthDialog: trustedImportVoters.reauthDialog,
+    clearVotersReauthDialog: trustedClearVoters.reauthDialog,
   };
 }
 

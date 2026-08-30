@@ -639,6 +639,7 @@ export const ELECTION_DAY_TEXT = {
       cloneRole: (name: string) =>
         `כדי לשכפל את התפקיד "${name}" יש לאמת מחדש את הסיסמה שלך.`,
       importVoters: "כדי לטעון את קובץ הבוחרים יש לאמת מחדש את הסיסמה שלך.",
+      clearVoters: "כדי למחוק את קובץ הבוחרים יש לאמת מחדש את הסיסמה שלך.",
     },
     /** Phase 3C frontend cutover: error copy for the trusted v3
      * create_permission_user flow (POST /api/election-day/reauth then POST
@@ -668,6 +669,22 @@ export const ELECTION_DAY_TEXT = {
       cannotDeleteSelf: "לא ניתן למחוק את המשתמש שלך",
       userNotFound: "המשתמש אינו קיים",
       invalidPassword: "יש להזין סיסמה חדשה",
+      generic: "אירעה שגיאה, נסו שוב",
+    },
+    /** Phase 3 Import/Clear frontend cutover: error copy for the trusted,
+     * one-time-consumed-proof v3 import/clear voter-file flows
+     * (useImportVotersTrusted.ts / useClearVotersTrusted.ts). Shares
+     * wrongPassword/rateLimited/sessionExpired/forbidden/generic wording
+     * with trustedCreateErrors/trustedUserErrors above (identical failure
+     * meaning), adds the one error shape specific to import
+     * (allocationActivityStarted - the workspace-scoped allocation-activity
+     * guard rejecting a re-import once driver allocation has begun). */
+    trustedVoterFileErrors: {
+      wrongPassword: "הסיסמה שהזנת אינה נכונה",
+      rateLimited: "יותר מדי ניסיונות. נסו שוב בעוד כמה דקות",
+      sessionExpired: "פג תוקף האימות. נסו שוב",
+      forbidden: "אין לך הרשאה לבצע פעולה זו",
+      allocationActivityStarted: "לא ניתן לטעון קובץ חדש - כבר החלה חלוקת נהגים היום",
       generic: "אירעה שגיאה, נסו שוב",
     },
   },
