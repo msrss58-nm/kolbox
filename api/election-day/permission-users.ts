@@ -83,7 +83,7 @@ function sendError(res: MinimalResponse, status: number, code: string): void {
 
 function requireServiceClient(
   res: MinimalResponse,
-): ReturnType<typeof createClient> | null {
+): ReturnType<typeof getServiceClient> | null {
   try {
     return getServiceClient();
   } catch {

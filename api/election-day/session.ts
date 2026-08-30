@@ -125,7 +125,7 @@ function clearSessionCookie(res: MinimalResponse): void {
 // for a request that didn't need the DB anyway.
 function requireServiceClient(
   res: MinimalResponse,
-): ReturnType<typeof createClient> | null {
+): ReturnType<typeof getServiceClient> | null {
   try {
     return getServiceClient();
   } catch {
