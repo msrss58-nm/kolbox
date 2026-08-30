@@ -511,23 +511,41 @@ export default async function handler(
 ): Promise<void> {
   const method = req.method ?? "GET";
 
-  if (method === "GET") {
-    await handleGet(req, res);
-    return;
-  }
-
-  if (method !== "POST") {
-    sendError(res, 405, "METHOD_NOT_ALLOWED");
-    return;
-  }
-
+  // The action marker (present only via the two aliased rewrite URLs) is
+  // checked BEFORE any GET handling - the original permission-users-
+  // delete.ts/permission-users-reset-password.ts files rejected every
+  // non-POST method (including GET) with 405, and had no roster-list
+  // behavior at all. Checking GET first here would silently reroute a GET
+  // on either alias to the roster list (401, not 405) - a real method-
+  // handling regression versus each original file, caught via a live
+  // Production HTTP check against the actual rewrite before this fix.
   const action = getQueryParam(req, "__pu_action");
   if (action === "delete") {
+    if (method !== "POST") {
+      sendError(res, 405, "METHOD_NOT_ALLOWED");
+      return;
+    }
     await handleDelete(req, res);
     return;
   }
   if (action === "reset-password") {
+    if (method !== "POST") {
+      sendError(res, 405, "METHOD_NOT_ALLOWED");
+      return;
+    }
     await handleResetPassword(req, res);
+    return;
+  }
+
+  // No action marker - this is the original, un-rewritten permission-users
+  // URL: GET = roster list, POST = create, anything else = 405, exactly as
+  // before this consolidation.
+  if (method === "GET") {
+    await handleGet(req, res);
+    return;
+  }
+  if (method !== "POST") {
+    sendError(res, 405, "METHOD_NOT_ALLOWED");
     return;
   }
   await handleCreate(req, res);
