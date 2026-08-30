@@ -15,11 +15,10 @@ import { extractBearerToken, getServiceClient, verifyOwnerJwt } from "./_ownerAu
 // the verified auth_user_id - this endpoint never accepts or forwards a
 // client-supplied ownerId/workspaceId.
 //
-// Wired into the frontend Owner Role Management surface (useOwnerRoleManagement.ts)
-// as of this task's frontend cutover. The legacy election_day_create_role_v2/
-// _update_role_v2/_delete_role_v2/_clone_role_v2 remain defined (dead
-// compatibility RPCs, per this task's own DO NOT list barring their
-// retirement) but have zero live frontend callers after this cutover.
+// Wired into the frontend Owner Role Management surface (useOwnerRoleManagement.ts).
+// The legacy election_day_create_role_v2/_update_role_v2/_delete_role_v2/
+// _clone_role_v2 (already zero live frontend callers after this cutover)
+// were removed entirely in the later Phase 3 Contract migration.
 //
 // One file for the read + all four mutations (rather than five near-
 // identical files) - deliberate: they share the exact same Owner JWT

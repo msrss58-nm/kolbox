@@ -115,54 +115,91 @@ if (process.exitCode) {
 // Section 2 - live proof against a LOCAL disposable stack only
 // ============================================================================
 
-// The exact 54 `public` functions expected to remain after every migration in
-// this repo applies to a fresh database - the full pre-Contract baseline (55,
-// captured live against a freshly-reset local stack immediately before this
-// migration was authored) minus exactly the one function this migration
-// removes. Hardcoded deliberately, same convention as EXPECTED_TABLES in
-// smoke-multi-tenant-phase2-schema.ts - a schema-shape regression is
-// supposed to need a conscious update when the shape it guards changes.
+// The exact 85 `public` functions expected to remain after every migration in
+// this repo applies to a fresh database. Originally a 54-name snapshot
+// captured immediately before the Phase 2 Contract migration
+// (20260825000000) - re-captured live against a freshly-reset local stack as
+// of the Phase 3 Contract migration (20260830000000_election_day_phase3_
+// contract_v2_rpc_removal.sql), which is the most recent migration to change
+// the public function set (drops the 12 legacy `_v2` RPCs whose frontend
+// callers were fully cut over to trusted v3/owner-v3 - Users/Roles/
+// Coordinator-Allocation/Import; the 40 `_core`/`_v3`/`_owner_v3`/session/
+// reauth functions added by the intervening Multi-Tenant Phase 3
+// (workspace/session/owner-trust) migrations are also reflected here for the
+// first time in this file). `election_day_login_v2`/`election_day_logout_v2`
+// remain - they are the live session RPCs (api/election-day/session.ts),
+// deliberately not part of the Phase 3 Contract. Hardcoded deliberately, same
+// convention as EXPECTED_TABLES in smoke-multi-tenant-phase2-schema.ts - a
+// schema-shape regression is supposed to need a conscious update when the
+// shape it guards changes.
 const EXPECTED_REMAINING_FUNCTIONS = [
   "election_day_apply_initial_allocation",
-  "election_day_apply_initial_allocation_v2",
+  "election_day_apply_initial_allocation_core",
+  "election_day_apply_initial_allocation_owner_v3",
+  "election_day_apply_initial_allocation_v3",
   "election_day_cancel_reminder",
+  "election_day_clear_voter_domain_for_workspace",
+  "election_day_clear_voters_owner_v3",
+  "election_day_clear_voters_v3",
   "election_day_clone_role",
-  "election_day_clone_role_v2",
+  "election_day_clone_role_owner_v3",
   "election_day_close_reminder",
   "election_day_coordinator_participated",
   "election_day_create_non_voting_reason",
   "election_day_create_permission_user",
-  "election_day_create_permission_user_v2",
+  "election_day_create_permission_user_v3",
   "election_day_create_role",
-  "election_day_create_role_v2",
+  "election_day_create_role_owner_v3",
   "election_day_delete_non_voting_reason",
   "election_day_delete_permission_user",
-  "election_day_delete_permission_user_v2",
+  "election_day_delete_permission_user_v3",
   "election_day_delete_role",
-  "election_day_delete_role_v2",
+  "election_day_delete_role_owner_v3",
   "election_day_end_coordinator_activity",
-  "election_day_end_coordinator_activity_v2",
+  "election_day_end_coordinator_activity_core",
+  "election_day_end_coordinator_activity_owner_v3",
+  "election_day_end_coordinator_activity_v3",
   "election_day_extend_call_attempts_threshold",
   "election_day_extend_no_answer_streak_threshold",
   "election_day_has_allocation_activity",
+  "election_day_has_allocation_activity_for_workspace",
   "election_day_import_voters",
-  "election_day_import_voters_v2",
+  "election_day_import_voters_core",
+  "election_day_import_voters_owner_v3",
+  "election_day_import_voters_v3",
   "election_day_increment_call_attempts",
   "election_day_is_valid_permission",
+  "election_day_list_coordinators_core",
+  "election_day_list_coordinators_owner_v3",
+  "election_day_list_coordinators_v3",
   "election_day_list_non_voting_reasons",
   "election_day_list_permission_users",
+  "election_day_list_permission_users_v3",
   "election_day_list_roles",
+  "election_day_list_roles_owner_v3",
+  "election_day_list_roles_v3",
   "election_day_login",
+  "election_day_login_v2",
+  "election_day_logout_v2",
   "election_day_manage_coordinators",
-  "election_day_manage_coordinators_v2",
+  "election_day_manage_coordinators_core",
+  "election_day_manage_coordinators_owner_v3",
+  "election_day_manage_coordinators_v3",
+  "election_day_owner_reauth",
   "election_day_reauth",
+  "election_day_reauth_v3",
   "election_day_rebalance_assignments",
-  "election_day_rebalance_assignments_v2",
+  "election_day_rebalance_assignments_core",
+  "election_day_rebalance_assignments_owner_v3",
+  "election_day_rebalance_assignments_v3",
   "election_day_record_call_answered",
   "election_day_record_no_answer",
+  "election_day_register_login_attempt",
   "election_day_reorder_non_voting_reasons",
   "election_day_reset_permission_user_password",
-  "election_day_reset_permission_user_password_v2",
+  "election_day_reset_permission_user_password_v3",
+  "election_day_resolve_owner_context",
+  "election_day_resolve_session",
   "election_day_revoke_reauth_proof",
   "election_day_set_non_voting_reason",
   "election_day_set_non_voting_reason_active",
@@ -170,12 +207,16 @@ const EXPECTED_REMAINING_FUNCTIONS = [
   "election_day_set_updated_at",
   "election_day_set_voted",
   "election_day_sync_coordinators_from_voters",
+  "election_day_sync_coordinators_from_voters_for_workspace",
   "election_day_update_non_voting_reason",
   "election_day_update_role",
-  "election_day_update_role_v2",
+  "election_day_update_role_owner_v3",
   "election_day_validate_non_voting_reason_input",
   "election_day_validate_role_input",
+  "election_day_verify_and_consume_owner_proof",
+  "election_day_verify_and_consume_reauth_proof_v3",
   "election_day_verify_reauth_proof",
+  "election_day_verify_reauth_proof_v3",
   "election_day_voter_is_remaining",
 ].sort();
 

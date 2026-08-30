@@ -13,10 +13,11 @@ import { createHash } from "node:crypto";
 // api/election-day/reauth.ts's own session-cookie/hashing conventions
 // exactly.
 //
-// NOT wired into the live frontend by this EXPAND - useElectionDay.ts's
-// importFile continues to call the legacy election_day_import_voters_v2 RPC
-// directly, unchanged. This endpoint exists ahead of that separate, later,
-// explicit frontend cutover decision.
+// Wired into the live frontend since the Phase 3 Import/Clear frontend
+// cutover (useImportVotersTrusted.ts -> electionDayTrustedVoterFileClient.ts
+// -> this endpoint). The legacy election_day_import_voters_v2 RPC and its
+// only caller (SupabaseElectionDayApi.importElectionDayVoters) were both
+// removed entirely in the Phase 3 Contract migration.
 
 const ALLOWED_BODY_KEYS = new Set<string>(["reauthProof", "voters"]);
 

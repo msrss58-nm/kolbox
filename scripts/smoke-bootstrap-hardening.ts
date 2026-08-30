@@ -63,34 +63,44 @@ assert(
   "ElectionDayShell.tsx: useElectionDay() called with no isBootstrap argument",
 );
 
-// 4. The permissions page must render a static setup-required state during
-// bootstrap, and canManageUsers must not be widened by isBootstrap anymore.
+// 4. The whole isBootstrap concept (`ElectionDayGuard`'s pre-session
+// unauthenticated bypass and this page's corresponding setup-required
+// dead-end) was retired entirely in a later phase, before the Phase 3
+// Contract this file was updated for - `ElectionDayPermissionsPage.tsx` no
+// longer has any isBootstrap branch or reference of any kind, and
+// canManageUsers is a plain, unwidened permission check.
 assert(
-  /if \(electionDay\.isBootstrap\) \{/.test(permissionsPage),
-  "ElectionDayPermissionsPage.tsx: has an explicit isBootstrap early-return branch",
-);
-assert(
-  permissionsPage.includes("ELECTION_DAY_TEXT.bootstrapSetupRequired.title"),
-  "ElectionDayPermissionsPage.tsx: bootstrap branch renders the setup-required copy",
-);
-assert(
-  !permissionsPage.includes('can("electionDay.manageUsers") || electionDay.isBootstrap'),
-  "ElectionDayPermissionsPage.tsx: canManageUsers no longer widened by isBootstrap",
+  !permissionsPage.includes("isBootstrap"),
+  "ElectionDayPermissionsPage.tsx: no isBootstrap reference of any kind remains",
 );
 assert(
   /const canManageUsers = can\("electionDay\.manageUsers"\);/.test(permissionsPage),
   "ElectionDayPermissionsPage.tsx: canManageUsers is a plain, unwidened permission check",
 );
 
-// 5. Normal (non-bootstrap) admin creation must still go through the real
-// v2 RPC, unchanged, and never the legacy v1 name.
+// 5. Phase 3 Contract: createPermissionUser (and the election_day_create_
+// permission_user_v2 RPC it called) was removed entirely from
+// supabaseElectionDayApi.ts - creation now goes exclusively through the
+// trusted v3 path (useCreatePermissionUserTrusted.ts -> POST
+// /api/election-day/permission-users), which carries no bootstrap exception
+// either (grepped directly - zero "bootstrap" references in either the hook
+// or the API route).
 assert(
-  supabaseApi.includes('supabase.rpc("election_day_create_permission_user_v2"'),
-  "supabaseElectionDayApi.ts: createPermissionUser still calls election_day_create_permission_user_v2",
+  !supabaseApi.includes("createPermissionUser"),
+  "supabaseElectionDayApi.ts: createPermissionUser (and its _v2 RPC call) fully removed - trusted v3 is the only creation path",
 );
 assert(
   !/supabase\.rpc\("election_day_create_permission_user"[,)]/.test(supabaseApi),
   "supabaseElectionDayApi.ts: no frontend call to the legacy unauthenticated election_day_create_permission_user",
+);
+const trustedCreateHook = read(
+  "src/features/election-day/useCreatePermissionUserTrusted.ts",
+);
+const permissionUsersApiRoute = read("api/election-day/permission-users.ts");
+assert(
+  !trustedCreateHook.toLowerCase().includes("bootstrap") &&
+    !permissionUsersApiRoute.toLowerCase().includes("bootstrap"),
+  "trusted v3 create-user path (hook + API route): no bootstrap exception of any kind",
 );
 
 console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);

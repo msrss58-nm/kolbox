@@ -1,9 +1,4 @@
 import {
-  mapCoordinatorAllocationRpcErrorMessage,
-  toAllocationAssignmentPayload,
-  toCoordinatorActionPayload,
-} from "./coordinatorAllocationMapping";
-import {
   normalizeNonVotingReasonRecord,
   type RawNonVotingReasonRow,
 } from "./nonVotingReasonMapper";
@@ -20,26 +15,7 @@ import type {
   RideCoordinator,
   RideStatusEvent,
 } from "../../types";
-import type {
-  AllocationAssignment,
-  ApplyInitialAllocationResult,
-  CoordinatorAction,
-  EndCoordinatorActivityMode,
-  EndCoordinatorActivityResult,
-  NewElectionDayVoter,
-  NewNonVotingReason,
-  NewPermissionUser,
-  NewRideCoordinator,
-  NewRole,
-  NonVotingReasonUpdate,
-  RebalanceAssignmentsResult,
-  RoleUpdate,
-} from "./types";
-
-/** A UUID that `gen_random_uuid()` will never produce - the standard
- * Supabase-community idiom for an unconditional "delete every row" via the
- * client (the JS client requires at least one filter on delete/update). */
-const NEVER_MATCHES_ID = "00000000-0000-0000-0000-000000000000";
+import type { NewNonVotingReason, NewRideCoordinator, NonVotingReasonUpdate } from "./types";
 
 /** Throws on a Supabase error - use for delete/insert/void-RPC calls where
  * the response body isn't needed. Supabase returns `data: null` by default
@@ -288,20 +264,17 @@ function mapRoleRpcErrorMessage(message: string): string {
   return message;
 }
 
-/** Security Hardening (Reauth): thrown by the 8 admin/import RPCs gated by
- * `p_reauth_proof` (`election_day_create_permission_user_v2`,
- * `_delete_permission_user_v2`, `_reset_permission_user_password_v2`,
- * `_create_role_v2`, `_update_role_v2`, `_delete_role_v2`, `_clone_role_v2`,
- * `_import_voters_v2`) when the server rejects the caller's proof/
- * permission - `.message` is already the same Hebrew text
- * `mapRoleRpcErrorMessage` would produce (safe to toast directly, same as
- * every other error in this file), while `.code` lets callers (the reauth
- * gate in `useElectionDayReauth.ts`) react programmatically - specifically,
- * clear a rejected `UNAUTHORIZED` proof from the client-side cache - without
- * parsing the already-localized message string. `FORBIDDEN` (the proof is
- * valid but the resolved actor's role lacks the permission) deliberately
- * does NOT clear the cached proof - the proof itself is still good for
- * whatever else that actor is allowed to do. */
+/** Security Hardening (Reauth): a shared, typed error for a proof/permission
+ * rejection - originally thrown by this file's own `_v2` reauth-gated RPC
+ * wrappers (all retired in the Phase 3 Contract; this file's own last caller
+ * was removed with them), now thrown by the trusted v3 clients instead (see
+ * `electionDayTrustedCoordinatorAllocationClient.ts`,
+ * `useCoordinatorAllocation.ts`). `.message` is already localized Hebrew text
+ * (safe to toast directly), while `.code` lets a caller react
+ * programmatically - e.g. clear a rejected `UNAUTHORIZED` proof from a
+ * client-side cache - without parsing the message string. `FORBIDDEN` (the
+ * proof is valid but the resolved actor's role lacks the permission)
+ * deliberately does NOT imply the proof itself is bad. */
 export class ElectionDayReauthError extends Error {
   readonly code: "UNAUTHORIZED" | "FORBIDDEN";
   constructor(code: "UNAUTHORIZED" | "FORBIDDEN", message: string) {
@@ -309,30 +282,6 @@ export class ElectionDayReauthError extends Error {
     this.name = "ElectionDayReauthError";
     this.code = code;
   }
-}
-
-/** Wraps a `_v2` reauth-gated RPC call: maps `UNAUTHORIZED`/`FORBIDDEN` into
- * a typed `ElectionDayReauthError` (see its own comment) before falling back
- * to `mapAdditional` for the RPC's own business-error codes (unchanged from
- * each v1 RPC's existing codes - `mapRoleRpcErrorMessage` already knows
- * `UNAUTHORIZED`/`FORBIDDEN` too, reused here for the actual Hebrew text so
- * there's exactly one place that copy lives). */
-async function callReauthedRpc<T>(
-  promise: PromiseLike<{ data: unknown; error: { message: string } | null }>,
-  mapAdditional: (message: string) => string = mapRoleRpcErrorMessage,
-): Promise<T> {
-  const result = await promise;
-  if (result.error) {
-    const raw = result.error.message;
-    if (raw.includes("UNAUTHORIZED")) {
-      throw new ElectionDayReauthError("UNAUTHORIZED", mapRoleRpcErrorMessage(raw));
-    }
-    if (raw.includes("FORBIDDEN")) {
-      throw new ElectionDayReauthError("FORBIDDEN", mapRoleRpcErrorMessage(raw));
-    }
-    throw new Error(mapAdditional(raw));
-  }
-  return result.data as T;
 }
 
 /** Dynamic Non-Voting Reasons: the catalog-management RPCs raise the same
@@ -370,18 +319,6 @@ async function callNonVotingReasonRpc<T>(
   if (result.error)
     throw new Error(mapNonVotingReasonRpcErrorMessage(result.error.message));
   return result.data as T;
-}
-
-/** Coordinator Allocation Management Phase 2: election_day_import_voters now
- * raises the same kind of small, stable English error code as the role/
- * reason RPCs (ALLOCATION_ACTIVITY_STARTED) once a re-import is blocked -
- * translated here, once, mirroring `mapRoleRpcErrorMessage`/
- * `mapNonVotingReasonRpcErrorMessage` exactly. */
-function mapImportRpcErrorMessage(message: string): string {
-  if (message.includes("ALLOCATION_ACTIVITY_STARTED")) {
-    return "לא ניתן להעלות מחדש את מאגר הבוחרים לאחר שהחלה פעילות הקצאות. החלפת מאגר היא פעולה נפרדת.";
-  }
-  return message;
 }
 
 // Coordinator Allocation Management Phase 3/4: error mapping + payload
@@ -427,41 +364,6 @@ export class SupabaseElectionDayApi {
     }
   }
 
-  /** Runs the whole replace-the-ride-list operation as one atomic call via
-   * the `election_day_import_voters_v2` RPC (see the
-   * "election_day_atomic_import" migration) - a Postgres function body is
-   * one implicit transaction, so a failure partway through (e.g. a
-   * malformed row) rolls back the deletes too, instead of leaving the live
-   * table permanently empty. Previously this ran as 3 separate REST calls
-   * (delete events, delete voters, insert voters) with no such guarantee.
-   *
-   * Security Hardening (Reauth): now also requires `proof` (from
-   * `reauth()`) as its first argument - this destructive, whole-dataset
-   * mutation is one of the 8 admin/import RPCs no longer reachable by
-   * anyone holding the anon key alone. */
-  async importElectionDayVoters(
-    proof: string,
-    rows: NewElectionDayVoter[],
-  ): Promise<{ count: number }> {
-    const count = await callReauthedRpc<number>(
-      supabase.rpc("election_day_import_voters_v2", {
-        p_reauth_proof: proof,
-        p_voters: rows.map((r) => ({
-          masad: r.masad,
-          first_name: r.firstName,
-          last_name: r.lastName,
-          street: r.street,
-          house_number: r.houseNumber,
-          city: r.city,
-          phone: r.phone,
-          coordinator: r.coordinator,
-        })),
-      }),
-      mapImportRpcErrorMessage,
-    );
-    return { count };
-  }
-
   async listElectionDayVoters(): Promise<ElectionDayVoter[]> {
     // PostgREST caps an unranged `.select()` at its default max-rows (1000) -
     // a real ride-list can exceed that, so this pages through with `.range()`
@@ -479,18 +381,6 @@ export class SupabaseElectionDayApi {
       if (page.length < pageSize) break;
     }
     return rows.map(toVoter);
-  }
-
-  async clearElectionDayVoters(): Promise<void> {
-    checkError(
-      await supabase.from("election_day_voters").delete().neq("id", NEVER_MATCHES_ID),
-    );
-    checkError(
-      await supabase
-        .from("election_day_ride_status_events")
-        .delete()
-        .neq("id", NEVER_MATCHES_ID),
-    );
   }
 
   private async updateVoter(
@@ -820,47 +710,6 @@ export class SupabaseElectionDayApi {
     return data.map(toPermissionUser);
   }
 
-  /** Security Hardening (Reauth): `proof` is required (from `reauth()`) -
-   * `election_day_delete_permission_user_v2` carries no bootstrap exception
-   * (unlike `createPermissionUser` below), so this is always called with a
-   * real signed-in actor's proof. See `ElectionDayReauthError`/
-   * `callReauthedRpc` for how `UNAUTHORIZED`/`FORBIDDEN` are surfaced. */
-  async deletePermissionUser(proof: string, id: string): Promise<void> {
-    await callReauthedRpc<null>(
-      supabase.rpc("election_day_delete_permission_user_v2", {
-        p_reauth_proof: proof,
-        p_target_user_id: id,
-      }),
-    );
-  }
-
-  /** Resets an existing PermissionUser's (`targetId`) password_hash in
-   * place. Security Hardening (Reauth): the acting manager's own identity is
-   * now carried entirely by `proof` (from `reauth()`, itself obtained by
-   * re-verifying the acting manager's password) instead of this method
-   * taking `actorId`/`actorPassword` directly - the RPC still performs the
-   * same real server-side checks (proof resolves to a valid actor, that
-   * actor's role holds `electionDay.manageUsers`) it always did, just via
-   * the shared proof mechanism every other hardened RPC now uses instead of
-   * its own bespoke actor-password parameters. See `mapRoleRpcErrorMessage`/
-   * `ElectionDayReauthError` for how `UNAUTHORIZED`/`FORBIDDEN`/
-   * `USER_NOT_FOUND`/`INVALID_PASSWORD` become Hebrew toast text. Never
-   * returns/exposes the password or hash. */
-  async resetPermissionUserPassword(
-    proof: string,
-    targetId: string,
-    newPassword: string,
-  ): Promise<PermissionUser> {
-    const data = await callReauthedRpc<PermissionUserRpcRow[]>(
-      supabase.rpc("election_day_reset_permission_user_password_v2", {
-        p_reauth_proof: proof,
-        p_target_user_id: targetId,
-        p_new_password: newPassword,
-      }),
-    );
-    return toPermissionUser(data[0]);
-  }
-
   async verifyPermissionUserLogin(
     name: string,
     password: string,
@@ -883,82 +732,6 @@ export class SupabaseElectionDayApi {
   async listElectionDayRoles(): Promise<RoleRecord[]> {
     const data = unwrapArray<RawRoleRow[]>(await supabase.rpc("election_day_list_roles"));
     return data.map(normalizeRoleRecord);
-  }
-
-  /** Dynamic Roles & Permissions Phase 2: real role management. Security
-   * Hardening (Reauth): `proof` (from `reauth()`) is now required as the
-   * first argument. See `mapRoleRpcErrorMessage`/`ElectionDayReauthError`
-   * for how the DB's business-error codes and `UNAUTHORIZED`/`FORBIDDEN`
-   * become Hebrew toast text. */
-  async createRole(proof: string, input: NewRole): Promise<RoleRecord> {
-    const data = await callReauthedRpc<RawRoleRow[]>(
-      supabase.rpc("election_day_create_role_v2", {
-        p_reauth_proof: proof,
-        p_name: input.name,
-        p_description: input.description,
-        p_permissions: input.permissions,
-        p_scope_type: input.scopeType,
-      }),
-    );
-    return normalizeRoleRecord(data[0]);
-  }
-
-  async updateRole(proof: string, input: RoleUpdate): Promise<RoleRecord> {
-    const data = await callReauthedRpc<RawRoleRow[]>(
-      supabase.rpc("election_day_update_role_v2", {
-        p_reauth_proof: proof,
-        p_role_id: input.id,
-        p_name: input.name,
-        p_description: input.description,
-        p_permissions: input.permissions,
-        p_scope_type: input.scopeType,
-      }),
-    );
-    return normalizeRoleRecord(data[0]);
-  }
-
-  async deleteRole(proof: string, id: string): Promise<void> {
-    await callReauthedRpc<null>(
-      supabase.rpc("election_day_delete_role_v2", {
-        p_reauth_proof: proof,
-        p_role_id: id,
-      }),
-    );
-  }
-
-  async cloneRole(proof: string, id: string, newName: string): Promise<RoleRecord> {
-    const data = await callReauthedRpc<RawRoleRow[]>(
-      supabase.rpc("election_day_clone_role_v2", {
-        p_reauth_proof: proof,
-        p_role_id: id,
-        p_new_name: newName,
-      }),
-    );
-    return normalizeRoleRecord(data[0]);
-  }
-
-  /** Security Hardening (Reauth): `proof` is required unconditionally.
-   * `election_day_create_permission_user_v2` briefly carried an empty-
-   * roster bootstrap exception (both here and server-side) - explicitly
-   * removed: a privileged endpoint must not become unauthenticated merely
-   * because the user table is empty. `useElectionDay.ts`'s
-   * `addPermissionUser` always resolves a real proof via `reauth.gate`
-   * before calling this; the very first account is created out-of-band
-   * (never through this method) - see `ElectionDayPermissionsPage`'s
-   * setup-required state. */
-  async createPermissionUser(
-    proof: string,
-    input: NewPermissionUser,
-  ): Promise<PermissionUser> {
-    const data = await callReauthedRpc<PermissionUserRpcRow[]>(
-      supabase.rpc("election_day_create_permission_user_v2", {
-        p_reauth_proof: proof,
-        p_name: input.name,
-        p_password: input.password,
-        p_role_id: input.roleId,
-      }),
-    );
-    return toPermissionUser(data[0]);
   }
 
   /** Dynamic Non-Voting Reasons: the full catalog, including inactive rows -
@@ -1039,109 +812,6 @@ export class SupabaseElectionDayApi {
         .order("id", { ascending: true }),
     );
     return data.map(toCoordinator);
-  }
-
-  /** Security Hardening (Reauth), Phase 2: atomic batch add/edit/remove/
-   * link/relink/unlink via `election_day_manage_coordinators_v2` - see that
-   * function's own comment for the full per-action shape/rules. `proof`
-   * (from `reauth()`) replaces the old `actorId`/`actorPassword` pair; the
-   * acting identity and its current `electionDay.manageCoordinatorAllocation`
-   * permission are resolved/re-checked entirely server-side. */
-  async manageCoordinators(
-    proof: string,
-    actions: CoordinatorAction[],
-  ): Promise<Coordinator[]> {
-    const data = await callReauthedRpc<CoordinatorRow[]>(
-      supabase.rpc("election_day_manage_coordinators_v2", {
-        p_reauth_proof: proof,
-        p_actions: actions.map(toCoordinatorActionPayload),
-      }),
-      mapCoordinatorAllocationRpcErrorMessage,
-    );
-    return data.map(toCoordinator);
-  }
-
-  /** One-time distribution of every currently-unassigned voter - the server
-   * is the sole source of truth for which voters actually get allocated,
-   * this method sends only coordinator/quantity pairs, never a voter id. */
-  async applyInitialAllocation(
-    proof: string,
-    assignments: AllocationAssignment[],
-  ): Promise<ApplyInitialAllocationResult> {
-    const data = await callReauthedRpc<
-      {
-        operation_id: string;
-        allocated_count: number;
-        remaining_unassigned_count: number;
-      }[]
-    >(
-      supabase.rpc("election_day_apply_initial_allocation_v2", {
-        p_reauth_proof: proof,
-        p_assignments: assignments.map(toAllocationAssignmentPayload),
-      }),
-      mapCoordinatorAllocationRpcErrorMessage,
-    );
-    const row = data[0];
-    return {
-      operationId: row.operation_id,
-      allocatedCount: row.allocated_count,
-      remainingUnassignedCount: row.remaining_unassigned_count,
-    };
-  }
-
-  /** Mid-day transfer of "remaining" voters from source coordinators to
-   * destination coordinators, by quantity only. */
-  async rebalanceAssignments(
-    proof: string,
-    sources: AllocationAssignment[],
-    destinations: AllocationAssignment[],
-  ): Promise<RebalanceAssignmentsResult> {
-    const data = await callReauthedRpc<
-      { operation_id: string; transferred_count: number }[]
-    >(
-      supabase.rpc("election_day_rebalance_assignments_v2", {
-        p_reauth_proof: proof,
-        p_sources: sources.map(toAllocationAssignmentPayload),
-        p_destinations: destinations.map(toAllocationAssignmentPayload),
-      }),
-      mapCoordinatorAllocationRpcErrorMessage,
-    );
-    const row = data[0];
-    return { operationId: row.operation_id, transferredCount: row.transferred_count };
-  }
-
-  /** Ends one active coordinator's activity - `targetCoordinatorId` is
-   * required for `"transfer"`, ignored (sent as `null`) for
-   * `"equal_split"`. */
-  async endCoordinatorActivity(
-    proof: string,
-    coordinatorId: string,
-    mode: EndCoordinatorActivityMode,
-    targetCoordinatorId: string | null,
-  ): Promise<EndCoordinatorActivityResult> {
-    const data = await callReauthedRpc<
-      {
-        operation_id: string;
-        transferred_count: number;
-        ended_coordinator_id: string;
-        ended_coordinator_display_name: string;
-      }[]
-    >(
-      supabase.rpc("election_day_end_coordinator_activity_v2", {
-        p_reauth_proof: proof,
-        p_coordinator_id: coordinatorId,
-        p_mode: mode,
-        p_target_coordinator_id: mode === "transfer" ? targetCoordinatorId : null,
-      }),
-      mapCoordinatorAllocationRpcErrorMessage,
-    );
-    const row = data[0];
-    return {
-      operationId: row.operation_id,
-      transferredCount: row.transferred_count,
-      endedCoordinatorId: row.ended_coordinator_id,
-      endedCoordinatorDisplayName: row.ended_coordinator_display_name,
-    };
   }
 
   /** Live cross-device sync for `useElectionDay.ts`'s own contacts/events

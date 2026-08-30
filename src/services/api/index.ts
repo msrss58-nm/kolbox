@@ -49,9 +49,7 @@ export const api: ApiClient = {
   clearAll: (...args) => mockApi.clearAll(...args),
 
   // election day - ride-coordination dataset (Supabase-backed)
-  importElectionDayVoters: (...args) => electionDayApi.importElectionDayVoters(...args),
   listElectionDayVoters: (...args) => electionDayApi.listElectionDayVoters(...args),
-  clearElectionDayVoters: (...args) => electionDayApi.clearElectionDayVoters(...args),
   setRideRequested: (...args) => electionDayApi.setRideRequested(...args),
   setRideArranged: (...args) => electionDayApi.setRideArranged(...args),
   setRideCompleted: (...args) => electionDayApi.setRideCompleted(...args),
@@ -80,9 +78,6 @@ export const api: ApiClient = {
 
   // election day - permission users roster (Supabase-backed, RPC-only)
   listPermissionUsers: (...args) => electionDayApi.listPermissionUsers(...args),
-  deletePermissionUser: (...args) => electionDayApi.deletePermissionUser(...args),
-  resetPermissionUserPassword: (...args) =>
-    electionDayApi.resetPermissionUserPassword(...args),
   verifyPermissionUserLogin: (...args) =>
     electionDayApi.verifyPermissionUserLogin(...args),
 
@@ -93,13 +88,6 @@ export const api: ApiClient = {
   // election day - dynamic role catalog (Phase 1, Supabase-backed, RPC-only)
   listElectionDayRoles: (...args) => electionDayApi.listElectionDayRoles(...args),
 
-  // election day - role management (Phase 2, Supabase-backed, RPC-only)
-  createRole: (...args) => electionDayApi.createRole(...args),
-  updateRole: (...args) => electionDayApi.updateRole(...args),
-  deleteRole: (...args) => electionDayApi.deleteRole(...args),
-  cloneRole: (...args) => electionDayApi.cloneRole(...args),
-  createPermissionUser: (...args) => electionDayApi.createPermissionUser(...args),
-
   // election day - dynamic non-voting reason catalog (Supabase-backed, RPC-only)
   listNonVotingReasons: (...args) => electionDayApi.listNonVotingReasons(...args),
   createNonVotingReason: (...args) => electionDayApi.createNonVotingReason(...args),
@@ -108,13 +96,13 @@ export const api: ApiClient = {
   deleteNonVotingReason: (...args) => electionDayApi.deleteNonVotingReason(...args),
   reorderNonVotingReasons: (...args) => electionDayApi.reorderNonVotingReasons(...args),
 
-  // election day - coordinator allocation management (Supabase-backed,
-  // listCoordinators is a plain SELECT, the other 4 are RPC-only)
+  // election day - coordinator allocation management (Supabase-backed).
+  // listCoordinators is a plain SELECT - still live (CoordinatorReminder
+  // SupervisionCard.tsx, useCoordinatorAllocation.ts's deliberate own read).
+  // The 4 mutation RPCs were retired in the Phase 3 Contract - all 4
+  // mutations now go through the trusted v3 HTTP path exclusively (see
+  // electionDayTrustedCoordinatorAllocationClient.ts).
   listCoordinators: (...args) => electionDayApi.listCoordinators(...args),
-  manageCoordinators: (...args) => electionDayApi.manageCoordinators(...args),
-  applyInitialAllocation: (...args) => electionDayApi.applyInitialAllocation(...args),
-  rebalanceAssignments: (...args) => electionDayApi.rebalanceAssignments(...args),
-  endCoordinatorActivity: (...args) => electionDayApi.endCoordinatorActivity(...args),
 
   // election day - live cross-device sync (Supabase Realtime). Two separate
   // methods/channels, deliberately not one shared method - see

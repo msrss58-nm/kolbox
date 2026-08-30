@@ -234,16 +234,7 @@ export interface ApiClient {
   clearAll(): Promise<void>;
 
   // election day - independent ride-coordination dataset (see types.ts ElectionDayVoter)
-  /** Security Hardening (Reauth): `proof` (from `reauth()`) is required -
-   * this destructive, whole-dataset mutation is one of the 8 admin/import
-   * RPCs no longer reachable by anyone holding only the anon key. */
-  importElectionDayVoters(
-    proof: string,
-    rows: NewElectionDayVoter[],
-  ): Promise<{ count: number }>;
   listElectionDayVoters(): Promise<ElectionDayVoter[]>;
-  /** Clears the ride-list and its activity log (not the deadline). */
-  clearElectionDayVoters(): Promise<void>;
   /** The voter needs a ride - a lighter-weight signal than `setRideArranged`,
    * set before any driver has actually been contacted. */
   setRideRequested(id: string, requested: boolean): Promise<ElectionDayVoter>;
@@ -347,31 +338,6 @@ export interface ApiClient {
 
   // election day - local user/manager permissions roster (no real auth)
   listPermissionUsers(): Promise<PermissionUser[]>;
-  /** Security Hardening (Reauth): `proof` (from `reauth()`) is required,
-   * unconditionally - same as `createPermissionUser` below, neither carries
-   * any bootstrap/empty-roster exception (one briefly existed on the
-   * create path, both client- and server-side, and was explicitly
-   * removed). */
-  deletePermissionUser(proof: string, id: string): Promise<void>;
-  /** Resets an existing PermissionUser's (`targetId`) password in place
-   * (id/name/role untouched) - but only after REAL server-side
-   * re-authentication of the acting manager. Security Hardening (Reauth):
-   * the acting manager's identity is now carried by `proof` (obtained via
-   * `reauth()`, itself a bcrypt verification of that manager's own current
-   * password against their stored hash) instead of this method taking
-   * `actorId`/`actorPassword` directly - the RPC still performs the same
-   * real server-side checks (the proof resolves to a valid, currently
-   * signed-in actor; that actor's role holds `electionDay.manageUsers`)
-   * it always did. This is a genuine security boundary enforced in the
-   * database itself - not just a UI-level `guardedAction` check like every
-   * other mutation in this file. Self-reset: pass `targetId` equal to the
-   * proof's own actor id. Never returns or otherwise exposes the password
-   * or its hash. */
-  resetPermissionUserPassword(
-    proof: string,
-    targetId: string,
-    newPassword: string,
-  ): Promise<PermissionUser>;
   /** Verifies name+password and returns the matching user (never a
    * password/hash) on success, or null on no match. */
   verifyPermissionUserLogin(
@@ -398,39 +364,12 @@ export interface ApiClient {
    * returned - see `permissions/roleRecordMapper.ts`. */
   listElectionDayRoles(): Promise<RoleRecord[]>;
 
-  /** Dynamic Roles & Permissions, Phase 2: real role management. `createRole`
-   * carries no capability-guard restriction (adding a role can never reduce
-   * anyone's access); `updateRole`/`deleteRole` reject an operation that
-   * would remove `electionDay.manageRolesAndPermissions` from every
-   * actually-assigned user (enforced DB-side, in the same transaction as the
-   * write - see the `election_day_dynamic_roles_phase2` migration).
-   * `deleteRole` also rejects a role with any assigned user.
-   *
-   * Security Hardening (Reauth): all 4 now require `proof` (from
-   * `reauth()`) as their first argument. */
-  createRole(proof: string, input: NewRole): Promise<RoleRecord>;
-  updateRole(proof: string, input: RoleUpdate): Promise<RoleRecord>;
-  deleteRole(proof: string, id: string): Promise<void>;
-  cloneRole(proof: string, id: string, newName: string): Promise<RoleRecord>;
-  /** Creates a `PermissionUser` against an arbitrary role_id - the only
-   * creation path since the legacy 3-checkbox RPC was removed (Phase 3).
-   * Security Hardening (Reauth): `proof` is required unconditionally - no
-   * bootstrap/empty-roster exception (one briefly existed both here and
-   * server-side on `election_day_create_permission_user_v2`, and was
-   * explicitly removed: a privileged endpoint must not become
-   * unauthenticated just because the user table is empty). The very first
-   * `PermissionUser` (fresh install / local test bootstrap) is never
-   * created through this method - see `ElectionDayPermissionsPage`'s
-   * setup-required state, rendered instead of any Add-user form while the
-   * roster is empty. */
-  createPermissionUser(proof: string, input: NewPermissionUser): Promise<PermissionUser>;
-
   /** Dynamic Non-Voting Reasons: the full catalog ("ניהול סיבות אי-הצבעה"),
    * including inactive rows - the voter-level dropdown filters to
    * `isActive` itself. Real CRUD (`createNonVotingReason`/
-   * `updateNonVotingReason`/`deleteNonVotingReason`) mirrors `createRole`/
-   * `updateRole`/`deleteRole` exactly, including `deleteNonVotingReason`
-   * rejecting a reason still referenced by any voter. */
+   * `updateNonVotingReason`/`deleteNonVotingReason`), including
+   * `deleteNonVotingReason` rejecting a reason still referenced by any
+   * voter. */
   listNonVotingReasons(): Promise<NonVotingReason[]>;
   createNonVotingReason(input: NewNonVotingReason): Promise<NonVotingReason>;
   updateNonVotingReason(input: NonVotingReasonUpdate): Promise<NonVotingReason>;
@@ -446,36 +385,6 @@ export interface ApiClient {
   // a coordinator row carries no secret; every write goes through one of
   // the 4 actor-password-authenticated RPCs below.
   listCoordinators(): Promise<Coordinator[]>;
-  /** Security Hardening (Reauth), Phase 2: atomic batch add/edit/remove/
-   * link/relink/unlink. `proof` (from `reauth()`) is required unconditionally
-   * - resolved to the acting identity server-side via
-   * `election_day_verify_reauth_proof`, which also re-checks
-   * `electionDay.manageCoordinatorAllocation` live on every call. Returns the
-   * full current coordinator roster on success. */
-  manageCoordinators(proof: string, actions: CoordinatorAction[]): Promise<Coordinator[]>;
-  /** One-time distribution of every currently-unassigned voter across the
-   * given active coordinators, by quantity only - the server (never this
-   * layer, never the caller) chooses which voters. */
-  applyInitialAllocation(
-    proof: string,
-    assignments: AllocationAssignment[],
-  ): Promise<ApplyInitialAllocationResult>;
-  /** Mid-day transfer of "remaining" voters from source coordinators to
-   * destination coordinators, by quantity only. */
-  rebalanceAssignments(
-    proof: string,
-    sources: AllocationAssignment[],
-    destinations: AllocationAssignment[],
-  ): Promise<RebalanceAssignmentsResult>;
-  /** Ends one active coordinator's activity, moving its remaining voters per
-   * `mode`. `targetCoordinatorId` is required for `"transfer"`, ignored for
-   * `"equal_split"`. */
-  endCoordinatorActivity(
-    proof: string,
-    coordinatorId: string,
-    mode: EndCoordinatorActivityMode,
-    targetCoordinatorId: string | null,
-  ): Promise<EndCoordinatorActivityResult>;
 
   /**
    * Optional live cross-device sync for Election Day's ride-coordination

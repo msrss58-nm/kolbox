@@ -15,7 +15,7 @@ import {
   PERMISSION_LABELS,
   ROLE_SCOPE_LABELS,
 } from "./election-day.constants";
-import type { RoleManagementHook } from "./useRoleManagement";
+import type { OwnerRoleManagementHook } from "./useOwnerRoleManagement";
 
 const text = ELECTION_DAY_TEXT.rolesManager;
 
@@ -49,9 +49,15 @@ function formFromRole(role: RoleRecord): RoleFormState {
  * instead of a dialog. The nested create/edit form and `ConfirmDialog` below
  * are unchanged - the extraction only un-modal-ifies the outermost container.
  *
- * Phase 3C Roles Mutations: also reused, unchanged, by the Owner-only Role
- * Management surface (`OwnerRolesPage.tsx`, fed by `useOwnerRoleManagement`
- * instead of `useRoleManagement`) - `permissionUsers` is optional there since
+ * Phase 3 Contract: the PermissionUser-facing `useRoleManagement` this
+ * component originally typed its prop against was deleted as dead code (the
+ * "roles" tab it fed was removed from `ElectionDayPermissionsPage.tsx` in an
+ * earlier phase, leaving it with zero live callers) - this component is now
+ * typed directly against `OwnerRoleManagementHook`, its only real consumer.
+ *
+ * Reused, unchanged, by the Owner-only Role Management surface
+ * (`OwnerRolesPage.tsx`, fed by `useOwnerRoleManagement`) -
+ * `permissionUsers` is optional there since
  * the Owner surface has no live PermissionUser-roster visibility in this
  * phase (Users management stays PermissionUser-session-only until a
  * separate, later Owner migration); it only ever drives the per-role
@@ -64,7 +70,7 @@ export function RoleManagementPanel({
   roleManagement,
 }: {
   permissionUsers?: PermissionUser[];
-  roleManagement: RoleManagementHook;
+  roleManagement: OwnerRoleManagementHook;
 }) {
   const {
     roles,

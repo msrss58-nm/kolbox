@@ -113,7 +113,7 @@ assert(
 // (the only approved caller) holds no direct SELECT/INSERT/UPDATE grants on
 // these tables (only REFERENCES/TRIGGER/TRUNCATE), so the function must run
 // with its owner's (postgres) privileges, matching this project's
-// established pattern (e.g. election_day_import_voters_v2) ----
+// established pattern (e.g. election_day_import_voters_v3) ----
 assert(/security definer/.test(codeOnlySql), "function is SECURITY DEFINER");
 assert(!/security invoker/.test(codeOnlySql), "function is not SECURITY INVOKER");
 assert(/set search_path = ''/.test(codeOnlySql), "function pins search_path to '' (current Supabase/Postgres SECURITY DEFINER hardening guidance)");

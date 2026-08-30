@@ -51,12 +51,47 @@ if (!SUPABASE_URL) {
 }
 const COORDINATORS_URL = `${SUPABASE_URL}/rest/v1/election_day_coordinators*`;
 const VOTERS_URL = `${SUPABASE_URL}/rest/v1/election_day_voters*`;
-const MANAGE_COORDINATORS_RPC = `${SUPABASE_URL}/rest/v1/rpc/election_day_manage_coordinators_v2`;
+// Phase 3 Contract: the manage-coordinators mutation no longer calls Supabase
+// directly from the browser - it goes through the trusted, session-derived
+// v3 HTTP endpoint (api/election-day/coordinator-allocation.ts,
+// electionDayTrustedCoordinatorAllocationClient.ts), one shared endpoint for
+// all 4 allocation mutations distinguished by a JSON body `op` field. The
+// legacy election_day_manage_coordinators_v2 RPC this used to intercept was
+// retired in the same Contract.
+const COORDINATOR_ALLOCATION_ENDPOINT = `${BASE}/api/election-day/coordinator-allocation`;
 
-// The real, pre-existing local "מנהל" (manager) role - already granted
-// electionDay.manageCoordinatorAllocation in this project's seed data.
-// Not a secret, not Production - a local Docker project id only.
-const MANAGER_ROLE_ID = "18916a2e-aa8f-4a65-9c11-4ee37c7ce3a1";
+// The local "מנהל" (manager) role, seeded with electionDay.
+// manageCoordinatorAllocation - `election_day_roles.id` defaults to
+// gen_random_uuid() (see 20260805181806_election_day_dynamic_roles_phase0.sql),
+// so it is NOT stable across a `supabase db reset`/fresh disposable project;
+// looked up live by name against the local stack instead of hardcoded.
+// election_day_roles has no anon-readable RLS policy (unlike the permissive
+// voter/ride tables), so this lookup - local-only, never Production - needs
+// the local service-role key (not a secret: a fixed, publicly-documented
+// demo JWT baked into every `supabase start`, never Production's).
+const SUPABASE_LOCAL_SERVICE_ROLE_KEY = process.env.SUPABASE_LOCAL_SERVICE_ROLE_KEY;
+if (!SUPABASE_LOCAL_SERVICE_ROLE_KEY) {
+  console.error("FAIL: SUPABASE_LOCAL_SERVICE_ROLE_KEY env var required (local service-role key)");
+  process.exit(1);
+}
+async function lookupManagerRoleId() {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/election_day_roles?select=id&name=eq.${encodeURIComponent("מנהל")}`,
+    {
+      headers: {
+        apikey: SUPABASE_LOCAL_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_LOCAL_SERVICE_ROLE_KEY}`,
+      },
+    },
+  );
+  if (!res.ok) throw new Error(`role lookup failed: HTTP ${res.status}`);
+  const rows = await res.json();
+  if (!Array.isArray(rows) || rows.length === 0 || !rows[0]?.id) {
+    throw new Error('no local "מנהל" role found - is the local stack seeded?');
+  }
+  return rows[0].id;
+}
+const MANAGER_ROLE_ID = await lookupManagerRoleId();
 
 const results = [];
 const errors = [];
@@ -169,8 +204,17 @@ async function openAllocationScreen(page) {
   await injectSession(page);
 
   let mutationFired = false;
-  await page.route(MANAGE_COORDINATORS_RPC, (route) => {
-    mutationFired = true;
+  await page.route(COORDINATOR_ALLOCATION_ENDPOINT, (route) => {
+    const req = route.request();
+    if (req.method() === "POST") {
+      try {
+        if (JSON.parse(req.postData() ?? "{}").op === "manage_coordinators") {
+          mutationFired = true;
+        }
+      } catch {
+        // malformed body - not a manage_coordinators call we care about
+      }
+    }
     return route.continue();
   });
 
@@ -245,8 +289,17 @@ async function openAllocationScreen(page) {
   await injectSession(page);
 
   let mutationFired = false;
-  await page.route(MANAGE_COORDINATORS_RPC, (route) => {
-    mutationFired = true;
+  await page.route(COORDINATOR_ALLOCATION_ENDPOINT, (route) => {
+    const req = route.request();
+    if (req.method() === "POST") {
+      try {
+        if (JSON.parse(req.postData() ?? "{}").op === "manage_coordinators") {
+          mutationFired = true;
+        }
+      } catch {
+        // malformed body - not a manage_coordinators call we care about
+      }
+    }
     return route.continue();
   });
 
