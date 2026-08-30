@@ -9,6 +9,14 @@
       "destination": "/api/election-day/permission-users?__pu_action=reset-password"
     },
     {
+      "source": "/api/election-day/coordinator-allocation",
+      "destination": "/api/election-day/actions"
+    },
+    {
+      "source": "/api/election-day/owner-coordinator-allocation",
+      "destination": "/api/election-day/owner-actions"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
