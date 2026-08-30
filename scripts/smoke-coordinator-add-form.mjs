@@ -7,50 +7,67 @@
 // Extended 2026-08-23 with 2 additive regression blocks (after the original
 // 2 above) guarding the removed "קשר לאחראי הזה"/"עדכן קישור" link-suggestion
 // banner (`useCoordinatorRowActions.ts`, `CoordinatorRow.tsx`,
-// `CoordinatorLiveRow.tsx`): each mocks a coordinator whose linked_assignment_name
-// is null alongside a raw-imported voter whose `coordinator` text matches
-// that coordinator's display_name exactly - the precise condition that, pre-
-// removal, made the banner appear unconditionally for every import-auto-
-// synced coordinator. Covers both consumers (CoordinatorRow/Setup via a
-// forced-setup-phase unassigned voter, CoordinatorLiveRow/Live) per CLAUDE.md's
-// "Shared component/UX change checklist" - a shared component with 2
-// consumers needs 2 verification passes, never one standing in for both.
+// `CoordinatorLiveRow.tsx`): each seeds a coordinator whose
+// linked_assignment_name is null alongside a raw-imported voter whose
+// `coordinator` text matches that coordinator's display_name exactly - the
+// precise condition that, pre-removal, made the banner appear
+// unconditionally for every import-auto-synced coordinator. Covers both
+// consumers (CoordinatorRow/Setup via a forced-setup-phase unassigned voter,
+// CoordinatorLiveRow/Live) per CLAUDE.md's "Shared component/UX change
+// checklist" - a shared component with 2 consumers needs 2 verification
+// passes, never one standing in for both.
 //
-// Root cause the original 2 blocks guard against: the same shared component/
-// UX pattern had two distinct consumers in two distinct application states
-// (Setup vs Live), but a UX change was only manually verified in Live - a
-// later, unrelated fixture cleanup then changed local state from Live back
-// to Setup and exposed that the Setup consumer had never actually been
-// fixed. See CLAUDE.md's "Shared component/UX change checklist" for the
-// permanent rule this test exists to satisfy.
+// Rewritten 2026-08-30 for the Phase 3 Contract's tooling-closure step: the
+// original fixture faked the whole roster via `page.route()` JSON mocks
+// (client-side GET intercepts of a raw Supabase REST URL) and injected a
+// fake session directly into localStorage. Both are now architecturally
+// obsolete - Coordinator/Allocation's roster read moved to the trusted v3
+// HTTP endpoint (no more raw Supabase REST GET on election_day_coordinators
+// to intercept), and Phase 3B moved session identity onto a server-verified
+// HttpOnly cookie the app resolves via a real GET to
+// /api/election-day/session - a client-injected localStorage key is now
+// silently ignored entirely, so the old fixture no longer authenticates
+// anything at all. This version performs a REAL login through the actual
+// login form (name+password typed in, real submit, real
+// POST /api/election-day/session, real cookie) against a disposable local
+// PermissionUser account, and seeds real (never mocked) disposable rows
+// directly into the local, never-Production Supabase instance for each
+// scenario's coordinator/voter data - the roster and voter reads the app
+// performs are the real ones, not faked responses.
 //
-// Never touches real coordinator/voter data: `election_day_coordinators`
-// and `election_day_voters` GET requests are intercepted client-side
-// (page.route) and answered with a fixed fake body before they ever reach
-// Supabase - which application state (Setup vs Live) renders is entirely
-// mock-controlled, never dependent on whatever real/disposable fixtures
-// happen to exist locally at run time. The session is injected directly
-// into localStorage using the real, pre-existing "מנהל" role id (which
-// already grants `electionDay.manageCoordinatorAllocation` in this local
-// Docker project) - no real login RPC call, no real roster read/write. The
-// original 2 scenarios only ever click ביטול, never a real "add" - so the
-// coordinator-mutation RPC is asserted to never fire at all; the 2 new
-// regression blocks perform no mutation at all (read-only navigation and
-// text assertions only).
-//
-// Requires the local dev server (`npm run dev`, default localhost:5173) and
-// local Supabase Docker running - unlike the pure-logic `smoke-*.ts` suite,
-// this exercises real React rendering, so it needs both up.
+// Requires: local Supabase running (`supabase start`), the local dev server
+// proxying /api/election-day/* to a locally-running copy of the real,
+// unmodified `api/election-day/*.ts` handlers (session.ts, coordinator-
+// allocation.ts - see this repo's own local-harness convention for the
+// production-safe pattern; VITE_SUPABASE_URL must point at the local stack,
+// never Production), and SUPABASE_LOCAL_SERVICE_ROLE_KEY for the one-time
+// local-only role lookup and fixture seeding. Never touches Production -
+// besides pointing at a local API base URL, every outbound request this
+// script's browser makes is also defensively checked against the known
+// Production Supabase host and hard-failed if one ever appears.
 import { chromium } from "playwright";
+import { execFileSync } from "node:child_process";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:5173";
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 if (!SUPABASE_URL) {
-  console.error("FAIL: VITE_SUPABASE_URL env var required (same value as .env.development.local)");
+  console.error("FAIL: VITE_SUPABASE_URL env var required (the LOCAL Supabase stack's URL)");
   process.exit(1);
 }
-const COORDINATORS_URL = `${SUPABASE_URL}/rest/v1/election_day_coordinators*`;
-const VOTERS_URL = `${SUPABASE_URL}/rest/v1/election_day_voters*`;
+if (SUPABASE_URL.includes("nbymfgphnsounqncfjgl")) {
+  console.error("FAIL: VITE_SUPABASE_URL points at Production - refusing to run.");
+  process.exit(1);
+}
+const SUPABASE_LOCAL_SERVICE_ROLE_KEY = process.env.SUPABASE_LOCAL_SERVICE_ROLE_KEY;
+if (!SUPABASE_LOCAL_SERVICE_ROLE_KEY) {
+  console.error("FAIL: SUPABASE_LOCAL_SERVICE_ROLE_KEY env var required (local service-role key)");
+  process.exit(1);
+}
+
 // Phase 3 Contract: the manage-coordinators mutation no longer calls Supabase
 // directly from the browser - it goes through the trusted, session-derived
 // v3 HTTP endpoint (api/election-day/coordinator-allocation.ts,
@@ -60,39 +77,133 @@ const VOTERS_URL = `${SUPABASE_URL}/rest/v1/election_day_voters*`;
 // retired in the same Contract.
 const COORDINATOR_ALLOCATION_ENDPOINT = `${BASE}/api/election-day/coordinator-allocation`;
 
-// The local "מנהל" (manager) role, seeded with electionDay.
-// manageCoordinatorAllocation - `election_day_roles.id` defaults to
-// gen_random_uuid() (see 20260805181806_election_day_dynamic_roles_phase0.sql),
-// so it is NOT stable across a `supabase db reset`/fresh disposable project;
-// looked up live by name against the local stack instead of hardcoded.
-// election_day_roles has no anon-readable RLS policy (unlike the permissive
-// voter/ride tables), so this lookup - local-only, never Production - needs
-// the local service-role key (not a secret: a fixed, publicly-documented
-// demo JWT baked into every `supabase start`, never Production's).
-const SUPABASE_LOCAL_SERVICE_ROLE_KEY = process.env.SUPABASE_LOCAL_SERVICE_ROLE_KEY;
-if (!SUPABASE_LOCAL_SERVICE_ROLE_KEY) {
-  console.error("FAIL: SUPABASE_LOCAL_SERVICE_ROLE_KEY env var required (local service-role key)");
+// ---------------------------------------------------------------------------
+// Local-only SQL runner (fixture seeding + the one role-id lookup) - reuses
+// the same shell-free npx-invocation technique scripts/lib/supabaseCliQuery.ts
+// documents and uses for the exact same reason (bare execFileSync("npx", ...)
+// fails on Windows without shell:true, which reopens a quoting/injection
+// surface this SQL-carrying call should never have). SQL is always written
+// to a temp file, never passed as a positional argv element.
+// ---------------------------------------------------------------------------
+function resolveNpxInvocation() {
+  const npxCliJs = join(
+    dirname(process.execPath),
+    "node_modules",
+    "npm",
+    "bin",
+    "npx-cli.js",
+  );
+  if (existsSync(npxCliJs)) {
+    return { command: process.execPath, prefixArgs: [npxCliJs] };
+  }
+  return { command: "npx", prefixArgs: [] };
+}
+
+function runSql(sql) {
+  const tmpPath = join(tmpdir(), `kolbox-smoke-coord-form-${randomUUID()}.sql`);
+  writeFileSync(tmpPath, sql, { encoding: "utf8", mode: 0o600 });
+  const { command, prefixArgs } = resolveNpxInvocation();
+  let out;
+  try {
+    out = execFileSync(
+      command,
+      [
+        ...prefixArgs,
+        "supabase",
+        "db",
+        "query",
+        "--local",
+        "--file",
+        tmpPath,
+        "--output-format",
+        "json",
+        "--agent",
+        "yes",
+      ],
+      { encoding: "utf8", shell: false },
+    );
+  } finally {
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      // best-effort cleanup for this local-only, non-secret-bearing temp file
+    }
+  }
+  const jsonStart = out.indexOf("{");
+  if (jsonStart === -1) throw new Error("runSql: no JSON object found in supabase db query output");
+  const parsed = JSON.parse(out.slice(jsonStart));
+  if (!Array.isArray(parsed.rows)) throw new Error("runSql: no rows array in supabase db query output");
+  return parsed.rows;
+}
+
+// ---------------------------------------------------------------------------
+// Fixture: one disposable local workspace + one disposable local
+// PermissionUser account (real bcrypt hash via pgcrypto, real login-able),
+// pointed at the real, pre-existing local "מנהל" role (grants
+// electionDay.manageCoordinatorAllocation).
+// ---------------------------------------------------------------------------
+const RUN_ID = randomUUID().slice(0, 8);
+const FIXTURE_PASSWORD = "SmokeTest1234!";
+const FIXTURE_USER_NAME = `SMOKE_coord_form_${RUN_ID}`;
+
+const [{ id: managerRoleId }] = runSql(
+  `select id from election_day_roles where name = 'מנהל' limit 1;`,
+);
+if (!managerRoleId) {
+  console.error('FAIL: no local "מנהל" role found - is the local stack seeded?');
   process.exit(1);
 }
-async function lookupManagerRoleId() {
-  const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/election_day_roles?select=id&name=eq.${encodeURIComponent("מנהל")}`,
-    {
-      headers: {
-        apikey: SUPABASE_LOCAL_SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SUPABASE_LOCAL_SERVICE_ROLE_KEY}`,
-      },
-    },
-  );
-  if (!res.ok) throw new Error(`role lookup failed: HTTP ${res.status}`);
-  const rows = await res.json();
-  if (!Array.isArray(rows) || rows.length === 0 || !rows[0]?.id) {
-    throw new Error('no local "מנהל" role found - is the local stack seeded?');
-  }
-  return rows[0].id;
-}
-const MANAGER_ROLE_ID = await lookupManagerRoleId();
 
+const [{ id: workspaceId }] = runSql(`
+  insert into election_workspaces (name, election_end_at)
+  values ('SMOKE_coord_form_ws_${RUN_ID}', now() + interval '1 day')
+  returning id;
+`);
+
+// election_day_list_roles_v3 (the trusted v3 role-catalog read the app's
+// permission engine actually calls) filters strictly by
+// `r.workspace_id = <session-resolved workspace>` - no fallback for a
+// global/unscoped (workspace_id IS NULL) built-in role. The one real
+// Production workspace got its usable roles via exactly this mechanism (see
+// the historical-backfill migration's own `update election_day_roles set
+// workspace_id = ...`), not a clone - mirrored here for this disposable
+// local workspace so the fixture's session resolves a real, workspace-
+// scoped role the same way a real workspace does.
+runSql(`update election_day_roles set workspace_id = '${workspaceId}' where id = '${managerRoleId}' returning id;`);
+
+runSql(`
+  insert into election_day_permission_users (name, password_hash, role_id, workspace_id)
+  values (
+    '${FIXTURE_USER_NAME}',
+    crypt('${FIXTURE_PASSWORD}', gen_salt('bf')),
+    '${managerRoleId}',
+    '${workspaceId}'
+  )
+  returning id;
+`);
+
+function insertCoordinatorSql(displayName) {
+  return `
+    insert into election_day_coordinators (display_name, status, workspace_id)
+    values ('${displayName}', 'active', '${workspaceId}')
+    returning id;
+  `;
+}
+
+function insertVoterSql(coordinatorName, idSuffix) {
+  return `
+    insert into election_day_voters (
+      masad, first_name, last_name, street, house_number, city, coordinator, workspace_id
+    ) values (
+      '', 'SMOKE', 'voter_${idSuffix}', '', 0, '', '${coordinatorName}', '${workspaceId}'
+    )
+    returning id;
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Playwright
+// ---------------------------------------------------------------------------
 const results = [];
 const errors = [];
 const assert = (cond, msg) => {
@@ -107,80 +218,36 @@ function attachErrorListeners(page, label) {
   page.on("pageerror", (e) => errors.push(`[${label}] ${e.message}`));
 }
 
-async function injectSession(page) {
-  await page.addInitScript(
-    (u) => localStorage.setItem("kolbox:election-day-session-v1", JSON.stringify(u)),
-    { id: "smoke-manager", name: "SMOKE_manager", roleId: MANAGER_ROLE_ID },
-  );
-}
-
-async function mockCoordinators(page, rows) {
-  await page.route(COORDINATORS_URL, (route) => {
-    if (route.request().method() !== "GET") return route.continue();
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(rows) });
+// Defense-in-depth: even though VITE_SUPABASE_URL is checked above to be
+// local-only, hard-block any request that somehow still targets Production
+// Supabase, for every context this script opens.
+let prodHits = 0;
+async function blockProductionSupabase(page, label) {
+  await page.route("**nbymfgphnsounqncfjgl.supabase.co**", (route) => {
+    prodHits++;
+    console.error(`BLOCKED production-bound request [${label}]: ${route.request().url()}`);
+    return route.abort();
   });
 }
 
-async function mockVoters(page, rows = []) {
-  await page.route(VOTERS_URL, (route) => {
-    if (route.request().method() !== "GET") return route.continue();
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(rows) });
-  });
-}
-
-function fakeCoordinatorRow(name) {
-  return {
-    id: "smoke-coord-1",
-    display_name: name,
-    status: "active",
-    linked_assignment_name: null,
-    created_at: new Date().toISOString(),
-    ended_at: null,
-    phone: null,
-  };
-}
-
-// A raw imported voter row whose `coordinator` text matches a coordinator's
-// display_name exactly - the exact condition that, pre-2026-08-23, always
-// triggered the (now-removed) "קשר לאחראי הזה" link-suggestion banner for
-// every coordinator created by the 2026-08-20 import auto-sync (its
-// display_name is always seeded from this same raw string). Used below to
-// prove the banner cannot reappear.
-function fakeVoterRow(coordinatorName, overrides = {}) {
-  return {
-    id: "smoke-voter-1",
-    masad: "",
-    first_name: "SMOKE",
-    last_name: "voter",
-    street: "",
-    house_number: 0,
-    city: "",
-    phone: null,
-    coordinator: coordinatorName,
-    notes: null,
-    ride_requested: false,
-    ride_requested_at: null,
-    ride_arranged: false,
-    ride_arranged_at: null,
-    ride_completed: false,
-    ride_completed_at: null,
-    reminder_at: null,
-    reminder_closed_at: null,
-    reminder_closed_reason: null,
-    reminder_closed_by: null,
-    voted: false,
-    voted_at: null,
-    not_voting_reason_id: null,
-    not_voting_reason_set_at: null,
-    not_voting_reason_set_by: null,
-    call_attempts: 0,
-    call_attempts_threshold: null,
-    last_call_attempt_at: null,
-    no_answer_streak: 0,
-    no_answer_streak_threshold: null,
-    pending_call_id: null,
-    ...overrides,
-  };
+// Real login through the actual login form - no localStorage injection, no
+// fake session. Waits for the real POST /api/election-day/session (via the
+// local API harness) to resolve and for the app to navigate off the login
+// screen.
+async function realLogin(page, label) {
+  await page.goto(`${BASE}/election-day/login`, { waitUntil: "networkidle" });
+  const nameInput = page.locator("form input").first();
+  const passwordInput = page.locator('form input[type="password"]');
+  await nameInput.fill(FIXTURE_USER_NAME);
+  await passwordInput.fill(FIXTURE_PASSWORD);
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.url().includes("/api/election-day/session") && res.request().method() === "POST",
+    ),
+    page.locator('form button[type="submit"]').click(),
+  ]);
+  assert(response.status() === 200, `${label}: real login POST /api/election-day/session returned 200`);
+  await page.waitForURL((url) => !url.pathname.endsWith("/login"), { timeout: 10000 });
 }
 
 async function openAllocationScreen(page) {
@@ -190,26 +257,14 @@ async function openAllocationScreen(page) {
   await page.waitForTimeout(700);
 }
 
-// =====================================================================
-// SETUP MODE - 0 mocked coordinators -> resolveCoordinatorAllocationPhase
-// resolves to "setup" regardless of real ambient data.
-// =====================================================================
-{
-  const label = "setup";
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  const page = await context.newPage();
-  attachErrorListeners(page, label);
-  await mockVoters(page);
-  await mockCoordinators(page, []);
-  await injectSession(page);
-
-  let mutationFired = false;
-  await page.route(COORDINATOR_ALLOCATION_ENDPOINT, (route) => {
+function watchMutation(page) {
+  const state = { fired: false };
+  page.route(COORDINATOR_ALLOCATION_ENDPOINT, (route) => {
     const req = route.request();
     if (req.method() === "POST") {
       try {
         if (JSON.parse(req.postData() ?? "{}").op === "manage_coordinators") {
-          mutationFired = true;
+          state.fired = true;
         }
       } catch {
         // malformed body - not a manage_coordinators call we care about
@@ -217,6 +272,21 @@ async function openAllocationScreen(page) {
     }
     return route.continue();
   });
+  return state;
+}
+
+// =====================================================================
+// SETUP MODE - real workspace with 0 coordinators/voters at this point in
+// the run -> resolveCoordinatorAllocationPhase resolves to "setup".
+// =====================================================================
+{
+  const label = "setup";
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  attachErrorListeners(page, label);
+  await blockProductionSupabase(page, label);
+  await realLogin(page, label);
+  const mutation = watchMutation(page);
 
   await openAllocationScreen(page);
 
@@ -250,7 +320,7 @@ async function openAllocationScreen(page) {
     (await page.locator('input[placeholder="שם האחראי"]').count()) === 0,
     `${label}: cancel on an empty form closes it`,
   );
-  assert(!mutationFired, `${label}: cancel on an empty form fired no mutation RPC`);
+  assert(!mutation.fired, `${label}: cancel on an empty form fired no mutation RPC`);
 
   await addToggle.click();
   await page.waitForTimeout(300);
@@ -258,7 +328,7 @@ async function openAllocationScreen(page) {
   await page.locator('input[placeholder="050-1234567"]').first().fill("0501234567");
   await page.locator('button:has-text("ביטול")').first().click();
   await page.waitForTimeout(300);
-  assert(!mutationFired, `${label}: cancel with partial name+phone fired no mutation RPC`);
+  assert(!mutation.fired, `${label}: cancel with partial name+phone fired no mutation RPC`);
   assert(
     !(await page.locator("body").innerText()).includes("SMOKE_should_not_save"),
     `${label}: discarded name never appears anywhere`,
@@ -276,39 +346,28 @@ async function openAllocationScreen(page) {
   await context.close();
 }
 
+// Seed a real, active coordinator with zero voters yet for the Live block.
+runSql(insertCoordinatorSql("SMOKE_live_coordinator"));
+
 // =====================================================================
-// LIVE MODE - 1 mocked coordinator -> resolves to "live".
+// LIVE MODE - 1 real coordinator now exists in this workspace -> resolves
+// to "live".
 // =====================================================================
 {
   const label = "live";
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   attachErrorListeners(page, label);
-  await mockVoters(page);
-  await mockCoordinators(page, [fakeCoordinatorRow("SMOKE_live_coordinator")]);
-  await injectSession(page);
-
-  let mutationFired = false;
-  await page.route(COORDINATOR_ALLOCATION_ENDPOINT, (route) => {
-    const req = route.request();
-    if (req.method() === "POST") {
-      try {
-        if (JSON.parse(req.postData() ?? "{}").op === "manage_coordinators") {
-          mutationFired = true;
-        }
-      } catch {
-        // malformed body - not a manage_coordinators call we care about
-      }
-    }
-    return route.continue();
-  });
+  await blockProductionSupabase(page, label);
+  await realLogin(page, label);
+  const mutation = watchMutation(page);
 
   await openAllocationScreen(page);
 
   const bodyText = await page.locator("body").innerText();
   assert(
     bodyText.includes("אחראים פעילים") || bodyText.includes('סה"כ בוחרים'),
-    `${label}: resolves to the Live view (mocked coordinator present)`,
+    `${label}: resolves to the Live view (real coordinator present)`,
   );
 
   const addToggle = page.locator('button:has-text("הוסף אחראי")').first();
@@ -325,7 +384,7 @@ async function openAllocationScreen(page) {
   await page.locator('input[placeholder="050-1234567"]').first().fill("0509998888");
   await cancelBtn.click();
   await page.waitForTimeout(300);
-  assert(!mutationFired, `${label}: cancel with partial data fired no mutation RPC`);
+  assert(!mutation.fired, `${label}: cancel with partial data fired no mutation RPC`);
   assert(
     (await page.locator('input[placeholder="שם האחראי"]').count()) === 0,
     `${label}: cancel closes the add panel`,
@@ -355,24 +414,25 @@ async function openAllocationScreen(page) {
   await context.close();
 }
 
+// Seed a real voter whose `coordinator` text matches the live coordinator's
+// display_name exactly - the exact condition that, pre-2026-08-23, always
+// triggered the (now-removed) "קשר לאחראי הזה" link-suggestion banner.
+runSql(insertVoterSql("SMOKE_live_coordinator", "1"));
+
 // =====================================================================
 // REGRESSION: removed link-suggestion banner ("קשר לאחראי הזה" / "עדכן
 // קישור") must never reappear, in either consumer, even in the exact
 // condition that used to trigger it unconditionally - a coordinator whose
 // linked_assignment_name is null and who has a raw-matching voter (see
-// useCoordinatorRowActions.ts's 2026-08-23 removal comment). Both blocks
-// below are purely additive - they open their own fresh browser context and
-// assert nothing the pre-existing Setup/Live blocks above already assert,
-// so they cannot interact with or weaken those checks.
+// useCoordinatorRowActions.ts's 2026-08-23 removal comment).
 // =====================================================================
 {
   const label = "live-with-matching-voter";
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   attachErrorListeners(page, label);
-  await mockVoters(page, [fakeVoterRow("SMOKE_live_coordinator")]);
-  await mockCoordinators(page, [fakeCoordinatorRow("SMOKE_live_coordinator")]);
-  await injectSession(page);
+  await blockProductionSupabase(page, label);
+  await realLogin(page, label);
   await openAllocationScreen(page);
 
   const bodyText = await page.locator("body").innerText();
@@ -402,20 +462,22 @@ async function openAllocationScreen(page) {
   await context.close();
 }
 
+// Seed a second real coordinator plus its own matching voter, plus one
+// unassigned voter (coordinator: "") which forces
+// resolveCoordinatorAllocationPhase to "setup" regardless of either
+// coordinator above - exercises CoordinatorRow (Setup's list), not
+// CoordinatorLiveRow.
+runSql(insertCoordinatorSql("SMOKE_setup_coordinator"));
+runSql(insertVoterSql("SMOKE_setup_coordinator", "2"));
+runSql(insertVoterSql("", "3"));
+
 {
   const label = "setup-with-existing-coordinator-and-matching-voter";
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   attachErrorListeners(page, label);
-  // One unassigned voter (coordinator: "") forces resolveCoordinatorAllocationPhase
-  // to "setup" regardless of the coordinator below, so this exercises
-  // CoordinatorRow (Setup's list), not CoordinatorLiveRow.
-  await mockVoters(page, [
-    fakeVoterRow("SMOKE_setup_coordinator"),
-    fakeVoterRow("", { id: "smoke-voter-2" }),
-  ]);
-  await mockCoordinators(page, [fakeCoordinatorRow("SMOKE_setup_coordinator")]);
-  await injectSession(page);
+  await blockProductionSupabase(page, label);
+  await realLogin(page, label);
   await openAllocationScreen(page);
 
   const bodyText = await page.locator("body").innerText();
@@ -437,8 +499,9 @@ async function openAllocationScreen(page) {
 
 await browser.close();
 
-assert(errors.length === 0, `no console/page errors across both scenarios (found ${errors.length})`);
+assert(errors.length === 0, `no console/page errors across all scenarios (found ${errors.length})`);
 if (errors.length > 0) for (const e of errors) console.log(" -", e);
+assert(prodHits === 0, `zero requests were ever attempted against Production Supabase (found ${prodHits})`);
 
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
