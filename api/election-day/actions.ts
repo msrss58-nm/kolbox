@@ -190,14 +190,21 @@ const OPS: Record<string, OpDescriptor> = {
     method: "POST", rpc: "election_day_set_settings_v3", requiresProof: false,
     requiredKeys: [], buildParams: (b) => ({ p_deadline: strOrNull(b.deadline) }),
   },
+  // requiresFollowUp is a required key (not the optional/nullable-field
+  // fixed list "isActive"/"reasonId"/"deadline" live in) - it must always be
+  // an explicit boolean the client sends, never inferred/defaulted here.
+  // Passing p_requires_follow_up by name is also what forces PostgREST to
+  // resolve the 4-arg election_day_..._v3 overload (added in
+  // 20260831010000) rather than the pre-existing 3-arg one.
   create_non_voting_reason: {
     method: "POST", rpc: "election_day_create_non_voting_reason_v3", requiresProof: false,
-    requiredKeys: ["name"], buildParams: (b) => (str(b.name) ? { p_name: str(b.name), p_description: str(b.description) } : null),
+    requiredKeys: ["name", "requiresFollowUp"],
+    buildParams: (b) => (str(b.name) ? { p_name: str(b.name), p_description: str(b.description), p_requires_follow_up: bool(b.requiresFollowUp) } : null),
   },
   update_non_voting_reason: {
     method: "POST", rpc: "election_day_update_non_voting_reason_v3", requiresProof: false,
-    requiredKeys: ["id", "name"],
-    buildParams: (b) => (str(b.id) && str(b.name) ? { p_id: str(b.id), p_name: str(b.name), p_description: str(b.description) } : null),
+    requiredKeys: ["id", "name", "requiresFollowUp"],
+    buildParams: (b) => (str(b.id) && str(b.name) ? { p_id: str(b.id), p_name: str(b.name), p_description: str(b.description), p_requires_follow_up: bool(b.requiresFollowUp) } : null),
   },
   set_non_voting_reason_active: {
     method: "POST", rpc: "election_day_set_non_voting_reason_active_v3", requiresProof: false,
@@ -420,7 +427,7 @@ export default async function handler(
     return;
   }
 
-  const allowedBodyKeys = new Set<string>(["op", ...(descriptor.requiresProof ? ["reauthProof"] : []), ...descriptor.requiredKeys, "arranged", "requested", "completed", "notes", "phone", "voted", "reasonId", "callId", "isActive", "description", "targetCoordinatorId"]);
+  const allowedBodyKeys = new Set<string>(["op", ...(descriptor.requiresProof ? ["reauthProof"] : []), ...descriptor.requiredKeys, "arranged", "requested", "completed", "notes", "phone", "voted", "reasonId", "callId", "isActive", "description", "targetCoordinatorId", "deadline"]);
   const unknownKey = Object.keys(body).find((k) => !allowedBodyKeys.has(k));
   if (unknownKey) {
     sendError(res, 400, "INVALID_REQUEST");

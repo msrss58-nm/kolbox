@@ -82,8 +82,12 @@ const OPS: Record<string, OpDescriptor> = {
   add_ride_coordinator: { method: "POST", rpc: "election_day_add_ride_coordinator_owner_v3", requiresProof: false, requiredKeys: ["name"], buildParams: (b) => (str(b.name) ? { p_name: str(b.name), p_phone: str(b.phone) } : null) },
   delete_ride_coordinator: { method: "POST", rpc: "election_day_delete_ride_coordinator_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
   set_settings: { method: "POST", rpc: "election_day_set_settings_owner_v3", requiresProof: false, requiredKeys: [], buildParams: (b) => ({ p_deadline: strOrNull(b.deadline) }) },
-  create_non_voting_reason: { method: "POST", rpc: "election_day_create_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["name"], buildParams: (b) => (str(b.name) ? { p_name: str(b.name), p_description: str(b.description) } : null) },
-  update_non_voting_reason: { method: "POST", rpc: "election_day_update_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["id", "name"], buildParams: (b) => (str(b.id) && str(b.name) ? { p_id: str(b.id), p_name: str(b.name), p_description: str(b.description) } : null) },
+  // requiresFollowUp is required (not optional), same reasoning as
+  // actions.ts's own create/update entries - explicit p_requires_follow_up
+  // forces PostgREST to resolve the 4-arg _owner_v3 overload, not the
+  // pre-existing 3-arg one.
+  create_non_voting_reason: { method: "POST", rpc: "election_day_create_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["name", "requiresFollowUp"], buildParams: (b) => (str(b.name) ? { p_name: str(b.name), p_description: str(b.description), p_requires_follow_up: bool(b.requiresFollowUp) } : null) },
+  update_non_voting_reason: { method: "POST", rpc: "election_day_update_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["id", "name", "requiresFollowUp"], buildParams: (b) => (str(b.id) && str(b.name) ? { p_id: str(b.id), p_name: str(b.name), p_description: str(b.description), p_requires_follow_up: bool(b.requiresFollowUp) } : null) },
   set_non_voting_reason_active: { method: "POST", rpc: "election_day_set_non_voting_reason_active_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_is_active: bool(b.isActive) } : null) },
   delete_non_voting_reason: { method: "POST", rpc: "election_day_delete_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
   reorder_non_voting_reasons: { method: "POST", rpc: "election_day_reorder_non_voting_reasons_owner_v3", requiresProof: false, requiredKeys: ["orderedIds"], buildParams: (b) => (arr(b.orderedIds) ? { p_ordered_ids: arr(b.orderedIds) } : null) },
@@ -278,7 +282,7 @@ export default async function handler(
     return;
   }
 
-  const allowedBodyKeys = new Set<string>(["op", ...(descriptor.requiresProof ? ["reauthProof"] : []), ...descriptor.requiredKeys, "arranged", "requested", "completed", "notes", "phone", "voted", "reasonId", "callId", "isActive", "description", "targetCoordinatorId"]);
+  const allowedBodyKeys = new Set<string>(["op", ...(descriptor.requiresProof ? ["reauthProof"] : []), ...descriptor.requiredKeys, "arranged", "requested", "completed", "notes", "phone", "voted", "reasonId", "callId", "isActive", "description", "targetCoordinatorId", "deadline"]);
   const unknownKey = Object.keys(body).find((k) => !allowedBodyKeys.has(k));
   if (unknownKey) {
     sendError(res, 400, "INVALID_REQUEST");
