@@ -1,36 +1,43 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 
-// Phase 3B Step 1 - trusted PermissionUser creation endpoint (create only;
-// delete/reset-password remain on the legacy reauth-proof path as Phase 3C
-// debt - see CURRENT_STATUS.md). Browser -> HttpOnly session cookie + a
-// previously-issued action-bound reauth proof (from POST /api/election-day/
-// reauth) -> this function hashes both credentials in Node -> service_role-
-// only RPC verifies session+proof and derives actor/workspace SERVER-SIDE
-// -> Postgres enforces same-workspace role membership. Mirrors session.ts's
-// own conventions (minimal duck-typed request/response, no @vercel/node
-// dependency, request-order hardening, generic fixed error codes only).
+// Phase 3B/3C PermissionUser roster endpoints - GET (list), POST (create,
+// default), and two POST sub-actions reached only via vercel.json rewrites
+// from their own public URLs (/permission-users-delete,
+// /permission-users-reset-password) - see the Hobby-plan Serverless
+// Function consolidation note below. Browser -> HttpOnly session cookie (+
+// a previously-issued action-bound reauth proof for create/delete/reset) ->
+// this function hashes both credentials in Node -> service_role-only RPC
+// verifies session(+proof) and derives actor/workspace SERVER-SIDE ->
+// Postgres enforces same-workspace role membership/target. No @vercel/node
+// dependency, request-order hardening, generic fixed error codes only.
+//
+// Hobby-plan Function consolidation: this file used to be 3 separate
+// deployable Vercel Functions (permission-users.ts, permission-users-
+// delete.ts, permission-users-reset-password.ts). Merged into one function
+// to stay within the Vercel Hobby plan's Serverless Function count limit -
+// the public URLs are unchanged (vercel.json rewrites
+// /permission-users-delete and /permission-users-reset-password to this
+// file with a `__pu_action` query marker this file reads to dispatch to
+// the right handler; the default create path is unmarked, matching its
+// original, un-rewritten URL exactly). Each handler below is otherwise the
+// unmodified body of its original file - same order of checks, same body-
+// key allowlist, same RPC, same error mapping, same response shape.
+//
+// GET (roster read) is live (`fetchTrustedPermissionUsersRoster` in
+// useElectionDay.ts). POST create is live (`useCreatePermissionUserTrusted`).
+// POST delete/reset-password are NOT called by any live frontend code yet -
+// see electionDayTrustedUsersClient.ts / useDeletePermissionUserTrusted.ts /
+// useResetPermissionUserPasswordTrusted.ts.
 
 const SESSION_COOKIE_NAME = "__Host-kb_ed_session";
 const DEFAULT_PRODUCTION_ORIGIN = "https://kolbox-gamma.vercel.app";
 
-// Fail-closed body-key allowlist - see the body-validation step below for why.
-const ALLOWED_PERMISSION_USER_BODY_KEYS = new Set<string>([
-  "name",
-  "password",
-  "roleId",
-  "reauthProof",
-]);
-
-// Syntactic UUID check only - never a substitute for the DB's own
-// authoritative same-workspace role-membership check (election_day_
-// create_permission_user_v3's own ROLE_NOT_FOUND handling, untouched by
-// this). This exists only so a malformed value fails fast with a client
-// error instead of surfacing as a generic 500 via a Postgres cast failure.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface MinimalRequest {
   method?: string;
+  url?: string;
   headers: Record<string, string | string[] | undefined>;
   body?: unknown;
   cookies?: Record<string, string>;
@@ -75,9 +82,7 @@ function headerValue(v: string | string[] | undefined): string | undefined {
 }
 
 function sendError(res: MinimalResponse, status: number, code: string): void {
-  // Fixed, generic codes only - never a raw Postgres exception/stack. The
-  // underlying RPC already collapses its own failure modes (see the mapping
-  // below); this function never adds a MORE specific message on top.
+  // Fixed, generic codes only - never a raw Postgres exception/stack.
   res.status(status).json({ error: code });
 }
 
@@ -91,6 +96,24 @@ function requireServiceClient(
     return null;
   }
 }
+
+// Reads the `__pu_action` query marker vercel.json's rewrites inject for
+// the two aliased public URLs - parsed directly from req.url (always
+// present on any Node HTTP request, not a Vercel-specific enhancement) so
+// this never depends on a runtime-provided req.query object.
+function getQueryParam(req: MinimalRequest, name: string): string | null {
+  const rawUrl = req.url ?? "";
+  const qIndex = rawUrl.indexOf("?");
+  if (qIndex === -1) return null;
+  return new URLSearchParams(rawUrl.slice(qIndex + 1)).get(name);
+}
+
+const ALLOWED_CREATE_BODY_KEYS = new Set<string>([
+  "name",
+  "password",
+  "roleId",
+  "reauthProof",
+]);
 
 // Maps election_day_create_permission_user_v3's own raised exception
 // messages to a fixed, safe HTTP status/code pair. Never forwards the raw
@@ -119,7 +142,7 @@ function requireServiceClient(
 // someday raise. Never exposes the constraint name or any workspace detail
 // to the browser - only the generic 409 DUPLICATE_NAME code, mapped to a
 // single generic "name unavailable" message client-side.
-function mapRpcError(error: { message?: string; code?: string } | undefined): {
+function mapCreateRpcError(error: { message?: string; code?: string } | undefined): {
   status: number;
   code: string;
 } {
@@ -151,8 +174,7 @@ function mapRpcError(error: { message?: string; code?: string } | undefined): {
 // would break legitimate same-origin reads, not just reject forged
 // cross-site ones), just the session cookie requirement. No reauth proof -
 // a read carries no step-up requirement, matching election_day_list_
-// permission_users_v3's own "reads don't require reauth" convention. NOT
-// called by any live frontend code yet - see this file's own header.
+// permission_users_v3's own "reads don't require reauth" convention.
 async function handleGet(req: MinimalRequest, res: MinimalResponse): Promise<void> {
   const rawSessionToken = req.cookies?.[SESSION_COOKIE_NAME];
   if (!rawSessionToken) {
@@ -183,18 +205,9 @@ async function handleGet(req: MinimalRequest, res: MinimalResponse): Promise<voi
     .json(rows.map((row) => ({ id: row.id, name: row.name, roleId: row.role_id })));
 }
 
-export default async function handler(
-  req: MinimalRequest,
-  res: MinimalResponse,
-): Promise<void> {
-  const method = req.method ?? "GET";
-
-  if (method === "GET") {
-    await handleGet(req, res);
-    return;
-  }
-
+async function handleCreate(req: MinimalRequest, res: MinimalResponse): Promise<void> {
   // 1. Method validation - create/list only in this phase.
+  const method = req.method ?? "GET";
   if (method !== "POST") {
     sendError(res, 405, "METHOD_NOT_ALLOWED");
     return;
@@ -215,9 +228,7 @@ export default async function handler(
   // rather than silently ignored - same reasoning as reauth.ts's own
   // body-key allowlist.
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const unknownKey = Object.keys(body).find(
-    (k) => !ALLOWED_PERMISSION_USER_BODY_KEYS.has(k),
-  );
+  const unknownKey = Object.keys(body).find((k) => !ALLOWED_CREATE_BODY_KEYS.has(k));
   if (unknownKey) {
     sendError(res, 400, "INVALID_REQUEST");
     return;
@@ -265,7 +276,7 @@ export default async function handler(
   // new row - never a client-supplied workspace_id. roleId here is a
   // requested business selection only; the RPC itself is authoritative on
   // whether that role belongs to the caller's own workspace (ROLE_NOT_FOUND
-  // otherwise - see mapRpcError below).
+  // otherwise - see mapCreateRpcError above).
   const { data, error } = await supabase.rpc("election_day_create_permission_user_v3", {
     p_session_hash: sessionHashBytea,
     p_reauth_proof_hash: proofHashBytea,
@@ -275,7 +286,7 @@ export default async function handler(
   });
 
   if (error) {
-    const { status, code } = mapRpcError(error);
+    const { status, code } = mapCreateRpcError(error);
     sendError(res, status, code);
     return;
   }
@@ -298,4 +309,226 @@ export default async function handler(
     roleId: row.role_id,
     workspaceId: row.workspace_id,
   });
+}
+
+const ALLOWED_DELETE_BODY_KEYS = new Set<string>(["targetUserId", "reauthProof"]);
+
+// Maps election_day_delete_permission_user_v3's own raised exception
+// messages to a fixed, safe HTTP status/code pair. Never forwards the raw
+// Postgres message for anything unrecognized.
+function mapDeleteRpcError(error: { message?: string } | undefined): {
+  status: number;
+  code: string;
+} {
+  switch (error?.message) {
+    case "UNAUTHORIZED":
+      return { status: 401, code: "UNAUTHORIZED" };
+    case "FORBIDDEN":
+      return { status: 403, code: "FORBIDDEN" };
+    case "CANNOT_DELETE_SELF":
+      return { status: 400, code: "CANNOT_DELETE_SELF" };
+    case "USER_NOT_FOUND":
+      return { status: 404, code: "USER_NOT_FOUND" };
+    default:
+      return { status: 500, code: "SERVER_ERROR" };
+  }
+}
+
+async function handleDelete(req: MinimalRequest, res: MinimalResponse): Promise<void> {
+  const method = req.method ?? "GET";
+  if (method !== "POST") {
+    sendError(res, 405, "METHOD_NOT_ALLOWED");
+    return;
+  }
+
+  const origin = headerValue(req.headers.origin);
+  if (!origin || !allowedOrigins().has(origin)) {
+    sendError(res, 403, "FORBIDDEN_ORIGIN");
+    return;
+  }
+
+  // Fail-closed body-key allowlist - actor_id/workspace_id are never
+  // accepted from the body at all, same reasoning as the create path's own
+  // body validation.
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const unknownKey = Object.keys(body).find((k) => !ALLOWED_DELETE_BODY_KEYS.has(k));
+  if (unknownKey) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  const targetUserId = typeof body.targetUserId === "string" ? body.targetUserId : "";
+  const reauthProof = typeof body.reauthProof === "string" ? body.reauthProof : "";
+
+  if (!targetUserId || !reauthProof) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  if (!UUID_PATTERN.test(targetUserId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  const rawSessionToken = req.cookies?.[SESSION_COOKIE_NAME];
+  if (!rawSessionToken) {
+    sendError(res, 401, "UNAUTHORIZED");
+    return;
+  }
+
+  const sessionHashBytea = toPgBytea(sha256Hex(rawSessionToken));
+  const proofHashBytea = toPgBytea(sha256Hex(reauthProof));
+
+  const supabase = requireServiceClient(res);
+  if (!supabase) return;
+
+  const { error } = await supabase.rpc("election_day_delete_permission_user_v3", {
+    p_session_hash: sessionHashBytea,
+    p_reauth_proof_hash: proofHashBytea,
+    p_target_user_id: targetUserId,
+  });
+
+  if (error) {
+    const { status, code } = mapDeleteRpcError(error);
+    sendError(res, status, code);
+    return;
+  }
+
+  res.status(200).json({ ok: true });
+}
+
+const ALLOWED_RESET_PASSWORD_BODY_KEYS = new Set<string>([
+  "targetUserId",
+  "newPassword",
+  "reauthProof",
+]);
+
+// Maps election_day_reset_permission_user_password_v3's own raised
+// exception messages to a fixed, safe HTTP status/code pair. Never forwards
+// the raw Postgres message for anything unrecognized.
+function mapResetPasswordRpcError(error: { message?: string } | undefined): {
+  status: number;
+  code: string;
+} {
+  switch (error?.message) {
+    case "UNAUTHORIZED":
+      return { status: 401, code: "UNAUTHORIZED" };
+    case "FORBIDDEN":
+      return { status: 403, code: "FORBIDDEN" };
+    case "USER_NOT_FOUND":
+      return { status: 404, code: "USER_NOT_FOUND" };
+    case "INVALID_PASSWORD":
+      return { status: 400, code: "INVALID_PASSWORD" };
+    default:
+      return { status: 500, code: "SERVER_ERROR" };
+  }
+}
+
+async function handleResetPassword(
+  req: MinimalRequest,
+  res: MinimalResponse,
+): Promise<void> {
+  const method = req.method ?? "GET";
+  if (method !== "POST") {
+    sendError(res, 405, "METHOD_NOT_ALLOWED");
+    return;
+  }
+
+  const origin = headerValue(req.headers.origin);
+  if (!origin || !allowedOrigins().has(origin)) {
+    sendError(res, 403, "FORBIDDEN_ORIGIN");
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const unknownKey = Object.keys(body).find(
+    (k) => !ALLOWED_RESET_PASSWORD_BODY_KEYS.has(k),
+  );
+  if (unknownKey) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  const targetUserId = typeof body.targetUserId === "string" ? body.targetUserId : "";
+  const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+  const reauthProof = typeof body.reauthProof === "string" ? body.reauthProof : "";
+
+  if (!targetUserId || !newPassword || !reauthProof) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  if (!UUID_PATTERN.test(targetUserId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  const rawSessionToken = req.cookies?.[SESSION_COOKIE_NAME];
+  if (!rawSessionToken) {
+    sendError(res, 401, "UNAUTHORIZED");
+    return;
+  }
+
+  const sessionHashBytea = toPgBytea(sha256Hex(rawSessionToken));
+  const proofHashBytea = toPgBytea(sha256Hex(reauthProof));
+
+  const supabase = requireServiceClient(res);
+  if (!supabase) return;
+
+  const { data, error } = await supabase.rpc(
+    "election_day_reset_permission_user_password_v3",
+    {
+      p_session_hash: sessionHashBytea,
+      p_reauth_proof_hash: proofHashBytea,
+      p_target_user_id: targetUserId,
+      p_new_password: newPassword,
+    },
+  );
+
+  if (error) {
+    const { status, code } = mapResetPasswordRpcError(error);
+    sendError(res, status, code);
+    return;
+  }
+
+  if (!data || (Array.isArray(data) && data.length === 0)) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as {
+    id: string;
+    name: string;
+    role_id: string;
+  };
+
+  res.status(200).json({ id: row.id, name: row.name, roleId: row.role_id });
+}
+
+export default async function handler(
+  req: MinimalRequest,
+  res: MinimalResponse,
+): Promise<void> {
+  const method = req.method ?? "GET";
+
+  if (method === "GET") {
+    await handleGet(req, res);
+    return;
+  }
+
+  if (method !== "POST") {
+    sendError(res, 405, "METHOD_NOT_ALLOWED");
+    return;
+  }
+
+  const action = getQueryParam(req, "__pu_action");
+  if (action === "delete") {
+    await handleDelete(req, res);
+    return;
+  }
+  if (action === "reset-password") {
+    await handleResetPassword(req, res);
+    return;
+  }
+  await handleCreate(req, res);
 }

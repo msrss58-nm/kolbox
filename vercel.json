@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/election-day/permission-users-delete",
+      "destination": "/api/election-day/permission-users?__pu_action=delete"
+    },
+    {
+      "source": "/api/election-day/permission-users-reset-password",
+      "destination": "/api/election-day/permission-users?__pu_action=reset-password"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
