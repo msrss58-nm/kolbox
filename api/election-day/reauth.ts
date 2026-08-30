@@ -52,6 +52,15 @@ import { createHash, randomBytes } from "node:crypto";
 // harmless dead entries now: no _v3 RPC checks for them anymore, so a proof
 // minted with one of those literals can never successfully verify against
 // anything. They may be retired later, after a verified frontend cutover.
+//
+// Phase 3 Import/Clear Voter File (EXPAND, not yet wired to the frontend):
+// added import_voters and clear_voters for the new election_day_import_
+// voters_v3 / election_day_clear_voters_v3 RPCs (20260829050000), both
+// one-time-consumed via election_day_verify_and_consume_reauth_proof_v3 -
+// a destructive, single-shot operation matches the Users precedent
+// (delete_permission_user/reset_permission_user_password above), not the
+// reusable-within-TTL coordinator_allocation precedent. No frontend code
+// calls this endpoint with either action yet.
 const ALLOWED_REAUTH_ACTIONS = new Set<string>([
   "create_permission_user",
   "delete_permission_user",
@@ -61,6 +70,8 @@ const ALLOWED_REAUTH_ACTIONS = new Set<string>([
   "rebalance_assignments",
   "end_coordinator_activity",
   "coordinator_allocation",
+  "import_voters",
+  "clear_voters",
 ]);
 
 // Fail-closed body-key allowlist - see the body-validation step below for why.
