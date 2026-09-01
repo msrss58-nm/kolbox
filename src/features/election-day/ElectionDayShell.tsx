@@ -154,9 +154,7 @@ export function ElectionDayShell() {
         onSetNonVotingReason={(id, reasonId) =>
           void electionDay.setNonVotingReason(id, reasonId)
         }
-        onCloseCallAsNoAnswer={(id, reasonId) =>
-          void electionDay.closeCallAsNoAnswer(id, reasonId)
-        }
+        onCloseCallAsNoAnswer={(id) => void electionDay.closeCallAsNoAnswer(id)}
         nonVotingReasons={electionDay.nonVotingReasons}
         onSetNotes={(id, notes) => void electionDay.setNotes(id, notes)}
         onSetPhone={electionDay.setPhone}

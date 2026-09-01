@@ -149,15 +149,19 @@ export function ElectionDayContactModal({
    * for `voter.markVoted` holders. */
   onSetNonVotingReason: (id: string, reasonId: string | null) => void;
   /** Call Outcome Tracking: the 6/6-cap "close as לא עונה" action from
-   * `CallAttemptsDialog` - same underlying mutation/RPC/audit trail as
-   * `onSetNonVotingReason` above, but gated on `voter.viewPhone` instead
-   * (`useElectionDay.ts`'s `closeCallAsNoAnswer`) since finishing an
-   * exhausted call is a call-handling action, not a voting one - a role
-   * that can dial/record outcomes but not mark voted must still be able to
-   * close this out. Deliberately a separate prop (not a shared handler with
-   * a permission-override parameter) so each call site's permission
-   * boundary is visible at its own call site, not threaded through. */
-  onCloseCallAsNoAnswer: (id: string, reasonId: string | null) => void;
+   * `CallAttemptsDialog`, gated on `voter.viewPhone` instead of
+   * `onSetNonVotingReason` above's `voter.markVoted` (`useElectionDay.ts`'s
+   * `closeCallAsNoAnswer`) since finishing an exhausted call is a
+   * call-handling action, not a voting one - a role that can dial/record
+   * outcomes but not mark voted must still be able to close this out.
+   * Deliberately a separate prop (not a shared handler with a
+   * permission-override parameter) so each call site's permission boundary
+   * is visible at its own call site, not threaded through. Takes only `id`
+   * - the trusted `close_call_as_no_answer` action (Multi-Tenant Phase 4B
+   * Frontend Cutover) resolves the workspace's "לא עונה" catalog row
+   * server-side, unlike `onSetNonVotingReason`'s client-computed
+   * `reasonId`. */
+  onCloseCallAsNoAnswer: (id: string) => void;
   nonVotingReasons: readonly NonVotingReason[];
   onSetNotes: (id: string, notes: string) => void;
   onSetPhone: (id: string, phone: string) => Promise<unknown>;
@@ -654,10 +658,7 @@ export function ElectionDayContactModal({
             canCloseAsNoAnswer={showCall}
             canExtend={contact.noAnswerStreakThreshold === 3}
             onCloseAsNoAnswer={() => {
-              const noAnswerReason = nonVotingReasons.find(
-                (r) => r.name === ELECTION_DAY_TEXT.callAttempts.noAnswerReasonName,
-              );
-              if (noAnswerReason) onCloseCallAsNoAnswer(contact.id, noAnswerReason.id);
+              onCloseCallAsNoAnswer(contact.id);
               setCallAttemptsDialogOpen(false);
             }}
             onContinue={() => {

@@ -5,11 +5,11 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { APP_CONFIG } from "../../constants/config";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { usePermissions } from "../../permissions/usePermissions";
-import { api } from "../../services/api";
 import type { ElectionDayVoter } from "../../types";
 import { buildCoordinatorReminderSupervision } from "./coordinatorReminderSupervision";
 import { CoordinatorReminderDetailModal } from "./CoordinatorReminderDetailModal";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { fetchCoordinatorsTrusted } from "./electionDayTrustedCoordinatorAllocationClient";
 import { formatWaitingDuration } from "./reminderDisplay";
 
 const text = ELECTION_DAY_TEXT.dashboard.reminderSupervision;
@@ -41,11 +41,23 @@ export function CoordinatorReminderSupervisionCard({
   const [selectedCoordinator, setSelectedCoordinator] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
-  // Own small fetch (public SELECT, no RPC) for phone resolution only - the
-  // reminder rows themselves stay derived purely from `contacts` as before,
-  // never gated on this. See `resolveCoordinatorPhoneForReminderRow`'s own
-  // comment for why an unmatched/ambiguous name still shows no phone.
-  const fetchCoordinators = useCallback(() => api.listCoordinators(), []);
+  // Own small fetch for phone resolution only - the reminder rows
+  // themselves stay derived purely from `contacts` as before, never gated
+  // on this. See `resolveCoordinatorPhoneForReminderRow`'s own comment for
+  // why an unmatched/ambiguous name still shows no phone.
+  //
+  // Multi-Tenant Phase 4B Frontend Cutover: cut over from the legacy
+  // `api.listCoordinators()` global plain SELECT to the same trusted,
+  // session-derived read `useCoordinatorAllocation.ts` already uses
+  // (`fetchCoordinatorsTrusted`) - no longer a "separate consumer with its
+  // own legacy read", per the approved cutover scope. During
+  // `ElectionDayGuard`'s roster-empty bootstrap window (no session yet)
+  // this fetch fails silently (`useAsyncData` stores the rejection in its
+  // own unread `error` state, never throws/logs) - harmless, since `role`
+  // also can't resolve without a session, so `isManager` below is already
+  // `false` and this card renders nothing in that window regardless of
+  // which read this fetch uses.
+  const fetchCoordinators = useCallback(() => fetchCoordinatorsTrusted(), []);
   const { data: coordinators } = useAsyncData(fetchCoordinators);
 
   const [now, setNow] = useState(() => new Date());

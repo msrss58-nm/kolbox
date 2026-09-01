@@ -103,12 +103,12 @@ export function useCoordinatorAllocation(
   }
 
   // Coordinator/Allocation V3 Frontend Cutover: the trusted GET (session-
-  // derived, no reauth proof needed for a read) - isolated to this hook
-  // only, per the approved containment decision. `CoordinatorReminderSupervisionCard.tsx`
-  // deliberately keeps using `api.listCoordinators()` (the legacy global
-  // plain SELECT) - it is a separate consumer outside this feature and has
-  // its own bootstrap/open-access edge case this trusted read isn't built
-  // to handle.
+  // derived, no reauth proof needed for a read). Multi-Tenant Phase 4B
+  // Frontend Cutover: `CoordinatorReminderSupervisionCard.tsx` now uses this
+  // same `fetchCoordinatorsTrusted()` too (previously kept on the legacy
+  // `api.listCoordinators()` global plain SELECT as a separate consumer -
+  // see that file's own comment for why the roster-empty bootstrap window
+  // this was worried about turns out to be a no-op either way).
   const fetchCoordinators = useCallback(() => fetchCoordinatorsTrusted(), []);
   const { data: coordinators, reload: reloadCoordinators } =
     useAsyncData(fetchCoordinators);

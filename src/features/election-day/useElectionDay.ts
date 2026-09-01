@@ -10,6 +10,7 @@ import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
 import { api } from "../../services/api";
 import type { NewPermissionUser, NewRideCoordinator } from "../../services/api";
+import { trustedElectionDayActionsApi } from "../../services/api/electionDayTrustedActionsApi";
 import { exportElectionDayVotersToExcel } from "../../services/excel/excel";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
@@ -904,9 +905,34 @@ export function useElectionDay() {
   // through one consistent permission end to end. `setNonVotingReason`
   // above is untouched and still requires `voter.markVoted` for its own
   // (voted-context) call site.
+  //
+  // Multi-Tenant Phase 4B Frontend Cutover: cut over to the trusted
+  // backend's distinct `close_call_as_no_answer` action
+  // (`trustedElectionDayActionsApi.closeCallAsNoAnswer`) following the
+  // Backend Compatibility Fix (migration
+  // `20260831010000_multi_tenant_phase4b_backend_compatibility_fix.sql`),
+  // which applied the `coalesce(coordinator, '')` fix to the shared
+  // `election_day_set_non_voting_reason_core` this action and
+  // `setNonVotingReason` above both resolve to. Unlike `setNonVotingReason`,
+  // this action takes only `id` - the server resolves the workspace's own
+  // "לא עונה" catalog row internally, so no client-computed `reasonId` is
+  // sent (see `ElectionDayContactModal.tsx`'s `onCloseCallAsNoAnswer` call
+  // site, updated to match).
+  const { run: runCloseCallAsNoAnswer } = useAsyncAction(
+    (id: string) => trustedElectionDayActionsApi.closeCallAsNoAnswer(id),
+    { successMessage: ELECTION_DAY_TEXT.voted.toast.reasonSet },
+  );
+  const closeCallAsNoAnswerRaw = useCallback(
+    async (id: string) => {
+      const updated = await runCloseCallAsNoAnswer(id);
+      if (updated) applyContactUpdate(updated);
+      return updated;
+    },
+    [runCloseCallAsNoAnswer, applyContactUpdate],
+  );
   const closeCallAsNoAnswer = guardedAction(
     "voter.viewPhone",
-    setNonVotingReasonRaw,
+    closeCallAsNoAnswerRaw,
     "closeCallAsNoAnswer",
   );
 
