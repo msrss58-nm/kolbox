@@ -6,7 +6,7 @@ Notable changes to KolBox, in reverse chronological order.
 
 ## 2026-09-07 - Platform Owner Program Stage 1: ONE Owner per workspace, enforced in the database
 
-**Status: applied to Production and verified. Committed LOCALLY ONLY - not pushed, not deployed (DB-only change; the deployed frontend artifact is unaffected).** Production migration state is now **79/79, zero pending, zero drift**.
+**Status: CLOSED - applied to Production and verified, committed, pushed to `origin/master` (`f1b52de`), and deployed to Production via Vercel (deployment `dpl_7onWzSnd5vpL44AEL4ZzBn6iLWyp`, READY, `kolbox-gamma.vercel.app`). The push carried only documentation and the migration file - no application-source change - so the deployed frontend artifact is unaffected.** Production migration state is now **79/79, zero pending, zero drift**.
 
 `supabase/migrations/20260907000000_platform_stage1_one_owner_per_workspace.sql` adds `election_owners_workspace_id_key UNIQUE (workspace_id)` to `public.election_owners`, making the database the authority for the closed product rule **ONE system/workspace = ONE Owner** (superseding the Phase 0 multi-Owner model and its derived "representative Owner" concept, both retired by a later product decision). The now-redundant plain index `election_owners_workspace_id_idx` is dropped in the same migration - the constraint's backing unique index covers exactly the same column. **Owner replacement remains UPDATE-in-place, never delete+insert**, which preserves `election_owners.id` and the `election_owner_reauth_proofs.owner_id` foreign key. The table comment was corrected to state the new rule.
 
