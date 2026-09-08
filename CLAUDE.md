@@ -40,7 +40,7 @@ Do not treat user approval as evidence that an approach is technically correct. 
 
 ## Agent Instructions & Operating Rules
 
-Follow these four core principles for every engineering task.
+Follow these five core principles for every engineering task.
 
 ### 1. Think Before Coding
 
@@ -71,6 +71,35 @@ Follow these four core principles for every engineering task.
 - Reuse already-valid verification evidence when later changes cannot affect it.
 - Do not rerun expensive test suites unnecessarily unless the new change could invalidate their prior result.
 - Static analysis must not be presented as runtime proof.
+
+### 5. Failure Handling — Bounded Retry
+
+This rule applies globally to every engineering task and every meaningful action in this repository, across all phases and milestones - not only to Stage 2, not only to tests, and not only when a verification step fails. It covers implementation, investigation, debugging, tests, builds, migration replay, security work, runtime checks, Git operations, deployment checks, verification gates, and any other engineering action.
+
+When the user approves a task, own it through verified completion. Do not stop merely because the first implementation, command, test, or approach fails - a failure is a signal to investigate, not a reason to abandon the task. The default outcome of an approved task is a **verified PASS**, not "I tried and it failed."
+
+Before any meaningful action, respect the current approved scope and authorization boundaries. If any meaningful in-scope action, implementation step, diagnostic step, verification, test, build, migration replay, security check, runtime check, regression check, Git operation, deployment verification, or other required gate fails or produces an unexpected result, within that same approved scope:
+
+1. Observe the exact failure and preserve useful evidence.
+2. Diagnose the actual root cause before changing code.
+3. Make the smallest justified correction within the already-approved scope.
+4. Rerun the affected action or verification.
+5. If necessary, repeat: OBSERVE → DIAGNOSE → CORRECT → VERIFY.
+6. Continue until the gate passes or a STOP condition below is reached.
+
+Investigate the repository and runtime evidence, use subagents when useful, and try alternative approaches - diagnose and retry intelligently within scope rather than stopping on the first ordinary, fixable failure.
+
+**Maximum retries**: at most 5 meaningful correction/verification iterations for the same unresolved failure mode or substantially unchanged approach. Read-only diagnostic investigation does not itself consume an iteration unless it is another materially identical attempt. Never loop indefinitely.
+
+**If that approach still fails after 5 iterations**: do not abandon the task. Stop repeating that approach, reassess the root cause, choose a materially different justified strategy within the same approved scope, and continue solving the task.
+
+**Do not**: blindly rerun the same failed command; retry an unchanged approach without new evidence; weaken tests or acceptance criteria to manufacture a PASS; weaken authorization/security/RLS/ACL checks; hide intermediate failures; expand scope merely to satisfy a failing test; modify protected or unrelated files; perform an unauthorized Production action; push/deploy/merge without authorization; claim completion without evidence.
+
+**Stop and ask for new authorization** only if the solution requires: a material architecture change; material scope expansion; a protected- or unrelated-file modification; destructive cleanup/reset; a Production DB mutation/migration not already approved; a push/deploy/merge not already approved; an irreversible action; or anything else outside the user's current authorization - all per the "Surgical Precision" and "Executing actions with care" boundaries above, which this rule never overrides.
+
+**On a STOP**, report concisely: the exact failing gate; the evidence; the established or suspected root cause; the materially different fixes attempted; why the failure remains unresolved; whether architecture/scope must change; and the safest recommended next action.
+
+This rule is global, but it is not permission for autonomous scope expansion and it NEVER grants additional authorization: approval boundaries always override retry behavior. It means own the task through completion - investigate, diagnose, try alternative approaches, and keep trying intelligently within scope - but stop safely at the bounded retry limit's reassessment point or an approval boundary, and never retry indefinitely.
 
 ## Permanent Engineering Guardrails
 
