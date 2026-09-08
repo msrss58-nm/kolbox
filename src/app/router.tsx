@@ -1,3 +1,17 @@
+// SIDE-EFFECT IMPORT, DELIBERATELY FIRST - do not reorder or let a formatter
+// sort it below the imports beneath it. `platformOwnerRecoveryUrl` captures
+// and strips the Supabase recovery tokens that land on
+// `/platform/set-password` at MODULE-EVALUATION time. Every Supabase client in
+// this app auto-initializes in its constructor with `detectSessionInUrl` on,
+// so whichever client module is evaluated first would otherwise consume those
+// tokens into ITS OWN storage key (silently replacing, say, the campaign
+// user's session) and would clear the fragment with `location.hash = ''`,
+// which pushes a history entry and leaves the access token in the previous
+// one. Evaluating this module before any feature import - and before
+// `createBrowserRouter` reads `window.location` at the bottom of this file -
+// makes the outcome deterministic and strips the token with `replaceState`.
+// See that file's own doc comment for the full rationale.
+import "../features/platform-owner/platformOwnerRecoveryUrl";
 import { createBrowserRouter, Navigate } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
@@ -20,6 +34,7 @@ import { ImportPage } from "../features/import/ImportPage";
 import { PlatformOwnerAuthGuard } from "../features/platform-owner/PlatformOwnerAuthGuard";
 import { PlatformOwnerConsolePage } from "../features/platform-owner/PlatformOwnerConsolePage";
 import { PlatformOwnerLoginScreen } from "../features/platform-owner/PlatformOwnerLoginScreen";
+import { PlatformOwnerSetPasswordScreen } from "../features/platform-owner/PlatformOwnerSetPasswordScreen";
 import { TeamPage } from "../features/team/TeamPage";
 import { VotersPage } from "../features/voters/VotersPage";
 import { AppLayout } from "./AppLayout";
@@ -39,6 +54,19 @@ export const router = createBrowserRouter([
     children: [{ path: ROUTES.electionDayOwnerRoles, element: <OwnerRolesPage /> }],
   },
   { path: ROUTES.platformLogin, element: <PlatformOwnerLoginScreen /> },
+  {
+    // Platform Stage 2 (password set/recovery): the recovery/invite landing
+    // page. A TOP-LEVEL SIBLING route - deliberately NOT nested under
+    // PlatformOwnerAuthGuard, which would divert the `aal1` session a
+    // recovery link produces straight into MFA enrollment and make the
+    // password form unreachable - and NOT under AppLayout/AuthGuard/
+    // ElectionDayGuard/OwnerAuthGuard either. It authorizes nothing: it can
+    // only change the account password and then hand the owner back to
+    // /platform/login, where the full aal1 -> aal2 -> server-200 chain still
+    // applies (see PlatformOwnerSetPasswordScreen.tsx's security model).
+    path: ROUTES.platformSetPassword,
+    element: <PlatformOwnerSetPasswordScreen />,
+  },
   {
     // Platform Stage 2: the Platform Owner console - a FOURTH identity, with
     // its own top-level SIBLING guard. Deliberately NOT nested under

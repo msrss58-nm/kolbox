@@ -10,6 +10,21 @@
  * source of truth for it. */
 export const PLATFORM_OWNER_MFA_FACTOR_NAME = "KolBox Platform Owner";
 
+/** Platform Stage 2 (password set/recovery): minimum length for the Platform
+ * Owner's password. Deliberately well above the campaign app's bar - this is
+ * the single most privileged identity in the system. Enforced client-side by
+ * `platformOwnerPasswordPolicy.ts` (a quality gate, not a security boundary -
+ * Supabase's own project policy is the server-side authority) and quoted in
+ * the Hebrew rule list below, so the number has exactly one definition. */
+export const PLATFORM_OWNER_PASSWORD_MIN_LENGTH = 12;
+
+/** Platform Stage 2 (password set/recovery): hard upper bound, in BYTES.
+ * bcrypt - which GoTrue uses - silently truncates beyond 72 bytes, and the
+ * server rejects longer input with `validation_failed`. Enforced client-side
+ * so a long passphrase gets a specific Hebrew message instead of a dead-end
+ * generic error. Bytes, not characters: Hebrew is 2 bytes per letter in UTF-8. */
+export const PLATFORM_OWNER_PASSWORD_MAX_BYTES = 72;
+
 export const PLATFORM_OWNER_TEXT = {
   login: {
     title: "כניסת בעל הפלטפורמה",
@@ -23,6 +38,54 @@ export const PLATFORM_OWNER_TEXT = {
       invalidCredentials: "פרטי ההתחברות שגויים",
       network: "אין חיבור לאינטרנט - בדקו את החיבור ונסו שוב",
       generic: "אירעה שגיאה, נסו שוב",
+    },
+  },
+
+  /** Platform Stage 2 (password set/recovery): the `/platform/set-password`
+   * screen. Reachable only via a Supabase recovery/invite link; it grants no
+   * console access of its own - see `PlatformOwnerSetPasswordScreen.tsx`. */
+  setPassword: {
+    title: "הגדרת סיסמה חדשה",
+    subtitle: "בחרו סיסמה חדשה לחשבון בעל הפלטפורמה",
+    checking: "מאמתים את הקישור...",
+    passwordLabel: "סיסמה חדשה",
+    confirmLabel: "אימות סיסמה חדשה",
+    showPassword: "הצג סיסמה",
+    hidePassword: "הסתר סיסמה",
+    submit: "שמירת הסיסמה",
+    rulesTitle: "דרישות הסיסמה",
+    rules: [
+      `לפחות ${PLATFORM_OWNER_PASSWORD_MIN_LENGTH} תווים`,
+      "אות גדולה ואות קטנה באנגלית",
+      "לפחות ספרה אחת",
+      "לפחות תו מיוחד אחד",
+    ],
+    invalid: {
+      title: "הקישור אינו תקף",
+      body: "קישור הגדרת הסיסמה פג תוקף, כבר נעשה בו שימוש, או שאינו שייך לחשבון בעל הפלטפורמה. בקשו קישור חדש ונסו שוב.",
+      backToLogin: "חזרה למסך הכניסה",
+    },
+    success: {
+      title: "הסיסמה עודכנה",
+      body: "התחברו מחדש עם הסיסמה החדשה. גם לאחר העדכון נדרש אימות דו-שלבי כרגיל.",
+      continue: "המשך למסך הכניסה",
+    },
+    errors: {
+      tooShort: `הסיסמה חייבת להכיל לפחות ${PLATFORM_OWNER_PASSWORD_MIN_LENGTH} תווים`,
+      missingLower: "הסיסמה חייבת להכיל אות קטנה באנגלית",
+      missingUpper: "הסיסמה חייבת להכיל אות גדולה באנגלית",
+      missingDigit: "הסיסמה חייבת להכיל לפחות ספרה אחת",
+      missingSymbol: "הסיסמה חייבת להכיל לפחות תו מיוחד אחד",
+      tooLong: `הסיסמה ארוכה מדי - עד ${PLATFORM_OWNER_PASSWORD_MAX_BYTES} תווים`,
+      mismatch: "הסיסמאות אינן תואמות",
+      sameAsOld: "הסיסמה החדשה חייבת להיות שונה מהסיסמה הקודמת",
+      weak: "הסיסמה נדחתה על ידי מדיניות האבטחה. בחרו סיסמה חזקה יותר",
+      reauthNeeded:
+        "נדרש אימות מחדש לפני שינוי הסיסמה. בקשו קישור חדש והשלימו את התהליך מיד",
+      insufficientAal:
+        "עדכון הסיסמה דורש אימות דו-שלבי. התחברו למסך הכניסה, השלימו את האימות הדו-שלבי, ורק אז שנו את הסיסמה",
+      network: "אין חיבור לאינטרנט - בדקו את החיבור ונסו שוב",
+      generic: "לא הצלחנו לעדכן את הסיסמה. נסו שוב",
     },
   },
 

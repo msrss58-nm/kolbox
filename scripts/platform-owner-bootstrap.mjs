@@ -12,15 +12,35 @@
  *
  * The Owner CHOOSES THEIR OWN PASSWORD. This script never generates,
  * transmits, or stores a temporary password. It creates the auth user with a
- * confirmed email and no password, then generates a one-time recovery link
- * which is written to a file OUTSIDE the repository (path printed, contents
- * never printed) for the operator to hand over out-of-band.
+ * confirmed email and no password, then generates a one-time recovery token
+ * and writes TWO forms of activation link to a file OUTSIDE the repository
+ * (path printed, contents never printed) for the operator to hand over
+ * out-of-band:
+ *
+ *   (A) PRIMARY - `<base>/platform/set-password?token_hash=...&type=recovery`,
+ *       a direct app link the set-password screen redeems itself with
+ *       `verifyOtp({ token_hash, type: 'recovery' })`. It never routes through
+ *       GoTrue's `/verify`, so it is independent of the project's Site URL and
+ *       Redirect URLs allow-list, and it never lands an `#access_token=...`
+ *       fragment on our origin for other Supabase clients to consume.
+ *   (B) FALLBACK - the standard GoTrue action link, generated with an explicit
+ *       `redirectTo`, usable only once that target is in the allow-list.
  *
  * Usage:
  *   node scripts/platform-owner-bootstrap.mjs --email=owner@example.com --name="Full Name" [--phone=...]
  *     -> DRY RUN (default): validates and reports, mutates nothing.
  *   ... --confirm                 -> actually provisions (local/disposable stack).
  *   ... --confirm --allow-production -> required to target Production at all.
+ *   ... --redirect-base=https://example.com -> overrides where the link lands.
+ *
+ * The one-time link's landing page is `<base>/platform/set-password`, where
+ * `<base>` resolves as: --redirect-base > KOLBOX_APP_BASE_URL >
+ * SESSION_ALLOWED_ORIGIN > a built-in default chosen by target. Without an
+ * explicit redirect target hosted GoTrue falls back to the project's Site URL
+ * (still Supabase's default http://localhost:3000 on this project), and even
+ * WITH one it silently discards a target that is missing from the project's
+ * Auth "Redirect URLs" allow-list - so this script reports both the requested
+ * target and the one GoTrue actually used, and warns loudly when they differ.
  *
  * Exit codes: 0 ok / 1 refused or failed. (Set via `process.exitCode` and a
  * normal return - never `process.exit()`, which races undici's keep-alive
@@ -31,10 +51,14 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildDirectSetPasswordUrl,
+  buildSetPasswordRedirectUrl,
+  extractRedirectTo,
   getOperatorClient,
   maskEmail,
   parseArgs,
   readSingletonPlatformOwner,
+  resolveAppBaseUrl,
 } from "./lib/platformOwnerOps.mjs";
 
 function fail(msg) {
@@ -62,11 +86,32 @@ async function main() {
   }
   const { client, projectRef, isProduction } = ctx;
 
+  // --- Where the one-time link must land ------------------------------------
+  let baseUrl;
+  let baseSource;
+  try {
+    ({ baseUrl, source: baseSource } = resolveAppBaseUrl({
+      cliValue: values["redirect-base"],
+      isProduction,
+    }));
+  } catch (e) {
+    return fail(e.message);
+  }
+  const requestedRedirectTo = buildSetPasswordRedirectUrl(baseUrl);
+
   console.log("=== Platform Owner bootstrap ===");
   console.log(`mode:         ${dryRun ? "DRY RUN (no mutation)" : "APPLY"}`);
   console.log(`project ref:  ${projectRef}${isProduction ? "  [PRODUCTION]" : ""}`);
   console.log(`owner email:  ${maskEmail(email)}`);
   console.log(`owner name:   ${name}`);
+  console.log(`redirect base: ${baseUrl}   (from ${baseSource})`);
+  console.log(`redirect to:   ${requestedRedirectTo}`);
+
+  if (isProduction && baseUrl.startsWith("http://")) {
+    console.warn(
+      `WARNING: the redirect base is plain http:// while targeting Production (${projectRef}).`,
+    );
+  }
 
   // --- Hard gate: the singleton must not already exist -----------------------
   let existing;
@@ -94,6 +139,15 @@ async function main() {
   if (dryRun) {
     console.log("");
     console.log("DRY RUN complete. Nothing was created.");
+    console.log(`Primary link (A) would be: ${requestedRedirectTo}?token_hash=...&type=recovery`);
+    console.log(
+      "  (independent of the project's Site URL / Redirect URLs allow-list - it is redeemed by the app)",
+    );
+    console.log(`Fallback link (B) would be requested with redirect_to=${requestedRedirectTo}`);
+    console.log(
+      "  (whether GoTrue HONOURS that depends on the Auth Redirect URLs allow-list; it can only be",
+    );
+    console.log("   confirmed on a real --confirm run, which reports the requested vs actual value)");
     console.log("Re-run with --confirm to provision for real.");
     return 0;
   }
@@ -130,9 +184,16 @@ async function main() {
   console.log(`created:      platform_owners row ${inserted.id}`);
 
   // --- One-time link so the Owner chooses their OWN password -----------------
+  // `redirectTo` MUST sit inside `options` - verified against
+  // node_modules/@supabase/auth-js/dist/main/GoTrueAdminApi.js (generateLink
+  // destructures `options` off the params and passes `options?.redirectTo` to
+  // `_request`, which turns it into the `redirect_to` query parameter; see also
+  // GenerateRecoveryLinkParams in lib/types.d.ts). A top-level `redirectTo`
+  // would be posted as an unknown body field and silently ignored.
   const { data: link, error: linkErr } = await client.auth.admin.generateLink({
     type: "recovery",
     email,
+    options: { redirectTo: requestedRedirectTo },
   });
   if (linkErr || !link?.properties?.action_link) {
     console.log("");
@@ -146,24 +207,125 @@ async function main() {
     return 0;
   }
 
-  // The link is a one-time credential: written to a file, never printed. It is
-  // written OUTSIDE the repository on purpose - a credential file must never
-  // become untracked residue in a git working tree.
+  // Two links are emitted, PRIMARY first:
+  //
+  //   (A) a direct app URL carrying `token_hash` + `type=recovery`, which the
+  //       set-password screen redeems with verifyOtp(). It never touches
+  //       GoTrue's /verify endpoint, so it does NOT depend on the project's
+  //       Site URL or its Redirect URLs allow-list, and it never puts an
+  //       `#access_token=...` fragment on our origin for any other Supabase
+  //       client on the page to consume.
+  //   (B) the standard GoTrue action link, still generated with an explicit
+  //       redirectTo - kept as a fallback, but only usable once the target is
+  //       actually in the allow-list (see the mismatch check below).
+  //
+  // Both are one-time credentials: written to a file, never printed. The file
+  // is written OUTSIDE the repository on purpose - a credential file must
+  // never become untracked residue in a git working tree.
+  const hashedToken = link.properties.hashed_token;
+  const directLink = hashedToken
+    ? buildDirectSetPasswordUrl(baseUrl, hashedToken)
+    : null;
+
+  // --- Prove GoTrue actually honoured the requested redirect target ---------
+  // Computed BEFORE the file is written, so the handover file itself records the
+  // verdict. Writing first and warning afterwards leaves a credential file on
+  // disk whose "(B) FALLBACK" section looks usable when it is not.
+  // Only the redirect_to value is read back out of the link - never the link,
+  // its token, or any other part of it.
+  const actualRedirectTo =
+    extractRedirectTo(link.properties.action_link) ?? link.properties.redirect_to ?? null;
+  const redirectHonoured = actualRedirectTo === requestedRedirectTo;
+
   const outPath = join(tmpdir(), `kolbox-platform-owner-activation-${Date.now()}.txt`);
   writeFileSync(
     outPath,
-    `One-time activation link for the KolBox Platform Owner.\n` +
-      `Hand this to the Owner out-of-band, then DELETE this file.\n` +
-      `The Owner sets their own password; no temporary password exists.\n\n` +
+    `One-time activation link(s) for the KolBox Platform Owner.\n` +
+      `Hand ONE of these to the Owner out-of-band, then DELETE this file.\n` +
+      `The Owner sets their own password; no temporary password exists.\n` +
+      `\n` +
+      `============================================================\n` +
+      `(A) PRIMARY - USE THIS ONE\n` +
+      `============================================================\n` +
+      `A direct link into the app. It carries the recovery token as a\n` +
+      `token_hash query parameter, which the set-password screen redeems\n` +
+      `itself. It does not go through Supabase's /verify redirect, so it\n` +
+      `works regardless of the project's Site URL / Redirect URLs settings,\n` +
+      `and it never leaves an access token in the page URL fragment.\n` +
+      `\n` +
+      `${directLink ?? "(unavailable - GoTrue returned no hashed_token; use (B) instead)"}\n` +
+      `\n` +
+      `============================================================\n` +
+      (redirectHonoured
+        ? `(B) FALLBACK - only if (A) cannot be used\n`
+        : `(B) FALLBACK - DO NOT USE - REDIRECT WAS REJECTED\n`) +
+      `============================================================\n` +
+      `The standard Supabase action link. It was requested with\n` +
+      `redirect_to=${requestedRedirectTo}\n` +
+      `but Supabase silently ignores that target unless it is present in the\n` +
+      `project's Auth -> URL Configuration -> Redirect URLs allow-list; when\n` +
+      `it is ignored, this link lands on the project's Site URL instead. The\n` +
+      `script's console output states which of the two actually happened.\n` +
+      `\n` +
+      `VERDICT: ${
+        redirectHonoured
+          ? `redirect honoured (redirect_to=${actualRedirectTo}) - (B) is usable.`
+          : `REDIRECT REJECTED - GoTrue used ${actualRedirectTo ?? "(none)"} instead of ${requestedRedirectTo}. This link lands on the WRONG page. Do NOT hand it over; use (A).`
+      }\n` +
+      `\n` +
       `${link.properties.action_link}\n`,
     { encoding: "utf8" },
   );
 
+
   console.log("");
   console.log("Provisioning complete.");
-  console.log(`Activation link written to: ${outPath}`);
-  console.log("  (contents deliberately not printed - it is a one-time credential)");
-  console.log("  Hand it over out-of-band, then DELETE that file.");
+  console.log(`Activation links written to: ${outPath}`);
+  console.log("  (contents deliberately not printed - they are one-time credentials)");
+  console.log("  Hand ONE over out-of-band, then DELETE that file.");
+  console.log("");
+  console.log(
+    `link (A) PRIMARY:  ${
+      directLink
+        ? `${requestedRedirectTo}?token_hash=***&type=recovery`
+        : "UNAVAILABLE - GoTrue returned no hashed_token"
+    }`,
+  );
+  console.log(
+    "  Direct app link, redeemed by the set-password screen itself - independent of the",
+  );
+  console.log("  project's Site URL and Redirect URLs allow-list. Prefer this one.");
+  console.log("");
+  console.log("link (B) FALLBACK: the standard Supabase action link");
+  console.log(`  redirect_to requested:  ${requestedRedirectTo}`);
+  console.log(`  redirect_to in link:    ${actualRedirectTo ?? "(none)"}`);
+
+  if (!redirectHonoured) {
+    console.warn("");
+    console.warn(
+      "WARNING: GoTrue did NOT use the requested redirect target - it fell back to something else.",
+    );
+    console.warn(
+      "  This is what a silently rejected redirect looks like: the call succeeded and the link",
+    );
+    console.warn("  works, but it lands on the wrong page (usually the project's Site URL).");
+    console.warn(
+      `  Almost always cause: "${requestedRedirectTo}" is not in the Supabase project's`,
+    );
+    console.warn("  Auth -> URL Configuration -> Redirect URLs allow-list.");
+    console.warn(
+      "  Effect: fallback link (B) is NOT usable for this flow - do not hand it over as-is.",
+    );
+    console.warn(
+      directLink
+        ? "  Link (A) is unaffected by this and is still the correct one to hand over."
+        : "  Link (A) is also unavailable - fix the allow-list and re-issue before handing anything over.",
+    );
+    console.warn("");
+  } else {
+    console.log("  (match - the redirect target was honoured, so (B) would work too)");
+  }
+
   console.log("");
   console.log("Next: the Owner signs in, sets their own password, and is then");
   console.log("required to enrol TOTP before reaching the Platform console.");

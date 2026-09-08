@@ -44,6 +44,24 @@ export const ROUTES = {
   platformLogin: "/platform/login",
   platformMfa: "/platform/mfa",
   platformConsole: "/platform",
+  /** Platform Stage 2 (password set/recovery): the landing page for a
+   * Supabase recovery/invite link addressed to the Platform Owner account.
+   * Deliberately a TOP-LEVEL SIBLING route, NOT nested under
+   * `PlatformOwnerAuthGuard` - a recovery link only ever produces an `aal1`
+   * session, which that guard would immediately divert into MFA
+   * enrollment/challenge, making the password form unreachable. It is
+   * likewise never nested under `AppLayout`/`AuthGuard`/`ElectionDayGuard`/
+   * `OwnerAuthGuard` (see `platformLogin` above for why these four
+   * identities stay structurally independent).
+   *
+   * This route grants NOTHING: it can only change the account's password and
+   * then sends the owner back to `platformLogin`, where the normal
+   * aal1 -> aal2 -> `GET /api/platform/session` chain still applies in full.
+   *
+   * The exact string is also the Supabase "redirect to" target an operator
+   * configures when sending the link, and it is the ONLY pathname on which
+   * `platformOwnerRecoveryUrl.ts` will consume auth tokens from the URL. */
+  platformSetPassword: "/platform/set-password",
 } as const;
 
 /** Election Day's own sub-navigation (UX v3 - "shell" architecture, see

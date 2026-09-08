@@ -151,3 +151,161 @@ export function maskEmail(email) {
   const head = local.slice(0, 1);
   return `${head}${"*".repeat(Math.max(1, local.length - 1))}@${domain}`;
 }
+
+/* -------------------------------------------------------------------------- *
+ * Activation / recovery redirect target
+ *
+ * `auth.admin.generateLink()` with no `redirectTo` makes hosted GoTrue fall
+ * back to the project's Site URL - which on this project is still Supabase's
+ * default `http://localhost:3000`, i.e. a link the Owner cannot use. The
+ * target therefore has to be passed explicitly, and it has to be configurable
+ * (Production, a preview deployment, and a local dev stack are all different
+ * origins).
+ *
+ * IMPORTANT - passing `redirectTo` is necessary but NOT sufficient: GoTrue
+ * silently DISCARDS a redirect target that is not in the project's Auth
+ * "Redirect URLs" allow-list and falls back to the Site URL without any error.
+ * That is why the caller must compare the requested target against the one
+ * GoTrue actually returned (see `extractRedirectTo`) instead of assuming the
+ * request was honoured.
+ * -------------------------------------------------------------------------- */
+
+/** The frontend route the Owner's one-time link must land on. */
+export const PLATFORM_SET_PASSWORD_PATH = "/platform/set-password";
+
+/**
+ * Fallback base URLs, used only when neither `--redirect-base=` nor an env var
+ * is supplied. Chosen by target so a local/disposable stack never defaults to
+ * the Production origin (and vice versa). Same Production origin the server
+ * runtime already hardcodes as its default allowed origin.
+ */
+export const DEFAULT_PRODUCTION_APP_BASE_URL = "https://kolbox-gamma.vercel.app";
+export const DEFAULT_LOCAL_APP_BASE_URL = "http://localhost:5173";
+
+/**
+ * Validates and normalizes a base URL: absolute http(s), no query, no fragment,
+ * no trailing slash.
+ *
+ * A path prefix is accepted by this validator but is NOT supported by the app:
+ * `createBrowserRouter` is configured with no `basename`, and the capture in
+ * `platformOwnerRecoveryUrl.ts` compares the absolute pathname against
+ * `/platform/set-password`. A base such as `https://host/app` therefore yields a
+ * link that matches no route and never triggers the capture. Use an origin only
+ * unless the app is given a basename first.
+ */
+export function normalizeAppBaseUrl(raw, sourceLabel) {
+  const value = String(raw ?? "").trim();
+  if (!value) throw new Error(`BAD_REDIRECT_BASE: ${sourceLabel} is empty.`);
+
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(
+      `BAD_REDIRECT_BASE: ${sourceLabel} ("${value}") is not an absolute URL - expected e.g. https://example.com`,
+    );
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      `BAD_REDIRECT_BASE: ${sourceLabel} must be http(s), got "${parsed.protocol}".`,
+    );
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error(
+      `BAD_REDIRECT_BASE: ${sourceLabel} must not carry a query string or fragment.`,
+    );
+  }
+  return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+}
+
+/**
+ * Resolves the app's public base URL, in this precedence order:
+ *   1. `--redirect-base=<url>` (explicit, per-run)
+ *   2. `KOLBOX_APP_BASE_URL`, then `SESSION_ALLOWED_ORIGIN` (the origin var the
+ *      server runtime already uses), from `.env.local` merged with `process.env`
+ *   3. a safe default chosen by target: the Production origin for the approved
+ *      Production project ref, otherwise the local dev origin.
+ *
+ * Returns `{ baseUrl, source }` - `source` is reported so an operator can see
+ * which layer won without having to guess.
+ */
+export function resolveAppBaseUrl({ cliValue, isProduction }) {
+  if (cliValue !== undefined && String(cliValue).trim() !== "") {
+    return {
+      baseUrl: normalizeAppBaseUrl(cliValue, "--redirect-base"),
+      source: "--redirect-base flag",
+    };
+  }
+
+  let env = {};
+  try {
+    env = { ...readEnvFile(), ...process.env };
+  } catch {
+    env = { ...process.env };
+  }
+
+  for (const name of ["KOLBOX_APP_BASE_URL", "SESSION_ALLOWED_ORIGIN"]) {
+    const raw = env[name];
+    if (raw !== undefined && String(raw).trim() !== "") {
+      return { baseUrl: normalizeAppBaseUrl(raw, name), source: `env ${name}` };
+    }
+  }
+
+  const fallback = isProduction
+    ? DEFAULT_PRODUCTION_APP_BASE_URL
+    : DEFAULT_LOCAL_APP_BASE_URL;
+  return {
+    baseUrl: normalizeAppBaseUrl(fallback, "built-in default"),
+    source: `built-in default (${isProduction ? "production" : "non-production"} target)`,
+  };
+}
+
+/** `<base>/platform/set-password` - the one-time link's landing page. */
+export function buildSetPasswordRedirectUrl(baseUrl) {
+  return `${baseUrl}${PLATFORM_SET_PASSWORD_PATH}`;
+}
+
+/**
+ * Reads the `redirect_to` query parameter back out of a generated action link,
+ * so the caller can prove GoTrue actually honoured the requested target.
+ *
+ * The action link is a one-time credential: this returns ONLY the redirect_to
+ * value and never the link, the token, or any other part of it. Returns null
+ * when the link is unparseable or carries no redirect_to at all (which itself
+ * means the request was not honoured).
+ */
+export function extractRedirectTo(actionLink) {
+  try {
+    return new URL(String(actionLink)).searchParams.get("redirect_to");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * PRIMARY activation link: a direct app URL that does NOT route through
+ * GoTrue's `/verify` endpoint at all.
+ *
+ *   <base>/platform/set-password?token_hash=<hashed_token>&type=recovery
+ *
+ * The frontend calls `verifyOtp({ token_hash, type: 'recovery' })` with these
+ * two query parameters, which means:
+ *   - it does not depend on the project's Site URL or its Redirect URLs
+ *     allow-list (the allow-list is what silently swallows `redirectTo`), so
+ *     it works in Production with no dashboard change at all; and
+ *   - no `#access_token=...` fragment is ever put on our origin, so no other
+ *     Supabase client loaded on the page can pick up a session that was not
+ *     meant for it.
+ *
+ * `hashed_token` comes from `generateLink()`'s
+ * `data.properties.hashed_token` (see GenerateLinkProperties in
+ * @supabase/auth-js lib/types.d.ts). It is a one-time credential: like the
+ * action link, this URL must never be printed or logged.
+ */
+export function buildDirectSetPasswordUrl(baseUrl, hashedToken) {
+  const params = new URLSearchParams({
+    token_hash: String(hashedToken),
+    type: "recovery",
+  });
+  return `${buildSetPasswordRedirectUrl(baseUrl)}?${params.toString()}`;
+}
