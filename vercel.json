@@ -17,6 +17,10 @@
       "destination": "/api/election-day/owner-actions"
     },
     {
+      "source": "/api/election-day/owner-session",
+      "destination": "/api/election-day/owner-actions?op=session"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

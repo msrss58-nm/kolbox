@@ -31,6 +31,19 @@ export const ROUTES = {
    * discoverability from `ElectionDayLoginScreen`. */
   electionDayOwnerLogin: "/election-day/owner-login",
   electionDayOwnerRoles: "/election-day/owner/roles",
+  /** Platform Stage 2: the Platform Owner console - a FOURTH, fully
+   * independent identity, separate from the campaign Supabase user
+   * (`authStore.ts`), the Election Day PermissionUser session
+   * (`electionDaySession.ts`), and the Election Owner (`ownerSession.ts`).
+   * Deliberately OUTSIDE the `/election-day` prefix (unlike the Election
+   * Owner routes above, which share that prefix purely for discoverability):
+   * this surface is not part of Election Day at all, never renders its shell
+   * or nav, and never touches voter data. Its guard,
+   * `PlatformOwnerAuthGuard`, is a top-level sibling - never nested under
+   * `AppLayout`/`AuthGuard`/`ElectionDayGuard`/`OwnerAuthGuard`. */
+  platformLogin: "/platform/login",
+  platformMfa: "/platform/mfa",
+  platformConsole: "/platform",
 } as const;
 
 /** Election Day's own sub-navigation (UX v3 - "shell" architecture, see

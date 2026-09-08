@@ -214,6 +214,32 @@ async function handleGet(req: MinimalRequest, res: MinimalResponse): Promise<voi
     return;
   }
 
+  // op=session - folded in from the former api/election-day/owner-session.ts
+  // (deleted to free one Vercel Hobby Function slot); the public URL
+  // /api/election-day/owner-session is preserved by a vercel.json rewrite to
+  // owner-actions?op=session, so the frontend contract is unchanged. Behavior
+  // is identical to the old file: Election Owner JWT only (verified above,
+  // before any op dispatch), the same election_day_resolve_owner_context RPC,
+  // the same {ownerId, workspaceId} body, the same 401/500 semantics.
+  if (opName === "session") {
+    const { data, error } = await supabase.rpc("election_day_resolve_owner_context", {
+      p_auth_user_id: verified.authUserId,
+    });
+
+    if (error || !data || (Array.isArray(data) && data.length === 0)) {
+      sendError(res, 401, "UNAUTHORIZED");
+      return;
+    }
+
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      owner_id: string;
+      workspace_id: string;
+    };
+
+    res.status(200).json({ ownerId: row.owner_id, workspaceId: row.workspace_id });
+    return;
+  }
+
   if (opName === "list_coordinators") {
     const { data, error } = await supabase.rpc("election_day_list_coordinators_owner_v3", {
       p_auth_user_id: verified.authUserId,
@@ -264,6 +290,18 @@ export default async function handler(
   }
 
   if (method !== "POST") {
+    sendError(res, 405, "METHOD_NOT_ALLOWED");
+    return;
+  }
+
+  // The /api/election-day/owner-session rewrite lands here with ?op=session
+  // on EVERY method, not just GET. The deleted owner-session.ts answered a
+  // non-GET with 405 METHOD_NOT_ALLOWED; without this guard a POST to that
+  // public URL would fall through to the body-based op dispatch below and
+  // answer 400 INVALID_REQUEST instead, silently changing the endpoint's
+  // published contract. Checked before anything else so the 405 is not
+  // masked by the Origin check.
+  if (str(parseQuery(req.url).op) === "session") {
     sendError(res, 405, "METHOD_NOT_ALLOWED");
     return;
   }

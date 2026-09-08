@@ -17,6 +17,9 @@ import { OwnerAuthGuard } from "../features/election-day/OwnerAuthGuard";
 import { OwnerLoginScreen } from "../features/election-day/OwnerLoginScreen";
 import { OwnerRolesPage } from "../features/election-day/OwnerRolesPage";
 import { ImportPage } from "../features/import/ImportPage";
+import { PlatformOwnerAuthGuard } from "../features/platform-owner/PlatformOwnerAuthGuard";
+import { PlatformOwnerConsolePage } from "../features/platform-owner/PlatformOwnerConsolePage";
+import { PlatformOwnerLoginScreen } from "../features/platform-owner/PlatformOwnerLoginScreen";
 import { TeamPage } from "../features/team/TeamPage";
 import { VotersPage } from "../features/voters/VotersPage";
 import { AppLayout } from "./AppLayout";
@@ -34,6 +37,28 @@ export const router = createBrowserRouter([
     // these three identities must stay structurally independent.
     element: <OwnerAuthGuard />,
     children: [{ path: ROUTES.electionDayOwnerRoles, element: <OwnerRolesPage /> }],
+  },
+  { path: ROUTES.platformLogin, element: <PlatformOwnerLoginScreen /> },
+  {
+    // Platform Stage 2: the Platform Owner console - a FOURTH identity, with
+    // its own top-level SIBLING guard. Deliberately NOT nested under
+    // AppLayout, AuthGuard, ElectionDayGuard, or OwnerAuthGuard, and it
+    // renders no Election Day shell/nav and touches no voter data.
+    //
+    // PlatformOwnerAuthGuard renders the MFA enrollment/challenge screens
+    // INLINE whenever the platform session is still at aal1, so neither child
+    // below can render before MFA completes AND the server's own
+    // `GET /api/platform/session` returns 200. `platformMfa` therefore only
+    // ever resolves once MFA is already done - at which point the correct
+    // destination is the console itself.
+    element: <PlatformOwnerAuthGuard />,
+    children: [
+      { path: ROUTES.platformConsole, element: <PlatformOwnerConsolePage /> },
+      {
+        path: ROUTES.platformMfa,
+        element: <Navigate to={ROUTES.platformConsole} replace />,
+      },
+    ],
   },
   {
     // Main app shell (Supabase-authenticated routes only).
