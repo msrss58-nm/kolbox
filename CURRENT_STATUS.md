@@ -2563,3 +2563,35 @@ Rolled out compatibility-code-first, so the API accepted both the old and the ne
 **Rollback note.** The migration's manual ROLLBACK block restores the three global constraints, but that is only possible while no two workspaces share a name in the affected table - which Stage 3B's seeds deliberately produce. Safe window: between this apply and first provisioning. After that, treat Stage 3A as forward-only.
 
 **Status: STAGE 3A CLOSED - committed (`61d5080`), pushed, deployed (`dpl_J7UQca99GtaVt1VDiUEv8soogzRg`), migration applied to Production and verified. Stage 3B has NOT started.**
+
+---
+
+## Tenant-Safe PermissionUser Login - EXPAND phase (IMPLEMENTED LOCALLY, NOT APPLIED TO PRODUCTION)
+
+Closes the Stage 3A blocker at the schema/auth layer. **EXPAND only** - `election_day_login_v2` is deliberately left fully functional and is NOT revoked, and Stage 3B provisioning has NOT started.
+
+**The defect.** Stage 3A correctly re-scoped `election_day_permission_users.name` to `UNIQUE (workspace_id, name)`, but `election_day_login_v2` still resolves a user with `where u.name = btrim(p_name)` and no workspace filter. PL/pgSQL's non-STRICT `SELECT ... INTO` keeps an arbitrary row when several match, and because the password is verified *after* the row is chosen, a correct password could be rejected or - with a colliding password - authenticate into the wrong workspace. Not triggerable today: Production holds one workspace and no code path can create a second.
+
+**No pre-existing tenant discriminator existed.** `election_workspaces` carried only `id`, `name`, `election_end_at`, `created_at`, `updated_at`, with `election_workspaces_pkey` as its sole constraint - `name` was never unique, and there is no slug, code, subdomain or per-tenant routing anywhere in `src/` or `api/`. A new discriminator was therefore unavoidable.
+
+**Migration `20260909010000_tenant_safe_login_expand.sql`** (local only) adds:
+- `election_workspaces.login_code` - 8 characters from `[23456789ABCDEFGHJKMNPQRSTUVWXYZ]` (the ambiguous glyphs `0 1 I L O` are excluded), backfilled per row, then `UNIQUE` + `NOT NULL`, with a CHECK that pins the format and forces uppercase - which is what makes the plain UNIQUE equivalent to case-insensitive uniqueness.
+- `election_day_generate_workspace_login_code()` - rejection-sampled (bytes >= 248 discarded) so the distribution is unbiased, bounded at 20 attempts, and RAISES rather than returning a colliding code. Granted to **no role at all**.
+- `election_day_login_v3(text, text, text, bytea)` - resolves the workspace from the normalized code FIRST, then the user by `(workspace_id, name)`, and only THEN verifies the password, so the password never selects the tenant. Unknown code, unknown user and wrong password all raise the SAME generic `UNAUTHORIZED`. `service_role`-only.
+
+**The code is a SELECTOR, not a secret** - it travels in `/election-day/login?w=<code>`, is guessable by design, and confers nothing on its own.
+
+**Backend** (`api/election-day/session.ts`): accepts an optional `workspaceCode`; supplied -> `v3`, absent -> `v2`. **There is no fallback from a failed v3 to v2** - retrying would reintroduce exactly the ambiguity v3 removes. The rate-limit identity bucket becomes `ws:<CODE>:name:<name>` on the v3 path, fixing a real cross-tenant lockout vector (the old global `name:<name>` bucket would let failed attempts in one workspace lock the same username in another); the v2 path keeps its legacy bucket and the global IP bucket is unchanged. Input length is bounded before it can reach the persisted bucket key.
+
+**Frontend**: a workspace-code field on the PermissionUser login screen, **derived** from `?w=` rather than copied into state (no `setState` in an effect). Present in the URL -> prefilled and read-only; absent -> manual entry. The single generic failure message is unchanged, and no "workspace not found" wording exists anywhere.
+
+**Local verification (disposable Supabase + real browser; Production never contacted).** 82/82 migration replay clean. Backfill rehearsed against a pre-existing workspace and produced one valid code. **12/12** v3 SQL authentication cases, **9/9** constraint/format cases (duplicate, lowercase, each ambiguous glyph, wrong length, NULL), **12/12** backend routing cases through the **real handler** against the local DB - including *wrong code + valid credentials of another workspace -> DENIED, never falling back to v2* - and **17/17** Playwright checks (prefill, read-only, manual entry, RTL, 360/375/390px, no overflow, >=44px targets, no enumeration wording). Rate-limit buckets observed as genuinely separate rows: `ws:AAAA2222:name:משה` vs `ws:BBBB3333:name:משה`. Sessions resolved correctly through the existing `election_day_resolve_session` for both workspaces. `v2` re-verified working end to end. Build passes; lint 0 errors.
+
+**Session architecture deliberately unchanged** - `election_day_sessions.workspace_id NOT NULL` plus the composite FK to `(workspace_id, id)` already make a cross-workspace session structurally impossible.
+
+**`election_end_at` behaviour deliberately unchanged.** `v3` does not consult it. The only existing workspace's `election_end_at` (2026-08-17) has already passed, and today's login does not check it - adding such a check would lock out every existing Production account immediately.
+
+> ### ⚠ STILL REQUIRED BEFORE STAGE 3B
+> `election_day_login_v2` remains active and remains ambiguous. **CONTRACT (removing/revoking v2) must land BEFORE any second workspace is provisioned** - not after. Until then, no second workspace may be created, and the no-code fallback is safe only because exactly one workspace exists.
+
+**Status: EXPAND implemented and locally verified. NOT committed, NOT pushed, NOT deployed, NOT applied to Production. `v2` still active. CONTRACT not started. Stage 3B not started.**

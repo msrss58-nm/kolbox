@@ -1073,9 +1073,22 @@ export const ELECTION_DAY_TEXT = {
     subtitle: "מסך יום הבחירות דורש התחברות נפרדת משאר המערכת",
     nameLabel: "שם משתמש",
     passwordLabel: "סיסמה",
+    /** Tenant-Safe Login: the workspace SELECTOR, not a secret - it decides
+     * which election system the username/password are checked against. Worded
+     * as "קוד מערכת" rather than anything resembling a password so nobody
+     * treats it as a credential. */
+    workspaceCodeLabel: "קוד מערכת",
+    workspaceCodeHint: "הקוד שקיבלתם ממנהל המערכת",
+    /** Shown instead of the hint once `?w=` filled the field for the user. */
+    workspaceCodeFromLinkHint: "הקוד מולא אוטומטית מהקישור",
     submit: "התחברות",
     signOut: "התנתקות",
     errors: {
+      /** Deliberately ONE message for every failure mode - wrong workspace
+       * code, unknown username and wrong password alike. Adding a distinct
+       * "workspace not found" would turn this screen into an enumeration
+       * oracle for which election systems exist. The server mirrors this: all
+       * three raise the same generic UNAUTHORIZED. */
       invalidCredentials: "שם משתמש או סיסמה שגויים",
       /** Phase 3B: no legacy equivalent existed - the pre-cutover login had
        * no rate limiting at all. */

@@ -40,6 +40,10 @@ const DEFAULT_PRODUCTION_ORIGIN = "https://kolbox-gamma.vercel.app";
 // kicks in, not what it is trusted to prove.
 const MAX_USERNAME_ATTEMPTS_PER_WINDOW = 10;
 const MAX_IP_ATTEMPTS_PER_WINDOW = 100;
+// A valid workspace login code is exactly 8 characters. This generous bound
+// only caps what may reach the persisted rate-limit bucket key - see its use
+// in the POST branch for why it is not an existence check.
+const MAX_WORKSPACE_CODE_INPUT_LENGTH = 64;
 
 interface MinimalRequest {
   method?: string;
@@ -156,11 +160,32 @@ export default async function handler(
       return;
     }
 
-    const body = (req.body ?? {}) as { name?: unknown; password?: unknown };
+    const body = (req.body ?? {}) as {
+      name?: unknown;
+      password?: unknown;
+      workspaceCode?: unknown;
+    };
     const name = typeof body.name === "string" ? body.name : "";
     const password = typeof body.password === "string" ? body.password : "";
+    const workspaceCode =
+      typeof body.workspaceCode === "string" ? body.workspaceCode.trim() : "";
 
     if (!name || !password) {
+      sendError(res, 401, "UNAUTHORIZED");
+      return;
+    }
+
+    // Tenant-Safe Login EXPAND: a supplied workspace code selects
+    // election_day_login_v3; its absence keeps the legacy v2 path alive.
+    const useV3 = workspaceCode.length > 0;
+
+    // A real code is 8 characters. This bound exists only so a hostile client
+    // cannot push an unbounded string into the rate-limit bucket key below
+    // (which is persisted by election_day_register_login_attempt) - it is a
+    // length check, never an existence check, so it leaks nothing about which
+    // codes are real. Anything over the bound gets the same generic
+    // UNAUTHORIZED as a wrong code.
+    if (useV3 && workspaceCode.length > MAX_WORKSPACE_CODE_INPUT_LENGTH) {
       sendError(res, 401, "UNAUTHORIZED");
       return;
     }
@@ -176,7 +201,25 @@ export default async function handler(
     // against the original design never triggered a rate limit). Every
     // call counts, successful or not - a legitimate user logging in
     // repeatedly is expected to stay well under the threshold.
-    const nameBucket = `name:${name.trim().toLowerCase()}`;
+    // Tenant-Safe Login EXPAND - the identity bucket is workspace-scoped on
+    // the v3 path. The pre-existing global `name:<name>` bucket is a
+    // cross-tenant lockout vector once two workspaces can hold the same
+    // username: 10 failed attempts against "משה" in workspace B would also
+    // lock out "משה" in workspace A. Including the normalized code confines a
+    // lockout to the workspace it was aimed at.
+    //
+    // The v2 branch deliberately keeps the old global bucket unchanged - it is
+    // the legacy fallback and is only reachable while a single workspace
+    // exists, where the two bucket shapes are equivalent anyway.
+    //
+    // Normalization here (`trim().toUpperCase()`) mirrors the RPC's own
+    // `upper(btrim(...))` so the bucket cannot be trivially evaded by casing
+    // or padding. It is used ONLY for this key - the raw code is what gets
+    // passed to the RPC, which remains the single authority on normalization.
+    const normalizedCode = workspaceCode.toUpperCase();
+    const nameBucket = useV3
+      ? `ws:${normalizedCode}:name:${name.trim().toLowerCase()}`
+      : `name:${name.trim().toLowerCase()}`;
     const ip = clientIp(req);
     const [nameAttemptResult, ipAttemptResult] = await Promise.all([
       supabase.rpc("election_day_register_login_attempt", { p_bucket_key: nameBucket }),
@@ -207,11 +250,34 @@ export default async function handler(
     const rawToken = randomBytes(32).toString("hex");
     const tokenHashBytea = toPgBytea(sha256Hex(rawToken));
 
-    const { data, error } = await supabase.rpc("election_day_login_v2", {
-      p_name: name,
-      p_password: password,
-      p_session_hash: tokenHashBytea,
-    });
+    // Tenant-Safe Login EXPAND - exactly one of the two login RPCs runs, and
+    // the choice is made ONCE, here, from whether the client supplied a
+    // workspace code.
+    //
+    // THERE IS NO FALLBACK FROM v3 TO v2. If a code was supplied and v3
+    // rejects it, the request fails - it is never retried against v2. Retrying
+    // would reintroduce precisely the ambiguity v3 exists to remove: v2
+    // resolves a user by bare name across every workspace, so a wrong code
+    // plus a valid username/password from a DIFFERENT workspace would still
+    // log in. The v2 branch is reachable only when no code was supplied at
+    // all, which is the legacy path and is safe only while Production holds a
+    // single workspace.
+    //
+    // The raw (untrimmed-case) code is passed through deliberately: the RPC
+    // performs the authoritative `upper(btrim(...))` normalization, so there
+    // is exactly one place where normalization is defined.
+    const { data, error } = useV3
+      ? await supabase.rpc("election_day_login_v3", {
+          p_workspace_code: workspaceCode,
+          p_name: name,
+          p_password: password,
+          p_session_hash: tokenHashBytea,
+        })
+      : await supabase.rpc("election_day_login_v2", {
+          p_name: name,
+          p_password: password,
+          p_session_hash: tokenHashBytea,
+        });
 
     if (error || !data || (Array.isArray(data) && data.length === 0)) {
       sendError(res, 401, "UNAUTHORIZED");

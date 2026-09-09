@@ -77,7 +77,15 @@ interface ElectionDaySessionState {
    * renders (Phase 3B Step 2/3). See `LoginActionResult` above for why a
    * suppressed duplicate resolves to `"ignored"` rather than something a
    * caller could mistake for `"success"`. */
-  login: (name: string, password: string) => Promise<LoginActionResult>;
+  /** `workspaceCode` is optional during the Tenant-Safe Login EXPAND phase:
+   * supplying it routes the server to `election_day_login_v3`, omitting it
+   * keeps the legacy `election_day_login_v2` path. It becomes required in
+   * CONTRACT, before any second workspace exists. */
+  login: (
+    name: string,
+    password: string,
+    workspaceCode?: string,
+  ) => Promise<LoginActionResult>;
   /** Phase 3B logout cutover: DELETE `/api/election-day/session` first: on
    * success, clears the cached reauth proof (best-effort server revoke +
    * local clear) and `user`; on failure, throws and touches NOTHING else -
@@ -142,7 +150,7 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set, get) 
   loggingIn: false,
   loggingOut: false,
 
-  login: async (name, password) => {
+  login: async (name, password, workspaceCode) => {
     // Duplicate-submit guard - a login POST is already in flight, so this
     // call is a silent no-op (no network request, no rate-limit attempt
     // consumed) rather than firing a second overlapping request. Checked
@@ -152,7 +160,7 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set, get) 
     if (get().loggingIn) return { status: "ignored" };
     set({ loggingIn: true });
     try {
-      const result = await loginRequest(name, password);
+      const result = await loginRequest(name, password, workspaceCode);
       // Security Hardening (Reauth): a successful login changes the
       // signed-in actor - drop any reauth proof left over from a previous
       // session regardless of this attempt's outcome, same defensive

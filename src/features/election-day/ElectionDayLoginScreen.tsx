@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { LogoMark } from "../../components/Logo";
 import { Button } from "../../components/ui/Button";
 import { Field, Input } from "../../components/ui/Field";
@@ -26,6 +26,19 @@ export function ElectionDayLoginScreen() {
     clearLegacySession();
   }, []);
 
+  const [searchParams] = useSearchParams();
+  // Tenant-Safe Login: the workspace code may arrive in the URL
+  // (`/election-day/login?w=<code>`), which is the normal path - the Owner
+  // hands out that link. It is DERIVED from the URL rather than copied into
+  // state, so there is no state to keep in sync (and no `setState` inside an
+  // effect, which this codebase avoids - see CLAUDE.md). `manualCode` is only
+  // ever used when the link carried no code at all.
+  const codeFromLink = (searchParams.get("w") ?? "").trim();
+  const isCodeFromLink = codeFromLink.length > 0;
+
+  const [manualCode, setManualCode] = useState("");
+  const workspaceCode = isCodeFromLink ? codeFromLink : manualCode;
+
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -36,7 +49,10 @@ export function ElectionDayLoginScreen() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const result = await login(name, password);
+    // EXPAND phase: an empty code is legitimate and routes the server to the
+    // legacy v2 path, so existing accounts keep working while codes are being
+    // distributed. The field becomes mandatory in CONTRACT.
+    const result = await login(name, password, workspaceCode);
     if (result.status === "ignored") {
       // A duplicate submit was suppressed at the store boundary - a real
       // attempt is already in flight and owns this form's pending state; it
@@ -66,10 +82,39 @@ export function ElectionDayLoginScreen() {
             <p className="text-sm text-slate-500">{text.subtitle}</p>
           </div>
 
+          {/* Tenant-Safe Login: selects WHICH election system the credentials
+              below are checked against. A selector, never a secret - it is
+              shown in plain text and is expected to travel in a link. */}
+          <Field label={text.workspaceCodeLabel}>
+            <Input
+              value={workspaceCode}
+              onChange={(e) => setManualCode(e.target.value)}
+              readOnly={isCodeFromLink}
+              // Codes are ASCII-only, so LTR even though the page is RTL.
+              dir="ltr"
+              inputMode="text"
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={16}
+              aria-describedby="kb-ws-code-hint"
+              className={
+                isCodeFromLink
+                  ? "bg-slate-50 uppercase tracking-widest text-slate-600"
+                  : "uppercase tracking-widest"
+              }
+            />
+            <p id="kb-ws-code-hint" className="mt-1 text-xs text-slate-400">
+              {isCodeFromLink ? text.workspaceCodeFromLinkHint : text.workspaceCodeHint}
+            </p>
+          </Field>
+
           <Field label={text.nameLabel}>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
+              // Focus the first field the user actually has to fill in: when
+              // the link supplied the code, that is the username.
               autoFocus
               required
             />
