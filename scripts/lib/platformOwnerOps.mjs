@@ -174,12 +174,20 @@ export function maskEmail(email) {
 export const PLATFORM_SET_PASSWORD_PATH = "/platform/set-password";
 
 /**
- * Fallback base URLs, used only when neither `--redirect-base=` nor an env var
- * is supplied. Chosen by target so a local/disposable stack never defaults to
- * the Production origin (and vice versa). Same Production origin the server
- * runtime already hardcodes as its default allowed origin.
+ * Fallback base URLs, used only when neither `--redirect-base=` nor
+ * `KOLBOX_APP_BASE_URL` is supplied. Chosen by target so a local/disposable
+ * stack never defaults to the Production origin (and vice versa).
+ *
+ * ORIGIN SEPARATION: this is the PLATFORM OWNER origin, deliberately NOT the
+ * Election Day origin the server runtime uses as its default allowed origin.
+ * The only thing built from this base is `/platform/set-password`, which after
+ * origin separation exists solely on the platform surface - a link built
+ * against the election origin would resolve to no route there, and the agreed
+ * old-origin redirect deliberately does not forward one-time tokens. Pointing
+ * the default at the election origin would therefore emit dead recovery links
+ * whenever an operator forgot to set `KOLBOX_APP_BASE_URL`.
  */
-export const DEFAULT_PRODUCTION_APP_BASE_URL = "https://kolbox-gamma.vercel.app";
+export const DEFAULT_PRODUCTION_APP_BASE_URL = "https://kolbox-platform.vercel.app";
 export const DEFAULT_LOCAL_APP_BASE_URL = "http://localhost:5173";
 
 /**
@@ -221,10 +229,15 @@ export function normalizeAppBaseUrl(raw, sourceLabel) {
 /**
  * Resolves the app's public base URL, in this precedence order:
  *   1. `--redirect-base=<url>` (explicit, per-run)
- *   2. `KOLBOX_APP_BASE_URL`, then `SESSION_ALLOWED_ORIGIN` (the origin var the
- *      server runtime already uses), from `.env.local` merged with `process.env`
- *   3. a safe default chosen by target: the Production origin for the approved
- *      Production project ref, otherwise the local dev origin.
+ *   2. `KOLBOX_APP_BASE_URL`, from `.env.local` merged with `process.env`
+ *   3. a safe default chosen by target: the Platform Owner Production origin
+ *      for the approved Production project ref, otherwise the local dev origin.
+ *
+ * `SESSION_ALLOWED_ORIGIN` was removed from step 2 by ORIGIN SEPARATION. It
+ * means exactly one thing - the ELECTION DAY browser origin the API's CSRF
+ * Origin checks accept - and reusing it as a Platform Owner recovery-link base
+ * overloaded one variable with two unrelated security purposes, silently
+ * producing a link on the wrong origin.
  *
  * Returns `{ baseUrl, source }` - `source` is reported so an operator can see
  * which layer won without having to guess.
@@ -244,7 +257,7 @@ export function resolveAppBaseUrl({ cliValue, isProduction }) {
     env = { ...process.env };
   }
 
-  for (const name of ["KOLBOX_APP_BASE_URL", "SESSION_ALLOWED_ORIGIN"]) {
+  for (const name of ["KOLBOX_APP_BASE_URL"]) {
     const raw = env[name];
     if (raw !== undefined && String(raw).trim() !== "") {
       return { baseUrl: normalizeAppBaseUrl(raw, name), source: `env ${name}` };

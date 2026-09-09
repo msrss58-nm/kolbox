@@ -11,8 +11,13 @@
 // `createBrowserRouter` reads `window.location` at the bottom of this file -
 // makes the outcome deterministic and strips the token with `replaceState`.
 // See that file's own doc comment for the full rationale.
+//
+// Kept on BOTH surfaces (see APP_SURFACE below) on purpose: on the election
+// surface `/platform/set-password` no longer resolves to a route, but a link
+// that still lands there must have its one-time token stripped from the
+// address bar rather than left sitting in it.
 import "../features/platform-owner/platformOwnerRecoveryUrl";
-import { createBrowserRouter, Navigate } from "react-router";
+import { createBrowserRouter, Navigate, type RouteObject } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
 import { LoginPage } from "../features/auth/LoginPage";
@@ -40,38 +45,74 @@ import { VotersPage } from "../features/voters/VotersPage";
 import { AppLayout } from "./AppLayout";
 import { AuthGuard } from "./AuthGuard";
 
-export const router = createBrowserRouter([
-  { path: ROUTES.login, element: <LoginPage /> },
-  { path: ROUTES.electionDayLogin, element: <ElectionDayLoginScreen /> },
-  { path: ROUTES.electionDayOwnerLogin, element: <OwnerLoginScreen /> },
-  {
-    // Phase 3C Roles Mutations: the Election Owner route tree - its own
-    // independent guard (OwnerAuthGuard), deliberately NOT nested under
-    // ElectionDayGuard (a PermissionUser session) or AuthGuard (the main
-    // app's Supabase Auth) - see ownerSession.ts's own doc comment for why
-    // these three identities must stay structurally independent.
-    element: <OwnerAuthGuard />,
-    children: [{ path: ROUTES.electionDayOwnerRoles, element: <OwnerRolesPage /> }],
-  },
+/**
+ * ORIGIN SEPARATION - build-time surface selector.
+ *
+ * The Platform Owner console and the Election Day / campaign application are
+ * served from two DIFFERENT browser origins. That split exists for one
+ * concrete reason: Chrome scopes saved credentials by origin (`signon_realm`),
+ * so while a Platform Owner login form and an Election Day login form share an
+ * origin, the Platform Owner's saved credential is a fill candidate on the
+ * Election Day form. No in-page attribute can prevent that - it is deliberate
+ * browser behaviour - so the fix has to be structural.
+ *
+ * `VITE_APP_SURFACE` is a Vite env var, so it is substituted at BUILD time and
+ * the ternary at the bottom of this file is constant-folded: each deployment
+ * ships only its own routes, and the other principal's login screen is not
+ * merely hidden but absent from the route table entirely.
+ *
+ * Defaults to "election" when unset or unrecognised, which keeps the existing
+ * production build behaviourally unchanged: a deployment that never sets this
+ * variable routes exactly as it did before origin separation.
+ *
+ * THREE VALUES:
+ *   "election" - Election Day / Election Owner / campaign only (the default).
+ *   "platform" - Platform Owner only.
+ *   "both"     - every route, for the EXPAND window only.
+ *
+ * "both" exists because origin separation has to roll out additively. While
+ * the new platform origin is being introduced, the OLD origin must keep
+ * serving the Platform Owner flow it serves today - cutting it over in the
+ * same step would take the console offline for the duration. With "both", the
+ * main project runs every route during EXPAND and cutover is later performed
+ * by flipping this one variable to "election", which means the cutover needs
+ * no code deploy and can be rolled back the same way.
+ *
+ * EXCLUDED-ROUTE BEHAVIOUR: routes belonging to the other surface are simply
+ * not registered, so they resolve through react-router's ordinary no-match
+ * path - identical to how any unknown URL already behaves on that origin.
+ * Deliberately NOT a catch-all redirect: adding one would change how the
+ * election surface already treats unknown URLs, and the only property that
+ * actually matters here is that the other principal's login form can never
+ * render on this origin.
+ */
+type AppSurface = "election" | "platform" | "both";
+
+const APP_SURFACE: AppSurface =
+  import.meta.env.VITE_APP_SURFACE === "platform"
+    ? "platform"
+    : import.meta.env.VITE_APP_SURFACE === "both"
+      ? "both"
+      : "election";
+
+/** Platform Owner surface - the FOURTH identity, served from its own origin. */
+const platformOwnerRoutes: RouteObject[] = [
   { path: ROUTES.platformLogin, element: <PlatformOwnerLoginScreen /> },
   {
     // Platform Stage 2 (password set/recovery): the recovery/invite landing
     // page. A TOP-LEVEL SIBLING route - deliberately NOT nested under
     // PlatformOwnerAuthGuard, which would divert the `aal1` session a
     // recovery link produces straight into MFA enrollment and make the
-    // password form unreachable - and NOT under AppLayout/AuthGuard/
-    // ElectionDayGuard/OwnerAuthGuard either. It authorizes nothing: it can
-    // only change the account password and then hand the owner back to
-    // /platform/login, where the full aal1 -> aal2 -> server-200 chain still
-    // applies (see PlatformOwnerSetPasswordScreen.tsx's security model).
+    // password form unreachable. It authorizes nothing: it can only change
+    // the account password and then hand the owner back to /platform/login,
+    // where the full aal1 -> aal2 -> server-200 chain still applies (see
+    // PlatformOwnerSetPasswordScreen.tsx's security model).
     path: ROUTES.platformSetPassword,
     element: <PlatformOwnerSetPasswordScreen />,
   },
   {
-    // Platform Stage 2: the Platform Owner console - a FOURTH identity, with
-    // its own top-level SIBLING guard. Deliberately NOT nested under
-    // AppLayout, AuthGuard, ElectionDayGuard, or OwnerAuthGuard, and it
-    // renders no Election Day shell/nav and touches no voter data.
+    // Platform Stage 2: the Platform Owner console, with its own top-level
+    // guard. It renders no Election Day shell/nav and touches no voter data.
     //
     // PlatformOwnerAuthGuard renders the MFA enrollment/challenge screens
     // INLINE whenever the platform session is still at aal1, so neither child
@@ -87,6 +128,40 @@ export const router = createBrowserRouter([
         element: <Navigate to={ROUTES.platformConsole} replace />,
       },
     ],
+  },
+];
+
+/**
+ * The platform origin's root, kept OUT of `platformOwnerRoutes` on purpose.
+ *
+ * "/" is also the campaign dashboard's path, so this is the one route that
+ * genuinely collides between the two surfaces. On the platform-only surface
+ * the campaign dashboard does not exist and "/" would otherwise land on a
+ * no-match page, so the redirect is right there. On "both" it must NOT be
+ * registered: it would shadow the campaign dashboard and change the main
+ * origin's behaviour during EXPAND, which is exactly what "both" exists to
+ * prevent. Sends the owner to the console, which is itself guarded - this
+ * redirect authorizes nothing.
+ */
+const platformRootRedirect: RouteObject = {
+  path: "/",
+  element: <Navigate to={ROUTES.platformConsole} replace />,
+};
+
+/** Election Day / Election Owner / campaign surface - the existing app,
+ * unchanged apart from no longer carrying the Platform Owner routes. */
+const electionRoutes: RouteObject[] = [
+  { path: ROUTES.login, element: <LoginPage /> },
+  { path: ROUTES.electionDayLogin, element: <ElectionDayLoginScreen /> },
+  { path: ROUTES.electionDayOwnerLogin, element: <OwnerLoginScreen /> },
+  {
+    // Phase 3C Roles Mutations: the Election Owner route tree - its own
+    // independent guard (OwnerAuthGuard), deliberately NOT nested under
+    // ElectionDayGuard (a PermissionUser session) or AuthGuard (the main
+    // app's Supabase Auth) - see ownerSession.ts's own doc comment for why
+    // these three identities must stay structurally independent.
+    element: <OwnerAuthGuard />,
+    children: [{ path: ROUTES.electionDayOwnerRoles, element: <OwnerRolesPage /> }],
   },
   {
     // Main app shell (Supabase-authenticated routes only).
@@ -130,4 +205,24 @@ export const router = createBrowserRouter([
       },
     ],
   },
-]);
+];
+
+/**
+ * Election routes come FIRST on "both" so every existing path - "/" above all
+ * - resolves exactly as it does today. The platform routes appended after them
+ * occupy their own `/platform/*` namespace and collide with nothing.
+ *
+ * Written as a ternary chain rather than a lookup table on purpose:
+ * `APP_SURFACE` is substituted at build time, so these comparisons are
+ * constant-folded and the surfaces this build does not serve are dropped from
+ * the bundle entirely. A `Record<AppSurface, ...>` would reference all three
+ * arrays unconditionally and defeat that, leaving the other principal's login
+ * screen in the shipped JavaScript.
+ */
+export const router = createBrowserRouter(
+  APP_SURFACE === "platform"
+    ? [...platformOwnerRoutes, platformRootRedirect]
+    : APP_SURFACE === "both"
+      ? [...electionRoutes, ...platformOwnerRoutes]
+      : electionRoutes,
+);

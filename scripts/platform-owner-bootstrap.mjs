@@ -34,8 +34,9 @@
  *   ... --redirect-base=https://example.com -> overrides where the link lands.
  *
  * The one-time link's landing page is `<base>/platform/set-password`, where
- * `<base>` resolves as: --redirect-base > KOLBOX_APP_BASE_URL >
- * SESSION_ALLOWED_ORIGIN > a built-in default chosen by target. Without an
+ * `<base>` resolves as: --redirect-base > KOLBOX_APP_BASE_URL > a built-in
+ * default chosen by target (the PLATFORM OWNER origin for Production, since
+ * origin separation put `/platform/set-password` on its own host). Without an
  * explicit redirect target hosted GoTrue falls back to the project's Site URL
  * (still Supabase's default http://localhost:3000 on this project), and even
  * WITH one it silently discards a target that is missing from the project's
