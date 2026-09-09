@@ -21,72 +21,6 @@ export interface VerifiedPlatformOwner {
   email: string;
 }
 
-// ===========================================================================
-// TEMPORARY DIAGNOSTIC - REMOVE ONCE THE PLATFORM ORIGIN IS PROVEN.
-// ===========================================================================
-// verifyPlatformOwnerJwt below fails closed through seven distinct branches
-// that all collapse to the same opaque 401, and it logs nothing - so an
-// authorization failure is externally indistinguishable from any other. That
-// is correct for production and useless for diagnosis, which is why this
-// exists.
-//
-// WHAT IT EMITS: booleans and one stage label drawn from a fixed enum. It
-// never touches the token, claims, user id, email, owner id, project URL, any
-// key, any header, any cookie, or an error object - a raw error can carry a
-// URL or key fragment, so error text is never logged, only the fact that the
-// step failed.
-//
-// WHERE IT GOES: the runtime log, never the HTTP response. Responses stay
-// byte-identical, no diagnostic endpoint is created, and the output is
-// readable only by whoever can already read this project's Vercel logs.
-//
-// Delete this block, the `diag` plumbing inside the function, and the
-// `emit(...)` calls in a single dedicated cleanup commit.
-type PlatformAuthStage =
-  | "serviceClient"
-  | "getUser"
-  | "userFields"
-  | "getClaims"
-  | "aal2"
-  | "subjectMatch"
-  | "ownerRpc"
-  | "ownerRowCount"
-  | "ownerIdPresent"
-  | "ok";
-
-interface PlatformAuthDiag {
-  serviceClientCreated: boolean;
-  getUserOk: boolean;
-  userIdPresent: boolean;
-  emailPresent: boolean;
-  getClaimsOk: boolean;
-  aal2Ok: boolean;
-  subjectMatch: boolean;
-  ownerRpcOk: boolean;
-  ownerRowCountOk: boolean;
-  ownerIdPresent: boolean;
-}
-
-function newDiag(): PlatformAuthDiag {
-  return {
-    serviceClientCreated: false,
-    getUserOk: false,
-    userIdPresent: false,
-    emailPresent: false,
-    getClaimsOk: false,
-    aal2Ok: false,
-    subjectMatch: false,
-    ownerRpcOk: false,
-    ownerRowCountOk: false,
-    ownerIdPresent: false,
-  };
-}
-
-function emit(diag: PlatformAuthDiag, stage: PlatformAuthStage): void {
-  // Fixed prefix so the line is greppable in `vercel logs`.
-  console.log(`PLATFORM_AUTH_DIAG ${JSON.stringify({ ...diag, failedAt: stage })}`);
-}
-
 function headerValue(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
@@ -136,33 +70,19 @@ export function extractPlatformBearerToken(req: MinimalRequest): string | null {
 export async function verifyPlatformOwnerJwt(
   rawToken: string,
 ): Promise<VerifiedPlatformOwner | null> {
-  // TEMPORARY DIAGNOSTIC plumbing - see the block above this function. Every
-  // early return emits one value-free line first; not one authorization
-  // decision below is altered by it.
-  const diag = newDiag();
-
-  // Unreachable from api/platform/session.ts, which 401s on a missing Bearer
-  // before calling this - deliberately left un-emitted rather than inventing
-  // a stage label for a state the endpoint cannot produce.
   if (!rawToken) return null;
 
   let supabase: ReturnType<typeof getServiceClient>;
   try {
     supabase = getServiceClient();
   } catch {
-    emit(diag, "serviceClient");
     return null;
   }
-  diag.serviceClientCreated = true;
 
   // CHECK 1 - stateful: catches revoked sessions and deleted users, which
   // getClaims() provably does not. Must stay first.
   const { data: userData, error: userError } = await supabase.auth.getUser(rawToken);
-  diag.getUserOk = !userError;
-  diag.userIdPresent = Boolean(userData?.user?.id);
-  diag.emailPresent = Boolean(userData?.user?.email);
   if (userError || !userData?.user?.id || !userData.user.email) {
-    emit(diag, userError ? "getUser" : "userFields");
     return null;
   }
   const authUserId = userData.user.id;
@@ -171,21 +91,15 @@ export async function verifyPlatformOwnerJwt(
   // CHECK 2 - cryptographic signature + exp, and the MFA assurance level.
   const { data: claimsData, error: claimsError } =
     await supabase.auth.getClaims(rawToken);
-  diag.getClaimsOk = !claimsError && Boolean(claimsData?.claims);
   if (claimsError || !claimsData?.claims) {
-    emit(diag, "getClaims");
     return null;
   }
-  diag.aal2Ok = claimsData.claims.aal === "aal2";
   if (claimsData.claims.aal !== "aal2") {
-    emit(diag, "aal2");
     return null;
   }
   // The claims must describe the SAME identity getUser() just verified - a
   // mismatch means the two calls disagree, which is never a valid state.
-  diag.subjectMatch = claimsData.claims.sub === authUserId;
   if (claimsData.claims.sub !== authUserId) {
-    emit(diag, "subjectMatch");
     return null;
   }
 
@@ -196,31 +110,18 @@ export async function verifyPlatformOwnerJwt(
     { p_auth_user_id: authUserId },
   );
 
-  diag.ownerRpcOk = !ctxError && Boolean(ctxData);
-  if (ctxError || !ctxData) {
-    emit(diag, "ownerRpc");
-    return null;
-  }
+  if (ctxError || !ctxData) return null;
   // `returns table (platform_owner_id uuid)` normally arrives as an array;
   // handle a scalar/object shape defensively too, the same way the former
   // owner-session.ts did. Exactly one row - a 0-row or multi-row result is a
   // failure, never a "pick the first one" situation.
-  diag.ownerRowCountOk = !(Array.isArray(ctxData) && ctxData.length !== 1);
-  if (Array.isArray(ctxData) && ctxData.length !== 1) {
-    emit(diag, "ownerRowCount");
-    return null;
-  }
+  if (Array.isArray(ctxData) && ctxData.length !== 1) return null;
   const row = (Array.isArray(ctxData) ? ctxData[0] : ctxData) as {
     platform_owner_id?: unknown;
   };
   const platformOwnerId =
     typeof row?.platform_owner_id === "string" ? row.platform_owner_id : "";
-  diag.ownerIdPresent = Boolean(platformOwnerId);
-  if (!platformOwnerId) {
-    emit(diag, "ownerIdPresent");
-    return null;
-  }
+  if (!platformOwnerId) return null;
 
-  emit(diag, "ok");
   return { platformOwnerId, authUserId, email };
 }
