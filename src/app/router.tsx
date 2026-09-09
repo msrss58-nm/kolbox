@@ -44,6 +44,7 @@ import { TeamPage } from "../features/team/TeamPage";
 import { VotersPage } from "../features/voters/VotersPage";
 import { AppLayout } from "./AppLayout";
 import { AuthGuard } from "./AuthGuard";
+import { PlatformOriginRedirect } from "./PlatformOriginRedirect";
 
 /**
  * ORIGIN SEPARATION - build-time surface selector.
@@ -78,13 +79,18 @@ import { AuthGuard } from "./AuthGuard";
  * by flipping this one variable to "election", which means the cutover needs
  * no code deploy and can be rolled back the same way.
  *
- * EXCLUDED-ROUTE BEHAVIOUR: routes belonging to the other surface are simply
- * not registered, so they resolve through react-router's ordinary no-match
- * path - identical to how any unknown URL already behaves on that origin.
- * Deliberately NOT a catch-all redirect: adding one would change how the
+ * EXCLUDED-ROUTE BEHAVIOUR: routes belonging to the other surface are not
+ * registered, so they resolve through react-router's ordinary no-match path -
+ * identical to how any unknown URL already behaves on that origin. Still
+ * deliberately NOT a catch-all redirect: adding one would change how the
  * election surface already treats unknown URLs, and the only property that
  * actually matters here is that the other principal's login form can never
  * render on this origin.
+ *
+ * The one exception is `platformCompatRedirects` below - four NAMED paths on
+ * the election surface only, added at cutover so existing Platform Owner
+ * bookmarks reach the new origin instead of a no-match page. They render no
+ * credential field and are not a catch-all.
  */
 type AppSurface = "election" | "platform" | "both";
 
@@ -147,6 +153,29 @@ const platformRootRedirect: RouteObject = {
   path: "/",
   element: <Navigate to={ROUTES.platformConsole} replace />,
 };
+
+/**
+ * CUTOVER compatibility - the ELECTION surface only.
+ *
+ * Registered exclusively on the "election" branch below, so it costs the
+ * "platform" and "both" builds nothing and changes neither of their
+ * behaviours. Each entry sends the browser to the canonical Platform origin;
+ * see PlatformOriginRedirect for why the destination is a key rather than a
+ * URL and why `/platform/set-password` forwards no token.
+ *
+ * `platformMfa` maps to the console because that is exactly what the platform
+ * surface itself does with that path (see platformOwnerRoutes above) - the MFA
+ * architecture is unchanged by this shim.
+ */
+const platformCompatRedirects: RouteObject[] = [
+  { path: ROUTES.platformConsole, element: <PlatformOriginRedirect target="console" /> },
+  { path: ROUTES.platformLogin, element: <PlatformOriginRedirect target="login" /> },
+  { path: ROUTES.platformMfa, element: <PlatformOriginRedirect target="console" /> },
+  {
+    path: ROUTES.platformSetPassword,
+    element: <PlatformOriginRedirect target="setPassword" />,
+  },
+];
 
 /** Election Day / Election Owner / campaign surface - the existing app,
  * unchanged apart from no longer carrying the Platform Owner routes. */
@@ -224,5 +253,5 @@ export const router = createBrowserRouter(
     ? [...platformOwnerRoutes, platformRootRedirect]
     : APP_SURFACE === "both"
       ? [...electionRoutes, ...platformOwnerRoutes]
-      : electionRoutes,
+      : [...electionRoutes, ...platformCompatRedirects],
 );
