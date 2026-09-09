@@ -4,6 +4,26 @@ Notable changes to KolBox, in reverse chronological order.
 
 > **Note on the gap below**: entries from 2026-08-06 through 2026-08-10 (covering `8045f0e` through `6f9f3f4`) were backfilled retroactively during a 2026-08-10 documentation-sync audit - this changelog had silently stopped being updated after `0aa25c0` while `task-plan.md`'s Progress Log kept (partial) track instead. See that file's Progress Log for the fullest per-commit detail. **A second gap exists between `6f9f3f4` (2026-08-10) and `98fde6c` (2026-08-20)** - the coordinator-allocation feature and several call-attempts/filter commits landed in that window without changelog entries of their own; only their commit subjects are listed below rather than reconstructed narrative, to avoid inventing detail this update wasn't briefed on. **A third gap exists between the 2026-08-23 entries below and 2026-08-30** - the Multi-Tenant Phase 1 (workspace_id columns), Phase 2 (historical Backfill, Expand→Contract), and Phase 3 (Users/Roles/Coordinator-Allocation/Import v3 cutover, Contract) initiatives all landed in that window without their own changelog entries; `CURRENT_STATUS.md`'s "Follow-up" sections and `task-plan.md`'s Progress Log carry the fullest per-step detail. Phase 3's close-out entry is below. **A fourth gap exists between 2026-08-30 and 2026-09-01** - Multi-Tenant Phase 4B's Backend EXPAND, Backend Compatibility Fix, and Frontend Cutover steps landed without their own changelog entries (same convention: only phase close-outs get one); Phase 4B's close-out entry is below.
 
+## 2026-09-10 - Platform Owner Origin Separation: CONTRACT - CLOSED / PASS (NO-OP BY DESIGN)
+
+**Status: `ORIGIN SEPARATION CONTRACT — CLOSED / PASS (NO-OP BY DESIGN)`.** Closes the Platform Owner Origin Separation initiative end-to-end (EXPAND → CUTOVER → CONTRACT). A dedicated read-only design review found no destructive contraction warranted - every transitional mechanism CUTOVER left in place is either free to keep or actively useful to keep, so it stays.
+
+**`both` stays in the `VITE_APP_SURFACE` source permanently**, as a dormant emergency-rollback mode. It's constant-folded out of both live bundles regardless of whether it exists in source, so keeping it costs nothing; removing it would turn a same-commit, env-only rollback (flip `kolbox` back to `both`, redeploy) into a mandatory code deploy under incident pressure, for no security gain.
+
+**The four `/platform*` compatibility redirects on the Election origin stay permanently.** They carry no credential UI and forward no query, fragment, or token by construction (the component takes a key, never a URL). Removing them would only regress old bookmarks to a generic no-match page - a UX cost with no vulnerability closed, since none exists.
+
+**`/api/platform/session` stays deployed on both Vercel projects by design.** Both ship the identical `api/` tree; the endpoint is fully gated by the same JWT verification either way, so a caller reaching it from the Election origin gains no privilege the correct endpoint wouldn't also grant the same bearer. Blocking it would add deployment coupling for no concrete security benefit.
+
+**No code, config, env, DB, or Supabase mutation was required or performed.** A live scan of the platform-origin JS bundle during the review found zero occurrences of any Election/Campaign UI marker, confirming the route/bundle boundary holds symmetrically in both directions with no further cleanup needed.
+
+**Rollback, unchanged and preserved intentionally**: if the Platform origin ever fails, flip `kolbox`'s `VITE_APP_SURFACE` from `election` back to `both` and redeploy the same commit - no code reconstruction required.
+
+**Deferred, unrelated to this closure**: `auth.site_url` still `http://localhost:3000`, `auth.additional_redirect_urls` still empty, the fallback Supabase recovery redirect remains non-functional, the retired `election_day_login` RPC cleanup, `ResetPasswordDialog.tsx`'s autofill gap, and unrelated pre-existing script/test debt.
+
+**Platform Owner Origin Separation (EXPAND → CUTOVER → CONTRACT) is now closed end-to-end.** Tenant-Safe Login's own Stage 3B (workspace provisioning) is the next major workstream and has not started - a separate, unrelated programme.
+
+**Full technical record**: see `CURRENT_STATUS.md`'s "Follow-up (2026-09-10) - Platform Owner Origin Separation: CONTRACT - CLOSED (NO-OP BY DESIGN)" section and `task-plan.md`'s Progress Log.
+
 ## 2026-09-10 - Platform Owner Origin Separation: EXPAND + CUTOVER (APPLIED TO PRODUCTION, real-Chrome credential isolation VERIFIED)
 
 **Status: EXPAND and CUTOVER both closed.** The Platform Owner console and the Election/Campaign application now serve from two separate Vercel origins - `https://kolbox-gamma.vercel.app` (Election/Campaign) and `https://kolbox-platform.vercel.app` (Platform Owner) - on the same commit. CONTRACT (removing the compatibility redirects) has not started.
