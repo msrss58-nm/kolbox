@@ -2520,4 +2520,24 @@ Stage 2 is **complete**. Every gate that was open is now closed, and the evidenc
 3. **Cross-client `detectSessionInUrl`.** `client.ts` and `ownerAuthClient.ts` still default it to `true`, so a fragment landing on a shared route could be consumed by the wrong client. Mitigated for `/platform/set-password` by `platformOwnerRecoveryUrl.ts`'s scoped capture; the general case is open. A blanket `detectSessionInUrl: false` is **not** the fix - it would break campaign magic-link login, which depends on that mechanism.
 4. Supabase project signup remains open; `aal2` alone is still never authorization - only the `platform_owners` match confers authority.
 
-**STAGE 2 IS CLOSED. Stage 3 has NOT started.**
+**STAGE 2 IS CLOSED.**
+
+---
+
+## Stage 3A - Tenant Uniqueness Repair (IMPLEMENTED LOCALLY, NOT APPLIED TO PRODUCTION)
+
+Stage 3 was split by approved decision into **Stage 3A** (tenant uniqueness repair) and **Stage 3B** (workspace provisioning). Only 3A is implemented, and only locally.
+
+**The defect.** `election_day_permission_users.name`, `election_day_roles.name` and `election_day_not_voting_reasons.name` each still carried the single-tenant `unique (name)` from their original `CREATE TABLE` (`20260803174731` / `20260805181806` / `20260806160000`), even though all three tables gained `workspace_id NOT NULL` in Phase 4A. The identical repair was already done for `election_day_coordinators` in Phase 4A (`20260830010000`) - these three were missed.
+
+This was not cosmetic. `election_day_close_call_as_no_answer_v3` / `_owner_v3` (`20260831000000`) resolve the no-answer reason as `workspace_id = <caller's workspace> AND name = 'לא עונה'` and raise `NO_ANSWER_REASON_NOT_CONFIGURED` when absent - so under a global `unique (name)` only the FIRST workspace could ever own that row, and workspace #2's entire call-outcome flow would fail closed from day one.
+
+**The change.** One migration, `supabase/migrations/20260909000000_platform_stage3a_workspace_scoped_name_uniqueness.sql`: three constraint swaps (add `unique (workspace_id, name)`, then drop the global `unique (name)`), fronted by three in-transaction pre-gates (workspace_id NOT NULL / no `(workspace_id, name)` duplicates / the three global constraints exist by exact name). No column, RPC, trigger, RLS policy, grant or FK is touched, and no business data is written. All five pre-existing FKs on the three tables are unchanged.
+
+**Required companion fix.** `api/election-day/permission-users.ts`'s `mapCreateRpcError` matched the old constraint name with AND logic and no `"duplicate key"` fallback; the new name does not contain the old one as a substring, so a duplicate name would have silently degraded from `409 DUPLICATE_NAME` to a generic `500 SERVER_ERROR`. It now matches **both** names, so it is correct in either migration/deploy ordering.
+
+**Verification (local disposable Supabase only - Production was never contacted).** All 81 migrations replay cleanly from scratch (`supabase db reset`, exit 0). Final schema shows exactly the three `UNIQUE (workspace_id, name)` constraints and zero leftover global ones. Proven behaviourally: the same role/user/reason name inserts successfully in two different workspaces; a duplicate within one workspace is rejected with 23505 naming the new constraint; and the exact `'לא עונה'` lookup used by the two no-answer RPCs returns exactly one row per workspace. All three pre-gates were individually proven to fire and abort. `npm run build` passes; `npm run lint` reports 0 errors.
+
+**Known follow-up, and a hard Stage 3B prerequisite.** `election_day_login_v2` resolves a user with `where u.name = btrim(p_name)` and no workspace filter. PL/pgSQL `SELECT ... INTO` (non-STRICT) does not raise on multiple rows - it keeps an arbitrary one - so once two workspaces hold the same user name, login becomes non-deterministic. This cannot trigger today (Production has exactly one workspace and no code path can create a second), and this migration is therefore a zero-behaviour-change swap on the current database. **Stage 3B must fix `election_day_login_v2` before provisioning a second workspace.** The retired legacy `election_day_login` carries the same pattern and must not be revived.
+
+**Status: NOT committed, NOT pushed, NOT deployed, NOT applied to Production. Stage 3B has NOT started.**

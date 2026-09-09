@@ -120,12 +120,12 @@ const ALLOWED_CREATE_BODY_KEYS = new Set<string>([
 // Postgres message for anything unrecognized - falls back to a generic
 // SERVER_ERROR so an unexpected DB-side change can never leak detail here.
 //
-// Phase 3C: election_day_permission_users.name carries a real, global
-// `unique` constraint (`election_day_permission_users_name_key`) - the v3
-// RPC's own INSERT has no exception handler around it, so a duplicate name
-// previously fell through to the generic 500 SERVER_ERROR below (an
-// ordinary business error, not a server fault). Fixed by matching this ONE
-// specific constraint violation, narrowly, before the generic switch below:
+// Phase 3C: election_day_permission_users.name carries a real `unique`
+// constraint - the v3 RPC's own INSERT has no exception handler around it,
+// so a duplicate name previously fell through to the generic 500
+// SERVER_ERROR below (an ordinary business error, not a server fault).
+// Fixed by matching this ONE specific constraint violation, narrowly,
+// before the generic switch below:
 // PostgREST passes through the real Postgres SQLSTATE for a genuine DB-level
 // error (never P0001, which is what a plain `raise exception '<text>'` -
 // every other case below - actually produces), so `error.code === "23505"`
@@ -142,6 +142,20 @@ const ALLOWED_CREATE_BODY_KEYS = new Set<string>([
 // someday raise. Never exposes the constraint name or any workspace detail
 // to the browser - only the generic 409 DUPLICATE_NAME code, mapped to a
 // single generic "name unavailable" message client-side.
+//
+// Stage 3A (20260909000000) re-scoped that constraint from the global
+// UNIQUE(name) to UNIQUE(workspace_id, name), renaming it to
+// `election_day_permission_users_workspace_id_name_key`. The new name does
+// NOT contain the old one as a substring, so matching only the old literal
+// would silently stop recognising a duplicate name and downgrade an
+// ordinary 409 DUPLICATE_NAME into a generic 500 SERVER_ERROR.
+//
+// BOTH names are matched on purpose: this endpoint is deployed and the
+// migration is applied as two separate steps, in either order, so there is
+// always a window in which the running code faces the other side's
+// constraint name. Keeping both makes the mapping correct in that window
+// regardless of ordering. The pre-Stage-3A literal may be dropped once the
+// migration is applied to every environment this code runs against.
 function mapCreateRpcError(error: { message?: string; code?: string } | undefined): {
   status: number;
   code: string;
@@ -149,7 +163,8 @@ function mapCreateRpcError(error: { message?: string; code?: string } | undefine
   if (
     error?.code === "23505" &&
     typeof error.message === "string" &&
-    error.message.includes("election_day_permission_users_name_key")
+    (error.message.includes("election_day_permission_users_workspace_id_name_key") ||
+      error.message.includes("election_day_permission_users_name_key"))
   ) {
     return { status: 409, code: "DUPLICATE_NAME" };
   }
