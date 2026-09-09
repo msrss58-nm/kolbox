@@ -2524,7 +2524,7 @@ Stage 2 is **complete**. Every gate that was open is now closed, and the evidenc
 
 ---
 
-## Stage 3A - Tenant Uniqueness Repair (IMPLEMENTED LOCALLY, NOT APPLIED TO PRODUCTION)
+## Stage 3A - Tenant Uniqueness Repair (CLOSED - APPLIED TO PRODUCTION AND VERIFIED, 2026-09-09)
 
 Stage 3 was split by approved decision into **Stage 3A** (tenant uniqueness repair) and **Stage 3B** (workspace provisioning). Only 3A is implemented, and only locally.
 
@@ -2536,8 +2536,30 @@ This was not cosmetic. `election_day_close_call_as_no_answer_v3` / `_owner_v3` (
 
 **Required companion fix.** `api/election-day/permission-users.ts`'s `mapCreateRpcError` matched the old constraint name with AND logic and no `"duplicate key"` fallback; the new name does not contain the old one as a substring, so a duplicate name would have silently degraded from `409 DUPLICATE_NAME` to a generic `500 SERVER_ERROR`. It now matches **both** names, so it is correct in either migration/deploy ordering.
 
-**Verification (local disposable Supabase only - Production was never contacted).** All 81 migrations replay cleanly from scratch (`supabase db reset`, exit 0). Final schema shows exactly the three `UNIQUE (workspace_id, name)` constraints and zero leftover global ones. Proven behaviourally: the same role/user/reason name inserts successfully in two different workspaces; a duplicate within one workspace is rejected with 23505 naming the new constraint; and the exact `'לא עונה'` lookup used by the two no-answer RPCs returns exactly one row per workspace. All three pre-gates were individually proven to fire and abort. `npm run build` passes; `npm run lint` reports 0 errors.
+**Local verification (disposable Supabase).** All 81 migrations replay cleanly from scratch (`supabase db reset`, exit 0). Final schema shows exactly the three `UNIQUE (workspace_id, name)` constraints and zero leftover global ones. Proven behaviourally: the same role/user/reason name inserts successfully in two different workspaces; a duplicate within one workspace is rejected with 23505 naming the new constraint; and the exact `'לא עונה'` lookup used by the two no-answer RPCs returns exactly one row per workspace. All three pre-gates were individually proven to fire and abort. `npm run build` passes; `npm run lint` reports 0 errors.
+
+### Production rollout (2026-09-09)
+
+Rolled out compatibility-code-first, so the API accepted both the old and the new constraint name before the schema changed.
+
+- **Commit `61d5080`** ("fix: scope election-day names by workspace") - exactly 3 files: the migration, `api/election-day/permission-users.ts`, `CURRENT_STATUS.md`. Zero protected scripts included. Pushed to `origin/master`; `HEAD` = local `origin/master` = `git ls-remote` = `61d5080`, 0 ahead / 0 behind.
+- **Deployment `dpl_J7UQca99GtaVt1VDiUEv8soogzRg`** (`kolbox-ooijt65vb-nahom10.vercel.app`) - state READY, target production, auto-triggered by the push, `meta.githubCommitSha` = `61d5080…`, `lambdaRuntimeStats {"nodejs":12}` (function count unchanged). Holds the production alias `kolbox-gamma.vercel.app`. Confirmed live and serving **before** the migration was applied: `/api/health` 200 `{"ok":true}`, `/api/platform/session` 401, `/api/election-day/session` 401, SPA root 200.
+- **Pre-apply gates against Production - all PASS.** `workspace_id` NOT NULL on all 3 tables (0 nullable); 0 duplicate `(workspace_id, name)` groups in all 3; all 3 global constraints present under their exact expected names; tenant baseline sane (1 workspace, 1 owner, 0 workspaces with >1 owner, 1 platform owner); migration history 80/80 with `local == remote` on every entry and exactly one pending.
+- **Migration applied**: `supabase db push --linked`, exit 0, exactly `20260909000000_platform_stage3a_workspace_scoped_name_uniqueness.sql` (dry-run first confirmed one migration, no seeds, no roles).
+- **Post-apply verification against Production - all PASS.** Exactly the three `UNIQUE (workspace_id, name)` constraints exist; **0** leftover global `UNIQUE(name)`; all 5 FKs intact including `election_day_permission_users_workspace_role_fkey FOREIGN KEY (workspace_id, role_id) REFERENCES election_day_roles(workspace_id, id) ON UPDATE RESTRICT ON DELETE RESTRICT`; `election_owners_workspace_id_key UNIQUE (workspace_id)` and `platform_owners_singleton_idx` both intact; migration count **80 → 81**, newest `20260909000000`, **0 mismatched entries** across all 81. Production API healthy after the schema change (health 200, both session endpoints 401 fail-closed, SPA 200).
+- **No business data was mutated and no test data was created in Production** - schema/catalog proof only. Row counts identical before and after: permission_users **9**, roles **5**, reasons **5**, voters **1420**; the `'לא עונה'` reason row is present.
+- **Protected scripts**: all 15 still dirty, none staged or committed, checksum `c234ec95de7c00b95cfc4e26dacf75fb` unchanged throughout.
 
 **Known follow-up, and a hard Stage 3B prerequisite.** `election_day_login_v2` resolves a user with `where u.name = btrim(p_name)` and no workspace filter. PL/pgSQL `SELECT ... INTO` (non-STRICT) does not raise on multiple rows - it keeps an arbitrary one - so once two workspaces hold the same user name, login becomes non-deterministic. This cannot trigger today (Production has exactly one workspace and no code path can create a second), and this migration is therefore a zero-behaviour-change swap on the current database. **Stage 3B must fix `election_day_login_v2` before provisioning a second workspace.** The retired legacy `election_day_login` carries the same pattern and must not be revived.
 
-**Status: NOT committed, NOT pushed, NOT deployed, NOT applied to Production. Stage 3B has NOT started.**
+> ### ⚠ BLOCKER FOR STAGE 3B - `election_day_login_v2` is not tenant-safe
+>
+> `election_day_login_v2` resolves a user with `where u.name = btrim(p_name)` and **no workspace filter**. PL/pgSQL's non-STRICT `SELECT ... INTO` does not raise on multiple matching rows - it silently keeps an arbitrary one. Now that names are only unique *within* a workspace, two workspaces may legitimately hold the same user name, at which point login becomes non-deterministic: it may compare the password against the wrong workspace's row, either denying a correct password or authenticating the user into the wrong workspace.
+>
+> This **cannot trigger today**: Production holds exactly one workspace and no code path can create a second (the only function that ever could, `election_day_backfill_historical_workspace`, was dropped in `20260825000000`). With one workspace, `UNIQUE (workspace_id, name)` and `UNIQUE (name)` are equivalent in effect, so Stage 3A was a zero-behaviour-change swap on the live database.
+>
+> **`election_day_login_v2` MUST be made tenant-safe before Stage 3B provisions a second workspace.** Treat this as a hard prerequisite, not a nice-to-have. The retired legacy `election_day_login` carries the identical pattern and must not be revived. A fix must also decide how a same-name/same-password collision across two workspaces resolves - it must fail closed, never pick a winner.
+
+**Rollback note.** The migration's manual ROLLBACK block restores the three global constraints, but that is only possible while no two workspaces share a name in the affected table - which Stage 3B's seeds deliberately produce. Safe window: between this apply and first provisioning. After that, treat Stage 3A as forward-only.
+
+**Status: STAGE 3A CLOSED - committed (`61d5080`), pushed, deployed (`dpl_J7UQca99GtaVt1VDiUEv8soogzRg`), migration applied to Production and verified. Stage 3B has NOT started.**
