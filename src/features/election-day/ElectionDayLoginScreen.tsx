@@ -95,6 +95,7 @@ export function ElectionDayLoginScreen() {
               inputMode="text"
               autoCapitalize="characters"
               autoComplete="off"
+              name="election-day-workspace-code"
               spellCheck={false}
               maxLength={16}
               aria-describedby="kb-ws-code-hint"
@@ -110,10 +111,26 @@ export function ElectionDayLoginScreen() {
             </p>
           </Field>
 
+          {/* This IS a real login identifier, so it keeps the standards
+              `username` token - unlike the create-user form, where the name
+              field describes a NEW account and is correctly `off`. What it
+              gains here is an explicit, distinct field NAME.
+              `/platform/login` and this screen share one origin, and Chrome
+              scopes saved credentials by origin, so the Platform Owner's
+              saved email/password is a candidate here. Both forms previously
+              carried NO `name` and NO `autocomplete` on their credential
+              fields, leaving Chrome nothing but positional heuristics and
+              making the two form signatures maximally similar. Naming this
+              form's fields distinctly, and stating what they are, is the
+              standards-compatible way to tell the browser these are two
+              different login forms. See this file's sibling comment on the
+              password field for the honest limit of that. */}
           <Field label={text.nameLabel}>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
+              autoComplete="username"
+              name="election-day-username"
               // Focus the first field the user actually has to fill in: when
               // the link supplied the code, that is the username.
               autoFocus
@@ -122,6 +139,26 @@ export function ElectionDayLoginScreen() {
           </Field>
           <Field label={text.passwordLabel} error={error ?? undefined}>
             <div className="flex gap-2">
+              {/* `current-password`, NOT `new-password`: this authenticates
+                  an existing PermissionUser, and mislabelling it would stop
+                  the browser ever offering to save or fill that account's
+                  own password - trading one usability bug for a worse one.
+                  `autocomplete="off"` is likewise not used here: Chrome
+                  deliberately ignores it on login password fields.
+
+                  HONEST LIMIT OF THIS FIX: Chrome scopes saved credentials
+                  by ORIGIN, and `/platform/login` shares this origin. No
+                  in-page attribute exists that means "do not offer this
+                  origin's saved credentials on this particular form" - that
+                  is deliberate browser behaviour, not an oversight we can
+                  attribute our way out of. Correct tokens plus distinct
+                  field names give Chrome a materially different form
+                  signature and are the right and complete standards-level
+                  answer; they are not a guarantee the Platform Owner
+                  credential is never offered. The robust structural fix is
+                  origin separation (serving the platform console from its
+                  own subdomain), which is infrastructure work and out of
+                  scope here. */}
               <Input
                 type={showPassword ? "text" : "password"}
                 value={password}
@@ -129,6 +166,8 @@ export function ElectionDayLoginScreen() {
                 dir="ltr"
                 invalid={!!error}
                 className="flex-1"
+                autoComplete="current-password"
+                name="election-day-current-password"
                 required
               />
               <button
