@@ -75,34 +75,29 @@ export async function getSession(): Promise<SessionClientResult> {
 }
 
 /**
- * Tenant-Safe Login EXPAND: `workspaceCode` is OPTIONAL for the duration of
- * this phase. Supplying it selects the tenant-safe `election_day_login_v3`
- * server-side; omitting it keeps the legacy `election_day_login_v2` path,
- * which is safe only while exactly one workspace exists. The field becomes
- * required in the later CONTRACT step, which must land before a second
- * workspace is ever provisioned.
+ * Tenant-Safe Login CONTRACT: `workspaceCode` is REQUIRED. It selects which
+ * workspace the credentials are checked against, server-side, via
+ * `election_day_login_v3` - the only PermissionUser login RPC that still
+ * exists. The EXPAND-phase optional/omitted form is gone along with the
+ * `election_day_login_v2` fallback it used to reach.
  *
  * The value is sent as typed (only surrounding whitespace removed). All
  * authoritative normalization - uppercasing and trimming - happens inside the
- * RPC, so there is exactly one definition of it.
+ * RPC, so there is exactly one definition of it. An empty or whitespace-only
+ * code is sent as-is and rejected server-side with the same generic
+ * UNAUTHORIZED as a wrong code, rather than being special-cased here: the
+ * server is the single authority on what constitutes a valid attempt.
  */
 export async function login(
   name: string,
   password: string,
-  workspaceCode?: string,
+  workspaceCode: string,
 ): Promise<SessionClientResult> {
   try {
-    const trimmedCode = workspaceCode?.trim() ?? "";
     const res = await fetch(SESSION_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // The key is omitted entirely when empty, so an untouched field is
-      // indistinguishable from a pre-EXPAND client and cleanly takes the v2
-      // branch, rather than sending "" and relying on the server to treat a
-      // blank string as absent.
-      body: JSON.stringify(
-        trimmedCode ? { workspaceCode: trimmedCode, name, password } : { name, password },
-      ),
+      body: JSON.stringify({ workspaceCode: workspaceCode.trim(), name, password }),
     });
     return await parseSessionResponse(res);
   } catch {

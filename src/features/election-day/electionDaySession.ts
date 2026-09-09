@@ -77,14 +77,15 @@ interface ElectionDaySessionState {
    * renders (Phase 3B Step 2/3). See `LoginActionResult` above for why a
    * suppressed duplicate resolves to `"ignored"` rather than something a
    * caller could mistake for `"success"`. */
-  /** `workspaceCode` is optional during the Tenant-Safe Login EXPAND phase:
-   * supplying it routes the server to `election_day_login_v3`, omitting it
-   * keeps the legacy `election_day_login_v2` path. It becomes required in
-   * CONTRACT, before any second workspace exists. */
+  /** Tenant-Safe Login CONTRACT: `workspaceCode` is REQUIRED - it selects
+   * which workspace the credentials are verified against. The server routes
+   * every PermissionUser login through `election_day_login_v3`; the
+   * `election_day_login_v2` fallback an omitted code used to reach no longer
+   * exists. */
   login: (
     name: string,
     password: string,
-    workspaceCode?: string,
+    workspaceCode: string,
   ) => Promise<LoginActionResult>;
   /** Phase 3B logout cutover: DELETE `/api/election-day/session` first: on
    * success, clears the cached reauth proof (best-effort server revoke +

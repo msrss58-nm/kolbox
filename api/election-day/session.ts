@@ -14,7 +14,7 @@ import { createHash, randomBytes } from "node:crypto";
 // installed; it only supplies types.
 
 const SESSION_COOKIE_NAME = "__Host-kb_ed_session";
-const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24; // 24h, matches election_day_login_v2's fixed absolute expiry
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24; // 24h, matches election_day_login_v3's fixed absolute expiry
 const DEFAULT_PRODUCTION_ORIGIN = "https://kolbox-gamma.vercel.app";
 // Two independent thresholds per 15-minute window - same explicit,
 // easily-revisable implementation-constant status as documented in
@@ -22,7 +22,7 @@ const DEFAULT_PRODUCTION_ORIGIN = "https://kolbox-gamma.vercel.app";
 // product requirement exists for either value. The DB function only
 // counts and returns attempts - enforcing the threshold is deliberately
 // this endpoint's job, not the DB's, so it can short-circuit before ever
-// calling election_day_login_v2 (see that function's own comment for why
+// calling election_day_login_v3 (see election_day_register_login_attempt's own comment for why
 // the threshold check cannot live inside it).
 //
 // The username bucket stays tight (10) - it is the meaningful protection
@@ -74,7 +74,7 @@ function sha256Hex(raw: string): string {
 }
 
 // Postgres bytea literal format for a hex digest - the value election_day_
-// resolve_session/login_v2/etc. expect for their bytea parameters.
+// resolve_session/login_v3/etc. expect for their bytea parameters.
 function toPgBytea(hexDigest: string): string {
   return "\\x" + hexDigest;
 }
@@ -111,7 +111,7 @@ function clientIp(req: MinimalRequest): string | null {
 function sendError(res: MinimalResponse, status: number, code: string): void {
   // Generic, fixed error codes only - never a raw Postgres exception/stack,
   // never a message that distinguishes "unknown user" from "wrong password"
-  // (both surface as the same UNAUTHORIZED from election_day_login_v2 itself).
+  // (both surface as the same UNAUTHORIZED from election_day_login_v3 itself).
   res.status(status).json({ error: code });
 }
 
@@ -170,14 +170,23 @@ export default async function handler(
     const workspaceCode =
       typeof body.workspaceCode === "string" ? body.workspaceCode.trim() : "";
 
-    if (!name || !password) {
+    // Tenant-Safe Login CONTRACT: the workspace code is now MANDATORY, and
+    // it is validated in the same breath as name/password so a missing code
+    // is indistinguishable from a wrong username or a wrong password - one
+    // generic UNAUTHORIZED, never a hint about which field was at fault.
+    //
+    // The EXPAND-phase "no code -> fall back to election_day_login_v2" branch
+    // is GONE. It existed only to keep pre-cutover accounts working while
+    // codes were distributed, and it was safe only while exactly one
+    // workspace existed: v2 resolves a PermissionUser by bare name across
+    // every workspace, so with two workspaces holding the same username it
+    // would authenticate non-deterministically. There is no longer any input
+    // - empty string, whitespace, missing key, wrong type - that can reach v2
+    // from this endpoint.
+    if (!name || !password || !workspaceCode) {
       sendError(res, 401, "UNAUTHORIZED");
       return;
     }
-
-    // Tenant-Safe Login EXPAND: a supplied workspace code selects
-    // election_day_login_v3; its absence keeps the legacy v2 path alive.
-    const useV3 = workspaceCode.length > 0;
 
     // A real code is 8 characters. This bound exists only so a hostile client
     // cannot push an unbounded string into the rate-limit bucket key below
@@ -185,7 +194,7 @@ export default async function handler(
     // length check, never an existence check, so it leaks nothing about which
     // codes are real. Anything over the bound gets the same generic
     // UNAUTHORIZED as a wrong code.
-    if (useV3 && workspaceCode.length > MAX_WORKSPACE_CODE_INPUT_LENGTH) {
+    if (workspaceCode.length > MAX_WORKSPACE_CODE_INPUT_LENGTH) {
       sendError(res, 401, "UNAUTHORIZED");
       return;
     }
@@ -194,32 +203,29 @@ export default async function handler(
     if (!supabase) return;
 
     // Rate-limit registration is a SEPARATE call, made and enforced here,
-    // BEFORE election_day_login_v2 is ever invoked - see that function's
-    // own SQL comment for why a same-transaction increment inside it
-    // cannot survive its own later UNAUTHORIZED on a failed attempt (found
-    // by local runtime testing: 14 consecutive wrong-password attempts
-    // against the original design never triggered a rate limit). Every
-    // call counts, successful or not - a legitimate user logging in
-    // repeatedly is expected to stay well under the threshold.
-    // Tenant-Safe Login EXPAND - the identity bucket is workspace-scoped on
-    // the v3 path. The pre-existing global `name:<name>` bucket is a
-    // cross-tenant lockout vector once two workspaces can hold the same
-    // username: 10 failed attempts against "משה" in workspace B would also
-    // lock out "משה" in workspace A. Including the normalized code confines a
-    // lockout to the workspace it was aimed at.
+    // BEFORE election_day_login_v3 is ever invoked - see
+    // election_day_register_login_attempt's own SQL comment for why a
+    // same-transaction increment inside the login RPC cannot survive that
+    // RPC's own later UNAUTHORIZED on a failed attempt (found by local
+    // runtime testing: 14 consecutive wrong-password attempts against the
+    // original design never triggered a rate limit). Every call counts,
+    // successful or not - a legitimate user logging in repeatedly is
+    // expected to stay well under the threshold.
     //
-    // The v2 branch deliberately keeps the old global bucket unchanged - it is
-    // the legacy fallback and is only reachable while a single workspace
-    // exists, where the two bucket shapes are equivalent anyway.
+    // The identity bucket is workspace-scoped. The pre-CONTRACT global
+    // `name:<name>` bucket was a cross-tenant lockout vector once two
+    // workspaces can hold the same username: 10 failed attempts against
+    // "משה" in workspace B would also lock out "משה" in workspace A.
+    // Including the normalized code confines a lockout to the workspace it
+    // was aimed at. The global IP bucket below is unchanged and stays global
+    // on purpose - it throttles a single attacking host across all tenants.
     //
     // Normalization here (`trim().toUpperCase()`) mirrors the RPC's own
     // `upper(btrim(...))` so the bucket cannot be trivially evaded by casing
     // or padding. It is used ONLY for this key - the raw code is what gets
     // passed to the RPC, which remains the single authority on normalization.
     const normalizedCode = workspaceCode.toUpperCase();
-    const nameBucket = useV3
-      ? `ws:${normalizedCode}:name:${name.trim().toLowerCase()}`
-      : `name:${name.trim().toLowerCase()}`;
+    const nameBucket = `ws:${normalizedCode}:name:${name.trim().toLowerCase()}`;
     const ip = clientIp(req);
     const [nameAttemptResult, ipAttemptResult] = await Promise.all([
       supabase.rpc("election_day_register_login_attempt", { p_bucket_key: nameBucket }),
@@ -246,38 +252,30 @@ export default async function handler(
     }
 
     // Raw token generated here, in Node - never sent to Postgres. Only its
-    // sha256 hash (as a bytea literal) is ever passed to election_day_login_v2.
+    // sha256 hash (as a bytea literal) is ever passed to election_day_login_v3.
     const rawToken = randomBytes(32).toString("hex");
     const tokenHashBytea = toPgBytea(sha256Hex(rawToken));
 
-    // Tenant-Safe Login EXPAND - exactly one of the two login RPCs runs, and
-    // the choice is made ONCE, here, from whether the client supplied a
-    // workspace code.
+    // Tenant-Safe Login CONTRACT - election_day_login_v3 is the ONLY
+    // PermissionUser login RPC. There is no branch, no fallback, and no
+    // input that reaches election_day_login_v2 (dropped from the database by
+    // the CONTRACT migration) or the retired election_day_login.
     //
-    // THERE IS NO FALLBACK FROM v3 TO v2. If a code was supplied and v3
-    // rejects it, the request fails - it is never retried against v2. Retrying
-    // would reintroduce precisely the ambiguity v3 exists to remove: v2
-    // resolves a user by bare name across every workspace, so a wrong code
-    // plus a valid username/password from a DIFFERENT workspace would still
-    // log in. The v2 branch is reachable only when no code was supplied at
-    // all, which is the legacy path and is safe only while Production holds a
-    // single workspace.
+    // A failed v3 attempt is simply a failed login: it is never retried
+    // against anything else. Retrying would reintroduce precisely the
+    // ambiguity v3 exists to remove, since v2 resolved a user by bare name
+    // across every workspace - a wrong code plus a valid username/password
+    // from a DIFFERENT workspace would still have logged in.
     //
     // The raw (untrimmed-case) code is passed through deliberately: the RPC
     // performs the authoritative `upper(btrim(...))` normalization, so there
     // is exactly one place where normalization is defined.
-    const { data, error } = useV3
-      ? await supabase.rpc("election_day_login_v3", {
-          p_workspace_code: workspaceCode,
-          p_name: name,
-          p_password: password,
-          p_session_hash: tokenHashBytea,
-        })
-      : await supabase.rpc("election_day_login_v2", {
-          p_name: name,
-          p_password: password,
-          p_session_hash: tokenHashBytea,
-        });
+    const { data, error } = await supabase.rpc("election_day_login_v3", {
+      p_workspace_code: workspaceCode,
+      p_name: name,
+      p_password: password,
+      p_session_hash: tokenHashBytea,
+    });
 
     if (error || !data || (Array.isArray(data) && data.length === 0)) {
       sendError(res, 401, "UNAUTHORIZED");

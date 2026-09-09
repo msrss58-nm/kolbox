@@ -49,9 +49,9 @@ export function ElectionDayLoginScreen() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    // EXPAND phase: an empty code is legitimate and routes the server to the
-    // legacy v2 path, so existing accounts keep working while codes are being
-    // distributed. The field becomes mandatory in CONTRACT.
+    // CONTRACT: the workspace code is mandatory. The submit button below is
+    // disabled without one, and the server rejects a blank code with the same
+    // generic UNAUTHORIZED as a wrong one - there is no code-less path left.
     const result = await login(name, password, workspaceCode);
     if (result.status === "ignored") {
       // A duplicate submit was suppressed at the store boundary - a real
@@ -98,6 +98,7 @@ export function ElectionDayLoginScreen() {
               spellCheck={false}
               maxLength={16}
               aria-describedby="kb-ws-code-hint"
+              required
               className={
                 isCodeFromLink
                   ? "bg-slate-50 uppercase tracking-widest text-slate-600"
@@ -154,7 +155,7 @@ export function ElectionDayLoginScreen() {
             size="lg"
             loading={submitting}
             className="w-full"
-            disabled={!name.trim() || !password}
+            disabled={!workspaceCode.trim() || !name.trim() || !password}
           >
             {text.submit}
           </Button>
