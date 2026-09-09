@@ -2615,3 +2615,49 @@ The login link is `https://kolbox-gamma.vercel.app/election-day/login?w=<code>`.
 > 2. **CONTRACT must remove/revoke `election_day_login_v2` BEFORE any second workspace is provisioned**, not after. v2 is still ambiguous by name and is the exact defect this programme exists to close; it is safe today only because exactly one workspace exists. **Stage 3B remains forbidden until that cutover is verified.**
 
 **Status: EXPAND CLOSED - committed (`61c025d`), pushed, deployed (`dpl_Ck1x3xKDb7UEnBtTmAk19mXxSkgG`), migration applied to Production and verified. `v3` live; `v2` still active by design. CONTRACT not started. Stage 3B not started.**
+
+---
+
+## Tenant-Safe PermissionUser Login - CONTRACT (CLOSED, APPLIED TO PRODUCTION 2026-09-09) + creation-form autofill fix
+
+Closes the tenant-safe login programme. `election_day_login_v3` is now the **only** PermissionUser login RPC in existence, the workspace code is **mandatory** end to end, and `election_day_login_v2` has been **dropped from Production**.
+
+### Creation-form autofill fix (closed and deployed first)
+
+Commit **`0f24239`**, deployment **`dpl_65FSvr8AT6pNnbmmdczR56ayYmnp`** (READY, production alias, 12 functions).
+
+The create-PermissionUser form's name and password inputs carried no `autocomplete` and no `name` attribute. A bare text input immediately followed by a `type="password"` input is the shape Chrome's password-manager heuristic reads as a login form, so it inserted a saved credential for this **origin** - in practice the Platform Owner's email and password saved from `/platform/login`. Fixed with `autoComplete="off"` on the name field (the WHATWG token for "do not remember or auto-populate", deliberately not `username`) and `autoComplete="new-password"` on the password field (the WHATWG token for setting a password on an account other than the signed-in one), plus explicit non-login-shaped `name` attributes.
+
+Verified in the **deployed Production bundle**: `autoComplete:"off", name:"new-permission-user-name"` and `autoComplete:"new-password", name:"new-permission-user-password"` are both present in the served JS. **Evidence limitation, stated deliberately:** the literal Chrome autofill popup was *not* proven absent - that needs a real browser profile holding the saved credential for this origin, which no scripted/headless run can reproduce. What is proven is the attribute values that govern the behaviour, plus 52/52 component checks (empty initial state, typing persistence, masking, RTL, 360/375/390px, unchanged `onAdd` contract) run against the real compiled component before deploy.
+
+### Authoritative user-state gate before CONTRACT
+
+Read directly from Production: **exactly one PermissionUser platform-wide - `נחום משה`**, in workspace `מודיעין`, role `מנהל` (same workspace, holds `electionDay.manageUsers`), zero users outside `מודיעין`, zero orphans, session workspace-consistent and unexpired, and **zero bare `name:`-shaped rate-limit buckets** - nothing was still depending on the code-less path. `CURRENT USER STATE: PASS`.
+
+### CONTRACT change
+
+Commit **`d51b942`** - `api/election-day/session.ts`, the login screen, session store, session client, and migration `20260909020000_tenant_safe_login_contract.sql`.
+
+- **Workspace code is mandatory.** Validated alongside name/password so a missing code returns the same generic `UNAUTHORIZED` as a wrong username or password - never an enumeration hint. The login screen marks the field `required` and disables submit without it; `?w=<code>` still prefills it read-only.
+- **The v2 fallback branch is deleted.** No input - missing key, empty string, whitespace, `null`, wrong type - can reach v2 from the endpoint. There is no retry-on-failure path either.
+- **Rate limiting** stays workspace-scoped (`ws:<CODE>:name:<name>`) with the global IP bucket unchanged.
+- **Migration** drops `election_day_login_v2(p_name text, p_password text, p_session_hash bytea)` behind four pre-gates: v2 present under its exact signature, v3 present under its exact signature, v3 still service_role-only, and no other function *calling* v2 (matched on an invocation after stripping SQL comments - a naive substring match false-positived on v3's own descriptive comment, which was found and corrected during local verification). No `CASCADE`, exact signature, nothing else touched.
+
+**The retired single-tenant `election_day_login` is deliberately retained.** It is already service_role-only (Phase 4A revoked anon/authenticated) and its sole code reference is the dead `verifyPermissionUserLogin`, which grep confirms has **zero** callers. Dropping it would drag in the generated `database.types.ts`, both ApiClient implementations, the interface and the composition root - no live behavioural gain for a widened authentication blast radius. Documented non-blocking follow-up.
+
+### Verification
+
+**Local:** 83/83 migration replay clean; **15/15** endpoint auth cases through the real bundled handler - valid code succeeds, and missing / empty / whitespace / `null` / wrong-type codes plus a bogus code with valid credentials all fail closed; same username in two workspaces resolves strictly by code; **same username *and* same password in two workspaces still isolated by code**; zero `election_day_login_v2` references in the built bundle; sessions and `election_day_resolve_session` workspace-correct; v3 ACL unchanged; build passes; lint 0 errors.
+
+**Production, application deployed BEFORE the migration** (mandatory ordering): deployment **`dpl_BtDYezirsnH7RQy6pgW2wvNFPsui`** (READY, production alias, commit `d51b942`, 12 functions). Decisive proof the deployed app abandoned v2: three code-less/empty/whitespace probes produced **no rate-limit bucket at all** - they were rejected before ever reaching the database - while only the valid-code probe created `ws:<CODE>:name:…`.
+
+**Production after the migration:** migrations **82 → 83**, newest `20260909020000`, **zero drift**; `election_day_login_v2` **absent (0)**; `election_day_login_v3` present with exact signature, `prosecdef = true`, `search_path=""`, ACL `service_role` only, **zero** anon/authenticated grants; `election_day_resolve_session` present, 1 session, workspace-consistent; **18/18** Playwright checks against Production (code field `required`, submit disabled without a code and enabled with one, `?w=` prefilled read-only, RTL, no overflow, no enumeration wording, zero console errors at 375px and 1280px); API/UI all healthy; **zero** error/warn/500 log entries.
+
+**Data integrity:** 1 workspace (`מודיעין`), 1 PermissionUser (`נחום משה`), 5 roles, 5 reasons, 1420 voters, `login_code` intact, password-hash fingerprint identical before and after the migration. `election_end_at` unchanged at `2026-08-17T19:00:00Z` - **the expired-election behaviour is intentionally untouched; v3 does not consult it, and adding such a check would lock the only account out.**
+
+> ### STAGE 3B
+> The CONTRACT gate that blocked Stage 3B is now **closed**: `election_day_login_v2` no longer exists, so a second workspace can no longer reach an ambiguous login path. **Stage 3B (workspace provisioning) is permitted to begin** - it has **NOT** been started.
+
+**Follow-ups (non-blocking):** `ResetPasswordDialog.tsx` has the same autofill gap as the creation form and was deliberately left out of scope. The retired `election_day_login` RPC and the dead `verifyPermissionUserLogin` client method remain. `scripts/smoke-multi-tenant-phase2-contract-schema.ts` holds a Phase-2-era 94-entry expected-function list that predates dozens of later functions (`login_v3`, `platform_*`, `*_v3`) - it was **already** stale before this work and is unrelated to it.
+
+**Status: TENANT-SAFE LOGIN CONTRACT CLOSED - autofill fix (`0f24239`, `dpl_65FSvr8AT6pNnbmmdczR56ayYmnp`) and CONTRACT (`d51b942`, `dpl_BtDYezirsnH7RQy6pgW2wvNFPsui`) both deployed; migration `20260909020000` applied and verified; v3-only login live. Stage 3B not started.**
