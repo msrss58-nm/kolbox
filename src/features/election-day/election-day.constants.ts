@@ -1069,7 +1069,7 @@ export const ELECTION_DAY_TEXT = {
   /** Local, non-server login gate for this screen only - checks against the
    * same roster managed in "ניהול הרשאות משתמשים" (see `electionDaySession.ts`). */
   session: {
-    title: 'התחברות - חמ"ל בחירות',
+    title: "כניסה למערכת הבחירות",
     subtitle: "מסך יום הבחירות דורש התחברות נפרדת משאר המערכת",
     nameLabel: "שם משתמש",
     passwordLabel: "סיסמה",
