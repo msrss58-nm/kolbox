@@ -109,15 +109,38 @@ export function PermissionUsersPanel({
           <>
             <div className="grid grid-cols-2 gap-2.5">
               <Field label={text.nameLabel}>
+                {/* Browser-autofill mitigation: this is a brand-new
+                    PermissionUser's display name, never the signed-in
+                    account's own identity - but a bare text field with no
+                    autocomplete hint, immediately followed by a password
+                    field, is exactly the shape Chrome's heuristic engine
+                    treats as a login form. It will offer/insert a saved
+                    credential for this ORIGIN (e.g. the Platform Owner's
+                    email+password from /platform/login) regardless of which
+                    screen or account that credential actually belongs to.
+                    autoComplete="off" is the correct WHATWG token for "do
+                    not remember or auto-populate this value" - deliberately
+                    not "username", which would tell the browser this field
+                    IS a login identifier. */}
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={text.namePlaceholder}
+                  autoComplete="off"
+                  name="new-permission-user-name"
                 />
               </Field>
 
               <Field label={text.passwordLabel}>
                 <div className="flex gap-2">
+                  {/* autoComplete="new-password" is the WHATWG-defined
+                      token for exactly this case: setting a password for an
+                      account other than the signed-in one, as opposed to
+                      "current-password" (an actual login field). Chrome,
+                      Firefox and Safari all suppress saved-credential
+                      autofill on this token and skip the "update saved
+                      password?" prompt on submit - the standards answer to
+                      the observed bug, not a workaround. */}
                   <Input
                     type={showPassword ? "text" : "password"}
                     value={password}
@@ -125,6 +148,8 @@ export function PermissionUsersPanel({
                     placeholder={text.passwordPlaceholder}
                     className="flex-1"
                     dir="ltr"
+                    autoComplete="new-password"
+                    name="new-permission-user-password"
                   />
                   <button
                     type="button"
