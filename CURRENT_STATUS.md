@@ -2566,7 +2566,7 @@ Rolled out compatibility-code-first, so the API accepted both the old and the ne
 
 ---
 
-## Tenant-Safe PermissionUser Login - EXPAND phase (IMPLEMENTED LOCALLY, NOT APPLIED TO PRODUCTION)
+## Tenant-Safe PermissionUser Login - EXPAND phase (APPLIED TO PRODUCTION AND VERIFIED, 2026-09-09)
 
 Closes the Stage 3A blocker at the schema/auth layer. **EXPAND only** - `election_day_login_v2` is deliberately left fully functional and is NOT revoked, and Stage 3B provisioning has NOT started.
 
@@ -2594,4 +2594,24 @@ Closes the Stage 3A blocker at the schema/auth layer. **EXPAND only** - `electio
 > ### ⚠ STILL REQUIRED BEFORE STAGE 3B
 > `election_day_login_v2` remains active and remains ambiguous. **CONTRACT (removing/revoking v2) must land BEFORE any second workspace is provisioned** - not after. Until then, no second workspace may be created, and the no-code fallback is safe only because exactly one workspace exists.
 
-**Status: EXPAND implemented and locally verified. NOT committed, NOT pushed, NOT deployed, NOT applied to Production. `v2` still active. CONTRACT not started. Stage 3B not started.**
+### Production rollout (2026-09-09)
+
+Rolled out compatibility-code-first, so the endpoint already accepted both request shapes before the schema changed.
+
+- **Commit `61c025d`** ("feat: add tenant-safe election-day login expand") - 7 files: the migration, `api/election-day/session.ts`, the login screen, session client, session store, Election Day constants, and this file. Zero protected scripts. Pushed; `HEAD` = local `origin/master` = `git ls-remote` = `61c025d`, 0 ahead / 0 behind.
+- **Deployment `dpl_Ck1x3xKDb7UEnBtTmAk19mXxSkgG`** (`kolbox-53ixa58p3-nahom10.vercel.app`) - READY, target production, `githubCommitSha` = `61c025d…`, `lambdaRuntimeStats {"nodejs":12}` (unchanged), holding the `kolbox-gamma.vercel.app` alias. Confirmed serving **before** the migration: `/api/health` 200, both session endpoints 401, SPA and `/election-day/login` 200, a no-code login POST still routed to v2 and failed closed, forged Origin still 403.
+- **Pre-apply gates - all PASS.** 81/81 with zero drift; `login_code` and `election_day_login_v3` both absent; exactly 1 workspace (`מודיעין`); Stage 3A's `election_day_permission_users_workspace_id_name_key` present; `election_workspaces` carried only its 5 original columns and `election_workspaces_pkey`; baseline counts 9 users / 5 roles / 5 reasons / 1420 voters / 1 owner / 1 platform owner, with username and password-hash fingerprints recorded for comparison; no second workspace.
+- **Migration applied**: `supabase db push --linked`, exit 0, exactly `20260909010000_tenant_safe_login_expand.sql` (dry run first confirmed one migration, no seeds, no roles).
+- **Post-apply verification - all PASS.** `login_code` NOT NULL with both the format CHECK and the UNIQUE constraint; `מודיעין` holds exactly one valid 8-character code (`format_ok`, `len = 8`); migration count **81 → 82**, newest `20260909010000`, **0 mismatched across all 82**. `election_day_login_v3(p_workspace_code text, p_name text, p_password text, p_session_hash bytea)` exists, `prosecdef = true`, `search_path=""`, ACL `postgres=X/postgres | service_role=X/postgres` with **zero** anon/authenticated grants; the generator is granted to no role; **`election_day_login_v2` still exists with its ACL unchanged**. Production API healthy after the change, and three probes with a deliberately non-existent username (real code / bogus code / no code) all returned an **identical** generic `401 UNAUTHORIZED`, confirming both that v3 is reachable and that it is not an enumeration oracle. The workspace-scoped bucket `ws:<CODE>:name:<name>` was observed live alongside the legacy `name:<name>` bucket from the v2 path. **8/8** Playwright checks against Production confirmed the real `?w=` link prefills the field read-only, manual entry still works without a code, RTL holds and there is no overflow at 375px.
+- **No business data changed.** Row counts identical before and after (9 / 5 / 5 / 1420 / 1 / 1), and both the username fingerprint and the **password-hash fingerprint** are byte-identical to the pre-apply values - no user, role, reason, voter or password was touched. `election_end_at` is unchanged at `2026-08-17T19:00:00+00:00`. The only business-row change anywhere is the new `login_code` value.
+- **Protected scripts**: all 15 still dirty, none staged or committed, checksum `c234ec95de7c00b95cfc4e26dacf75fb` unchanged throughout.
+
+**Where the login code lives.** `מודיעין`'s generated `login_code` is deliberately **NOT written into this repository** - `msrss58-nm/kolbox` is a **public** repo, and while the code is a selector rather than a secret, publishing it removes the modest friction that keeps it from being trivially discoverable. Read it directly from Production when needed:
+`select name, login_code from public.election_workspaces;`
+The login link is `https://kolbox-gamma.vercel.app/election-day/login?w=<code>`.
+
+> ### ⚠ TWO GATES REMAIN BEFORE STAGE 3B
+> 1. **Existing users must receive and start using the workspace code.** All 9 `מודיעין` accounts still log in through the code-less v2 fallback today. CONTRACT makes the code mandatory, so it must be distributed - and its use verified - first.
+> 2. **CONTRACT must remove/revoke `election_day_login_v2` BEFORE any second workspace is provisioned**, not after. v2 is still ambiguous by name and is the exact defect this programme exists to close; it is safe today only because exactly one workspace exists. **Stage 3B remains forbidden until that cutover is verified.**
+
+**Status: EXPAND CLOSED - committed (`61c025d`), pushed, deployed (`dpl_Ck1x3xKDb7UEnBtTmAk19mXxSkgG`), migration applied to Production and verified. `v3` live; `v2` still active by design. CONTRACT not started. Stage 3B not started.**
