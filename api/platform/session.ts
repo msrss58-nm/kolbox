@@ -13,9 +13,10 @@ import { getServiceClient } from "../election-day/_ownerAuth.js";
 // workspace data, no Election Day operational fields, and no Election Owner
 // APIs are reachable through it.
 //
-// POST carries an `op` multiplex (create_owner_access, plus the Stage 4A
-// Multi-Entity seat/assignment ops). GET carries an optional `op` too, with the
-// original no-op payload preserved as the default.
+// POST carries an `op` multiplex (create_owner_access, the Stage 4A
+// Multi-Entity seat/assignment ops, and the Stage 4B provisioning-orphan
+// purge). GET carries an optional `op` too, with the original no-op payload
+// preserved as the default.
 //
 // Stage 3B needed the Platform Owner console to perform a real mutation, and
 // this project is at exactly 12/12 Vercel Hobby Functions with no per-project
@@ -86,6 +87,7 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   assign_workspace: ["workspaceId"],
   unassign_workspace: ["workspaceId"],
   purge_replaced_auth_user: ["previousAuthUserId"],
+  purge_provisioning_orphan: ["authUserId"],
 };
 
 const GET_OPS = new Set<string>(["multi_entity_state"]);
@@ -503,6 +505,39 @@ async function handleProvisionMultiEntityOwner(
 
   const authUserId = created.user.id;
 
+  // --- 1b. WRITE-AHEAD durable record, in its OWN transaction --------------
+  // This must happen BEFORE the seat RPC and cannot be folded into it.
+  // PostgREST runs one transaction per RPC call, and the seat RPC RAISES on
+  // failure - so anything it wrote, audit row included, rolls back with it.
+  // A record written there would vanish in exactly the case it exists for.
+  // Written here, it survives that rollback and is what makes an orphaned
+  // account recoverable after a reload instead of living only in the response
+  // body below.
+  const { error: mintErr } = await supabase.rpc(
+    "platform_record_provisioning_auth_mint",
+    {
+      p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+      p_auth_user_id: authUserId,
+      p_email: email,
+    },
+  );
+
+  if (mintErr) {
+    // FAIL CLOSED. An identity we cannot durably account for must not be
+    // provisioned: proceeding would recreate the very gap this record closes,
+    // and the account is seconds old and holds nothing, so compensating now is
+    // strictly safer than continuing. Same delete-then-probe classification and
+    // the same unconfirmed-cleanup reporting as the seat-failure path below.
+    const cleaned = await deleteAuthUserConfirmed(supabase, authUserId);
+    const { status, code } = mapRpcError(mintErr.message ?? "");
+    if (!cleaned) {
+      sendOrphanedAuthUser(res, status, code, authUserId);
+      return;
+    }
+    sendError(res, status, code);
+    return;
+  }
+
   // --- 2. Seat -------------------------------------------------------------
   const { data: seat, error: rpcErr } = await supabase.rpc(
     "platform_provision_multi_entity_owner",
@@ -755,6 +790,139 @@ async function handlePurgeReplacedAuthUser(
   });
 }
 
+/**
+ * Purge an Auth account left behind by a FAILED provisioning attempt.
+ * DESTRUCTIVE.
+ *
+ * Deliberately a separate operation from purge_replaced_auth_user rather than
+ * a widened version of it. The two describe different business facts - an
+ * account displaced from the seat versus one that never reached it - they are
+ * bound by different evidence (a 'replaced' row versus a
+ * 'provisioning_auth_minted' row), and they record different audit actions. A
+ * single op taking "some Auth id to delete" would be exactly the shape that
+ * lets one path's guarantees be used to justify the other path's deletion.
+ *
+ * Everything else mirrors handlePurgeReplacedAuthUser exactly, because those
+ * properties are production-verified and worth reproducing rather than
+ * reinventing: the guard runs first, "a success audit already exists" (a RECORD
+ * fact) is never conflated with "the account is absent" (a WORLD fact), absence
+ * is classified by PROBING on structured status/code and never by sniffing
+ * message text, and a failed audit write reports the truth instead of a plain
+ * success so a retry can converge.
+ */
+async function handlePurgeProvisioningOrphan(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const authUserId = str(body.authUserId);
+
+  if (!authUserId || !UUID_PATTERN.test(authUserId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  // --- 1. Guard ------------------------------------------------------------
+  const { data: guard, error: guardErr } = await supabase.rpc(
+    "platform_check_provisioning_orphan_purgeable",
+    {
+      p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+      p_auth_user_id: authUserId,
+    },
+  );
+
+  if (guardErr) {
+    const { status, code } = mapRpcError(guardErr.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  const g = rpcRow<{
+    purgeable?: unknown;
+    reason?: unknown;
+    held_by?: unknown;
+    already_completed?: unknown;
+  }>(guard);
+
+  if (!g) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  if (g.already_completed === true) {
+    res.status(200).json({
+      authUserId,
+      accountDeleted: true,
+      auditRecorded: true,
+      alreadyCompleted: true,
+    });
+    return;
+  }
+
+  if (g.purgeable !== true) {
+    const reason = typeof g.reason === "string" ? g.reason : "AUTH_USER_STILL_HELD";
+    res.status(409).json({
+      error: reason === "NOT_A_PROVISIONING_ORPHAN" ? reason : "AUTH_USER_STILL_HELD",
+      heldBy: typeof g.held_by === "string" ? g.held_by : null,
+    });
+    return;
+  }
+
+  // --- 2. Delete, then classify by PROBING ---------------------------------
+  const { error: delErr } = await supabase.auth.admin.deleteUser(authUserId);
+
+  let deleted = !delErr;
+  if (delErr) {
+    const { data: probe, error: probeErr } =
+      await supabase.auth.admin.getUserById(authUserId);
+    // Absence is evidence the destructive objective was achieved - safe here
+    // because the guard already bound this id to a real mint event. Any other
+    // error status is genuinely unknown and fails closed.
+    deleted = isAuthNotFound(probeErr) || (!probeErr && !probe?.user?.id);
+  }
+
+  // --- 3. Record the outcome ----------------------------------------------
+  const { data: recorded, error: recErr } = await supabase.rpc(
+    "platform_record_provisioning_orphan_cleanup",
+    {
+      p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+      p_auth_user_id: authUserId,
+      p_deleted: deleted,
+    },
+  );
+
+  if (recErr) {
+    // The destructive step may already have happened. Never report a plain
+    // success, and never retry the delete blindly - say exactly what is known
+    // so a retry (which probes absent and records) can converge.
+    res.status(200).json({
+      authUserId,
+      accountDeleted: deleted,
+      auditRecorded: false,
+      warning: "AUTH_CLEANUP_AUDIT_WRITE_FAILED",
+    });
+    return;
+  }
+
+  const r = rpcRow<{ already_completed?: unknown }>(recorded);
+
+  res.status(200).json({
+    authUserId,
+    accountDeleted: deleted,
+    auditRecorded: true,
+    alreadyCompleted: r?.already_completed === true,
+  });
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
@@ -864,6 +1032,9 @@ export default async function handler(
       return;
     case "purge_replaced_auth_user":
       await handlePurgeReplacedAuthUser(req, res, verified.authUserId);
+      return;
+    case "purge_provisioning_orphan":
+      await handlePurgeProvisioningOrphan(req, res, verified.authUserId);
       return;
     default:
       // Unreachable: POST_OP_KEYS lookup above already rejected unknown ops.
