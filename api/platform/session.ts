@@ -209,6 +209,60 @@ function isAuthNotFound(err: unknown): boolean {
 }
 
 /**
+ * Compensating delete for an Auth account THIS request created moments ago.
+ *
+ * Returns true only when the account is CONFIRMED gone. Two shapes count as
+ * gone, and both must be recognised:
+ *   - the delete itself succeeded, or
+ *   - the account was already absent - GoTrue answers that with a STRUCTURED
+ *     404 / "user_not_found", either on the delete or on a follow-up probe.
+ * Anything else (a transient 5xx, an unreadable world) returns false: the
+ * account MAY still exist, and the caller must say so rather than drop it.
+ *
+ * Same delete-then-probe classification handlePurgeReplacedAuthUser uses, on
+ * structured status/code fields and never on message text. Deliberately a
+ * separate helper rather than a refactor of that handler: its behaviour is
+ * already production-verified, and this fix must not re-open it.
+ */
+async function deleteAuthUserConfirmed(
+  supabase: ReturnType<typeof getServiceClient>,
+  authUserId: string,
+): Promise<boolean> {
+  const { error: delErr } = await supabase.auth.admin.deleteUser(authUserId);
+  if (!delErr) return true;
+  // Already absent -> the compensation is complete. Idempotent, not an error.
+  if (isAuthNotFound(delErr)) return true;
+
+  const { data: probe, error: probeErr } =
+    await supabase.auth.admin.getUserById(authUserId);
+  return isAuthNotFound(probeErr) || (!probeErr && !probe?.user?.id);
+}
+
+/**
+ * Provisioning failed AND the compensating Auth delete could not be confirmed,
+ * so an orphaned Auth account may remain.
+ *
+ * The HTTP status and `error` code stay EXACTLY what the provisioning failure
+ * alone would have returned, so existing client handling is unchanged; the two
+ * extra fields are purely additive. `orphanedAuthUserId` is the plain UUID this
+ * request just minted - an identifier the success path already returns as
+ * `seatAuthUserId`, never a credential - and it is the one thing an operator
+ * needs in order to remediate. No raw GoTrue/Postgres error text is included.
+ */
+function sendOrphanedAuthUser(
+  res: MinimalResponse,
+  status: number,
+  code: string,
+  orphanedAuthUserId: string,
+): void {
+  res.status(status).json({
+    error: code,
+    warning: "AUTH_CLEANUP_INCOMPLETE",
+    orphanedAuthUserId,
+  });
+}
+
+/**
  * Approve a new Election Owner.
  *
  * Order matters and is not interchangeable:
@@ -465,8 +519,14 @@ async function handleProvisionMultiEntityOwner(
     // --- 3. Compensating delete, scoped to the id created moments ago ------
     // The previous seat holder is untouched: the RPC either committed or did
     // not, and this deletes only the account this request just created.
-    await supabase.auth.admin.deleteUser(authUserId);
+    // An UNCONFIRMED delete is reported, never swallowed - the provisioning
+    // failure code is preserved either way.
+    const cleaned = await deleteAuthUserConfirmed(supabase, authUserId);
     const { status, code } = mapRpcError(rpcErr.message ?? "");
+    if (!cleaned) {
+      sendOrphanedAuthUser(res, status, code, authUserId);
+      return;
+    }
     sendError(res, status, code);
     return;
   }
@@ -478,7 +538,13 @@ async function handleProvisionMultiEntityOwner(
   }>(seat);
 
   if (!row) {
-    await supabase.auth.admin.deleteUser(authUserId);
+    // Same orphan risk as the rpcErr branch above: the account exists, the
+    // seat does not, so an unconfirmed cleanup must not be silent either.
+    const cleaned = await deleteAuthUserConfirmed(supabase, authUserId);
+    if (!cleaned) {
+      sendOrphanedAuthUser(res, 500, "SERVER_ERROR", authUserId);
+      return;
+    }
     sendError(res, 500, "SERVER_ERROR");
     return;
   }
