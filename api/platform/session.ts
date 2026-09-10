@@ -13,8 +13,11 @@ import { getServiceClient } from "../election-day/_ownerAuth.js";
 // workspace data, no Election Day operational fields, and no Election Owner
 // APIs are reachable through it.
 //
-// POST carries an `op` multiplex (currently one op: create_owner_access).
-// Stage 3B needs the Platform Owner console to perform a real mutation, and
+// POST carries an `op` multiplex (create_owner_access, plus the Stage 4A
+// Multi-Entity seat/assignment ops). GET carries an optional `op` too, with the
+// original no-op payload preserved as the default.
+//
+// Stage 3B needed the Platform Owner console to perform a real mutation, and
 // this project is at exactly 12/12 Vercel Hobby Functions with no per-project
 // exclusion mechanism - so a 13th file is impossible. Multiplexing onto the
 // principal's OWN existing endpoint is the established house answer (see
@@ -71,17 +74,36 @@ const DEFAULT_ELECTION_APP_BASE_URL = "https://kolbox-gamma.vercel.app";
 const LOCAL_APP_BASE_URL = "http://localhost:5173";
 const OWNER_SET_PASSWORD_PATH = "/election-day/owner-set-password";
 
-const ALLOWED_OPS = new Set<string>(["create_owner_access"]);
-const ALLOWED_BODY_KEYS = new Set<string>([
-  "op",
-  "name",
-  "email",
-  "phone",
-  "expiresInDays",
-]);
+// Per-op body-key allow-lists. Deliberately NOT one flat shared set: an op must
+// not silently accept another op's fields. Matches owner-actions.ts's own
+// per-descriptor allowedBodyKeys construction.
+//
+// create_owner_access's list is byte-for-byte the keys the single-op version
+// accepted, so its request contract is unchanged.
+const POST_OP_KEYS: Record<string, readonly string[]> = {
+  create_owner_access: ["name", "email", "phone", "expiresInDays"],
+  provision_multi_entity_owner: ["name", "email", "phone"],
+  assign_workspace: ["workspaceId"],
+  unassign_workspace: ["workspaceId"],
+  purge_replaced_auth_user: ["previousAuthUserId"],
+};
+
+const GET_OPS = new Set<string>(["multi_entity_state"]);
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function headerValue(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
+}
+
+function parseQuery(url: string | undefined): Record<string, unknown> {
+  if (!url) return {};
+  const idx = url.indexOf("?");
+  if (idx === -1) return {};
+  const params = new URLSearchParams(url.slice(idx + 1));
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of params.entries()) out[k] = v;
+  return out;
 }
 
 function isProduction(): boolean {
@@ -138,7 +160,52 @@ function mapRpcError(message: string): { status: number; code: string } {
   if (m.includes("INVALID_EXPIRY_WINDOW")) {
     return { status: 400, code: "INVALID_REQUEST" };
   }
+  // --- Stage 4A codes -----------------------------------------------------
+  // IDENTITY_PENDING_ELECTION_OWNER is checked BEFORE IDENTITY_ALREADY_PRINCIPAL
+  // only for readability; the two strings do not overlap, so order is not
+  // load-bearing here. Both are 409: the request is well-formed and the caller
+  // is authorized - the target identity is simply not eligible.
+  if (m.includes("IDENTITY_PENDING_ELECTION_OWNER")) {
+    return { status: 409, code: "IDENTITY_PENDING_ELECTION_OWNER" };
+  }
+  if (m.includes("IDENTITY_ALREADY_PRINCIPAL")) {
+    return { status: 409, code: "IDENTITY_ALREADY_PRINCIPAL" };
+  }
+  if (m.includes("MULTI_ENTITY_OWNER_NOT_PROVISIONED")) {
+    return { status: 409, code: "MULTI_ENTITY_OWNER_NOT_PROVISIONED" };
+  }
+  if (m.includes("WORKSPACE_NOT_FOUND")) {
+    return { status: 404, code: "WORKSPACE_NOT_FOUND" };
+  }
+  if (
+    m.includes("MISSING_AUTH_USER_ID") ||
+    m.includes("INVALID_WORKSPACE_ID") ||
+    m.includes("INVALID_AUTH_CLEANUP_TARGET") ||
+    m.includes("OWNER_NAME_TOO_LONG") ||
+    m.includes("OWNER_EMAIL_TOO_LONG")
+  ) {
+    return { status: 400, code: "INVALID_REQUEST" };
+  }
   return { status: 500, code: "SERVER_ERROR" };
+}
+
+/** Unwraps PostgREST's array-or-scalar RPC result shape. */
+function rpcRow<T>(data: unknown): T | undefined {
+  return (Array.isArray(data) ? data[0] : data) as T | undefined;
+}
+
+/**
+ * True when a GoTrue Admin API error means "this account does not exist".
+ *
+ * Matched on the STRUCTURED fields GoTrue returns (HTTP 404 and the stable
+ * `user_not_found` code), never on message text - message wording is not a
+ * contract. Anything else is deliberately not treated as absence, so a
+ * transient 5xx can never be mistaken for a completed deletion.
+ */
+function isAuthNotFound(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { status?: unknown; code?: unknown };
+  return e.status === 404 || e.code === "user_not_found";
 }
 
 /**
@@ -287,6 +354,341 @@ async function handleCreateOwnerAccess(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Stage 4A - Multi-Entity Owner seat + workspace assignments.
+//
+// Every handler below is Platform-Owner-only and reaches the database through a
+// SECURITY DEFINER RPC that independently re-resolves the caller against
+// platform_owners. None of them grants the Multi-Entity Owner any runtime
+// access: this stage creates that principal's identity and records their
+// assignments, and nothing more. Authentication, AAL2 and entity-scoped
+// authorization for that principal belong to a later stage.
+// ---------------------------------------------------------------------------
+
+async function handleMultiEntityState(
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_get_multi_entity_state", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+  });
+
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  res.status(200).json(data ?? { seat: null, workspaces: [] });
+}
+
+/**
+ * Create or replace the singleton Multi-Entity Owner.
+ *
+ * This handler NEVER deletes the previous Auth account, in any environment.
+ * Replacement is deliberately a two-operation flow: the seat is updated here,
+ * and purging the replaced account is a separate, separately-approved request
+ * to purge_replaced_auth_user. There is no environment-conditional destructive
+ * path - a destructive branch that only runs "somewhere else" is exactly the
+ * shape that produces "it was safe locally" incidents.
+ *
+ * Ordering is not interchangeable: multi_entity_owner.auth_user_id is
+ * ON DELETE CASCADE from auth.users, so deleting the old account before the
+ * seat UPDATE would delete the seat row itself.
+ */
+async function handleProvisionMultiEntityOwner(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const name = str(body.name);
+  const email = str(body.email).toLowerCase();
+  const phone = str(body.phone);
+
+  if (!name || !email || !looksLikeEmail(email)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  if (name.length > 200 || phone.length > 40) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  // --- 1. Auth user, no password (same rule as an Election Owner) ----------
+  const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+
+  if (createErr || !created?.user?.id) {
+    const msg = (createErr?.message ?? "").toLowerCase();
+    if (msg.includes("already") || msg.includes("registered")) {
+      sendError(res, 409, "EMAIL_ALREADY_REGISTERED");
+      return;
+    }
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  const authUserId = created.user.id;
+
+  // --- 2. Seat -------------------------------------------------------------
+  const { data: seat, error: rpcErr } = await supabase.rpc(
+    "platform_provision_multi_entity_owner",
+    {
+      p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+      p_auth_user_id: authUserId,
+      p_name: name,
+      p_email: email,
+      p_phone: phone || null,
+    },
+  );
+
+  if (rpcErr) {
+    // --- 3. Compensating delete, scoped to the id created moments ago ------
+    // The previous seat holder is untouched: the RPC either committed or did
+    // not, and this deletes only the account this request just created.
+    await supabase.auth.admin.deleteUser(authUserId);
+    const { status, code } = mapRpcError(rpcErr.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  const row = rpcRow<{
+    already_existed?: unknown;
+    replaced?: unknown;
+    previous_auth_user_id?: unknown;
+  }>(seat);
+
+  if (!row) {
+    await supabase.auth.admin.deleteUser(authUserId);
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  const replaced = row.replaced === true;
+  const previousAuthUserId =
+    typeof row.previous_auth_user_id === "string" ? row.previous_auth_user_id : null;
+
+  // --- 4. One-time activation link ----------------------------------------
+  const redirectTo = `${electionAppBaseUrl()}${OWNER_SET_PASSWORD_PATH}`;
+  const { data: link, error: linkErr } = await supabase.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: { redirectTo },
+  });
+
+  const hashedToken = link?.properties?.hashed_token;
+  const activationLink =
+    !linkErr && typeof hashedToken === "string" && hashedToken
+      ? `${redirectTo}?${new URLSearchParams({ token_hash: hashedToken, type: "recovery" }).toString()}`
+      : null;
+
+  // requiresDestructiveApproval is surfaced explicitly rather than quietly
+  // leaving an orphaned Auth account behind: the console must show this as an
+  // outstanding operator action.
+  res.status(201).json({
+    seatAuthUserId: authUserId,
+    alreadyExisted: row.already_existed === true,
+    replaced,
+    previousAuthUserId,
+    previousAccountDeleted: false,
+    requiresDestructiveApproval: replaced && previousAuthUserId !== null,
+    activationLink,
+  });
+}
+
+async function handleWorkspaceAssignment(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+  rpc: "platform_assign_workspace" | "platform_unassign_workspace",
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const workspaceId = str(body.workspaceId);
+
+  if (!workspaceId || !UUID_PATTERN.test(workspaceId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc(rpc, {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_workspace_id: workspaceId,
+  });
+
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  res.status(200).json(data ?? {});
+}
+
+/**
+ * Purge a replaced Multi-Entity Owner's Auth account. DESTRUCTIVE.
+ *
+ * Two conditions are deliberately never conflated:
+ *   - "a success audit row already exists" - a RECORD fact, from the guard RPC.
+ *   - "the Auth user is already absent"    - a WORLD fact, established here by
+ *     probing getUserById.
+ * Either is sufficient to stop deleting, but only the first means the audit
+ * trail is complete. "Absent but unrecorded" is precisely the state that a
+ * delete-succeeded-then-audit-write-failed run leaves behind, and re-running
+ * this handler is what recovers it.
+ *
+ * Absence is treated as terminal success rather than an error because the guard
+ * has already bound this id to a real `replaced` audit event - it cannot be an
+ * arbitrary or mistyped account.
+ */
+async function handlePurgeReplacedAuthUser(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const previousAuthUserId = str(body.previousAuthUserId);
+
+  if (!previousAuthUserId || !UUID_PATTERN.test(previousAuthUserId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  // --- 1. Guard ------------------------------------------------------------
+  const { data: guard, error: guardErr } = await supabase.rpc(
+    "platform_check_auth_user_purgeable",
+    {
+      p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+      p_auth_user_id: previousAuthUserId,
+    },
+  );
+
+  if (guardErr) {
+    const { status, code } = mapRpcError(guardErr.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  const g = rpcRow<{
+    purgeable?: unknown;
+    reason?: unknown;
+    held_by?: unknown;
+    already_completed?: unknown;
+  }>(guard);
+
+  if (!g) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  if (g.already_completed === true) {
+    res.status(200).json({
+      previousAuthUserId,
+      previousAccountDeleted: true,
+      auditRecorded: true,
+      alreadyCompleted: true,
+    });
+    return;
+  }
+
+  if (g.purgeable !== true) {
+    const reason = typeof g.reason === "string" ? g.reason : "AUTH_USER_STILL_HELD";
+    res.status(409).json({
+      error: reason === "NOT_A_REPLACED_PRINCIPAL" ? reason : "AUTH_USER_STILL_HELD",
+      heldBy: typeof g.held_by === "string" ? g.held_by : null,
+    });
+    return;
+  }
+
+  // --- 2. Delete, then classify by PROBING (never by error-string sniffing) -
+  const { error: delErr } = await supabase.auth.admin.deleteUser(previousAuthUserId);
+
+  let deleted = !delErr;
+  if (delErr) {
+    const { data: probe, error: probeErr } =
+      await supabase.auth.admin.getUserById(previousAuthUserId);
+
+    // "Absent" has two equally definitive shapes, and both must be recognised.
+    // GoTrue answers a lookup for a missing account with a STRUCTURED 404
+    // (status 404 / code "user_not_found"), not with an empty success - so
+    // treating every probe error as "unknown" would strand the recovery path
+    // forever. Matched on the structured status/code fields, never on message
+    // text. Any OTHER error status is genuinely unknown and fails closed.
+    const notFound = isAuthNotFound(probeErr) || (!probeErr && !probe?.user?.id);
+
+    // Absence is evidence the destructive objective was achieved - safe here
+    // because the guard already bound this id to a real `replaced` audit event.
+    // Anything else (still present, or an unreadable world) stays false.
+    deleted = notFound;
+  }
+
+  // --- 3. Record the outcome ----------------------------------------------
+  const { data: recorded, error: recErr } = await supabase.rpc(
+    "platform_record_multi_entity_auth_cleanup",
+    {
+      p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+      p_previous_auth_user_id: previousAuthUserId,
+      p_deleted: deleted,
+    },
+  );
+
+  if (recErr) {
+    // The destructive step may already have happened. Never report a plain
+    // success, and never retry the delete blindly - say exactly what is known
+    // so a retry (which probes absent and records) can converge.
+    res.status(200).json({
+      previousAuthUserId,
+      previousAccountDeleted: deleted,
+      auditRecorded: false,
+      warning: "AUTH_CLEANUP_AUDIT_WRITE_FAILED",
+    });
+    return;
+  }
+
+  const r = rpcRow<{ already_completed?: unknown }>(recorded);
+
+  res.status(200).json({
+    previousAuthUserId,
+    previousAccountDeleted: deleted,
+    auditRecorded: true,
+    alreadyCompleted: r?.already_completed === true,
+  });
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
@@ -303,8 +705,17 @@ export default async function handler(
     return;
   }
 
+  // The GET op name is resolved before auth only to reject an unknown op early;
+  // no work is done on it until the caller is verified below.
+  const getOp = method === "GET" ? str(parseQuery(req.url).op) : "";
+  if (method === "GET" && getOp && !GET_OPS.has(getOp)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
   // Origin is validated on the state-changing method only, before any body
   // parsing or auth work - matching the order every other handler uses.
+  let postOp = "";
   if (method === "POST") {
     const origin = headerValue(req.headers.origin);
     if (!origin || !allowedPlatformOrigins().has(origin)) {
@@ -313,12 +724,25 @@ export default async function handler(
     }
 
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const unknownKey = Object.keys(body).find((k) => !ALLOWED_BODY_KEYS.has(k));
-    if (unknownKey) {
+    postOp = str(body.op);
+
+    // Object.hasOwn, never a bare index: `postOp` is attacker-controlled, and a
+    // plain object literal resolves inherited members too. Without this, an op
+    // of "constructor" / "__proto__" / "toString" returns a truthy prototype
+    // value, passes a `!opKeys` truthiness guard, and then makes the spread
+    // below throw an uncaught TypeError - a 500 where a 400 belongs, reachable
+    // before the auth check. The pre-Stage-4A code was safe only because it
+    // used a Set; this restores that property to the per-op table.
+    const opKeys = Object.hasOwn(POST_OP_KEYS, postOp) ? POST_OP_KEYS[postOp] : undefined;
+    if (!opKeys) {
       sendError(res, 400, "INVALID_REQUEST");
       return;
     }
-    if (!ALLOWED_OPS.has(str(body.op))) {
+
+    // Per-op key allow-list: "op" plus only this op's own fields.
+    const allowed = new Set<string>(["op", ...opKeys]);
+    const unknownKey = Object.keys(body).find((k) => !allowed.has(k));
+    if (unknownKey) {
       sendError(res, 400, "INVALID_REQUEST");
       return;
     }
@@ -337,11 +761,47 @@ export default async function handler(
   }
 
   if (method === "GET") {
+    if (getOp === "multi_entity_state") {
+      await handleMultiEntityState(res, verified.authUserId);
+      return;
+    }
+    // Default GET payload is deliberately unchanged - the Platform Owner client
+    // shape-guards on exactly these two keys.
     res
       .status(200)
       .json({ platformOwnerId: verified.platformOwnerId, email: verified.email });
     return;
   }
 
-  await handleCreateOwnerAccess(req, res, verified.authUserId);
+  switch (postOp) {
+    case "create_owner_access":
+      await handleCreateOwnerAccess(req, res, verified.authUserId);
+      return;
+    case "provision_multi_entity_owner":
+      await handleProvisionMultiEntityOwner(req, res, verified.authUserId);
+      return;
+    case "assign_workspace":
+      await handleWorkspaceAssignment(
+        req,
+        res,
+        verified.authUserId,
+        "platform_assign_workspace",
+      );
+      return;
+    case "unassign_workspace":
+      await handleWorkspaceAssignment(
+        req,
+        res,
+        verified.authUserId,
+        "platform_unassign_workspace",
+      );
+      return;
+    case "purge_replaced_auth_user":
+      await handlePurgeReplacedAuthUser(req, res, verified.authUserId);
+      return;
+    default:
+      // Unreachable: POST_OP_KEYS lookup above already rejected unknown ops.
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+  }
 }
