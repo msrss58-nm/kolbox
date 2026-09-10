@@ -4,9 +4,22 @@ Notable changes to KolBox, in reverse chronological order.
 
 > **Note on the gap below**: entries from 2026-08-06 through 2026-08-10 (covering `8045f0e` through `6f9f3f4`) were backfilled retroactively during a 2026-08-10 documentation-sync audit - this changelog had silently stopped being updated after `0aa25c0` while `task-plan.md`'s Progress Log kept (partial) track instead. See that file's Progress Log for the fullest per-commit detail. **A second gap exists between `6f9f3f4` (2026-08-10) and `98fde6c` (2026-08-20)** - the coordinator-allocation feature and several call-attempts/filter commits landed in that window without changelog entries of their own; only their commit subjects are listed below rather than reconstructed narrative, to avoid inventing detail this update wasn't briefed on. **A third gap exists between the 2026-08-23 entries below and 2026-08-30** - the Multi-Tenant Phase 1 (workspace_id columns), Phase 2 (historical Backfill, Expand→Contract), and Phase 3 (Users/Roles/Coordinator-Allocation/Import v3 cutover, Contract) initiatives all landed in that window without their own changelog entries; `CURRENT_STATUS.md`'s "Follow-up" sections and `task-plan.md`'s Progress Log carry the fullest per-step detail. Phase 3's close-out entry is below. **A fourth gap exists between 2026-08-30 and 2026-09-01** - Multi-Tenant Phase 4B's Backend EXPAND, Backend Compatibility Fix, and Frontend Cutover steps landed without their own changelog entries (same convention: only phase close-outs get one); Phase 4B's close-out entry is below.
 
+## 2026-09-10 - Multi-Tenant / Platform Program: Stage 3B Workspace Provisioning - CLOSED / PASS (committed, deployed, migration applied to Production)
+
+**Status: `STAGE 3B — CLOSED / PASS`.** Closes the entry immediately below: the local implementation there was committed as `dd2c870e74148345d24bf56a632945acb9f58ffa`, pushed to `origin/master`, auto-deployed to both Vercel projects on that same commit (`kolbox-gamma.vercel.app` = `election`, `kolbox-platform.vercel.app` = `platform`, 12 functions each), and its migration (`20260910000000`) applied to Production with explicit approval and verified directly against Production metadata.
+
+- **Production migration state**: 84/84, zero drift, exactly **+5** `public` functions, **0** removed schema statements, **0** table/index/constraint/trigger/type changes.
+- **Security verified live in Production**: all five functions `SECURITY DEFINER` with empty `search_path`; the seed helper is internal-only (zero grants, not even `service_role`); the four externally-invoked functions grant execute to `service_role` only - no `PUBLIC`/`anon`/`authenticated` grant exists.
+- **Data integrity proven**: Production business rows byte-identical before/after the migration (1 workspace, 1 owner, 0 pending access, 1 PermissionUser, 5 roles, 5 reasons, 1420 voters, 1 Platform Owner), including the one real workspace's unchanged `updated_at` timestamp. No Auth user, Pending Access, Workspace, or PermissionUser was created by the rollout.
+- **Non-destructive Production API smoke**: every new-path probe (missing Origin, wrong Origin, missing bearer) rejected with the expected `401`/`403` on both origins - no real data touched.
+- **Feature is live but inert** - nothing runs until a Platform Owner deliberately approves an Owner through the console.
+- Deferred, non-blocking: activation link shown once in console with no outbound email; an emailed flow would need the still-open Redirect-URLs allow-list fix; `CLAUDE.md` carries stale `isBootstrap` wording found but not fixed in this pass.
+
+Stage 4 is the next major workstream and has **NOT** started.
+
 ## 2026-09-10 - Multi-Tenant / Platform Program: Stage 3B Workspace Provisioning (LOCAL ONLY - not deployed)
 
-**Status: `STAGE 3B LOCAL IMPLEMENTATION - PASS / AWAITING PRODUCTION APPROVAL`.** Not committed, not pushed, not deployed; the migration has NOT been applied to Production, which remains at 83/83.
+**Status: `STAGE 3B — CLOSED / PASS`.** Committed as `dd2c870e74148345d24bf56a632945acb9f58ffa`, pushed, deployed to both Vercel projects on that commit, and the migration applied to Production and verified - see the entry immediately above this one for the full closure record.
 
 Closes the last structural gap in the multi-tenant programme: until now **no deployed code path could create a second workspace at all**. Adds the full onboarding flow Phase 0 designed and left unimplemented - Platform Owner approval, a no-password Auth user, a one-time self-set-password link, pending-state recognition, atomic workspace provisioning with built-in seeds, and a self-extinguishing first-PermissionUser bootstrap.
 
