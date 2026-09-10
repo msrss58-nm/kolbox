@@ -17,6 +17,15 @@
 // that still lands there must have its one-time token stripped from the
 // address bar rather than left sitting in it.
 import "../features/platform-owner/platformOwnerRecoveryUrl";
+// SIDE-EFFECT IMPORT, DELIBERATELY SECOND AND STILL BEFORE EVERY FEATURE
+// IMPORT - the Stage 3B Election Owner equivalent of the module above, for
+// `/election-day/owner-set-password`. Same hazard, same ordering requirement:
+// the campaign client AND the Election Owner client are both live on this
+// surface, so activation-link material must be captured and stripped
+// deterministically rather than left for whichever client the bundler
+// evaluates first. The two modules are pathname-scoped to different routes
+// and cannot capture each other's links.
+import "../features/election-day/electionDayOwnerRecoveryUrl";
 import { createBrowserRouter, Navigate, type RouteObject } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
@@ -35,6 +44,8 @@ import { ElectionDayVotersPage } from "../features/election-day/ElectionDayVoter
 import { OwnerAuthGuard } from "../features/election-day/OwnerAuthGuard";
 import { OwnerLoginScreen } from "../features/election-day/OwnerLoginScreen";
 import { OwnerRolesPage } from "../features/election-day/OwnerRolesPage";
+import { OwnerSetPasswordScreen } from "../features/election-day/OwnerSetPasswordScreen";
+import { OwnerSetupPage } from "../features/election-day/OwnerSetupPage";
 import { ImportPage } from "../features/import/ImportPage";
 import { PlatformOwnerAuthGuard } from "../features/platform-owner/PlatformOwnerAuthGuard";
 import { PlatformOwnerConsolePage } from "../features/platform-owner/PlatformOwnerConsolePage";
@@ -183,6 +194,18 @@ const electionRoutes: RouteObject[] = [
   { path: ROUTES.login, element: <LoginPage /> },
   { path: ROUTES.electionDayLogin, element: <ElectionDayLoginScreen /> },
   { path: ROUTES.electionDayOwnerLogin, element: <OwnerLoginScreen /> },
+  // Stage 3B - both routes are deliberately OUTSIDE OwnerAuthGuard.
+  // owner-set-password is reached from a one-time activation link by
+  // someone who has no session at all yet (the link is the proof, verified
+  // server-side by the screen itself). owner/setup is reached by an
+  // authenticated Owner who has no election_owners row yet - exactly the
+  // state OwnerAuthGuard treats as "not an owner" and bounces to login.
+  // OwnerSetupPage does its own equivalent gating instead.
+  {
+    path: ROUTES.electionDayOwnerSetPassword,
+    element: <OwnerSetPasswordScreen />,
+  },
+  { path: ROUTES.electionDayOwnerSetup, element: <OwnerSetupPage /> },
   {
     // Phase 3C Roles Mutations: the Election Owner route tree - its own
     // independent guard (OwnerAuthGuard), deliberately NOT nested under

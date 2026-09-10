@@ -39,6 +39,12 @@ const ALLOWED_OWNER_ACTIONS = new Set<string>([
   "apply_initial_allocation",
   "rebalance_assignments",
   "end_coordinator_activity",
+  // Stage 3B: gates creation of a freshly provisioned workspace's FIRST
+  // PermissionUser. Bound one-to-one to
+  // election_day_bootstrap_first_permission_user, which hardcodes this same
+  // literal - a proof minted for any other action cannot be used there, and
+  // a proof minted for this one cannot be used anywhere else.
+  "bootstrap_first_user",
 ]);
 
 const ALLOWED_BODY_KEYS = new Set<string>(["password", "action"]);

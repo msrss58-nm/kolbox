@@ -17,8 +17,13 @@ interface OpDescriptor {
   rpc: string;
   requiresProof: boolean;
   requiredKeys: string[];
-  buildParams: (body: Record<string, unknown>, query: Record<string, unknown>) => Record<string, unknown> | null;
+  buildParams: (
+    body: Record<string, unknown>,
+    query: Record<string, unknown>,
+  ) => Record<string, unknown> | null;
 }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function str(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -34,63 +39,319 @@ function arr(v: unknown): unknown[] | null {
 }
 
 const OPS: Record<string, OpDescriptor> = {
+  // --- Stage 3B: workspace provisioning --------------------------------
+  // provision_workspace deliberately carries requiresProof:false. Every other
+  // proofed op re-authenticates a privileged action inside an ALREADY
+  // provisioned workspace; this one is what creates the workspace, and the
+  // Owner's authority for it comes from the pending-access row the Platform
+  // Owner created, re-read and locked inside the RPC. A step-up proof is not
+  // available here anyway: election_day_owner_reauth resolves the caller
+  // through election_owners, the row this op exists to create.
+  provision_workspace: {
+    method: "POST",
+    rpc: "election_day_provision_workspace",
+    requiresProof: false,
+    requiredKeys: ["workspaceName", "electionEndAt"],
+    buildParams: (b) => {
+      const name = str(b.workspaceName).trim();
+      const endAt = str(b.electionEndAt).trim();
+      if (!name || !endAt) return null;
+      // Reject anything Date cannot parse, so a malformed string becomes a
+      // 400 here rather than a Postgres cast error at the RPC boundary.
+      if (Number.isNaN(Date.parse(endAt))) return null;
+      return { p_workspace_name: name, p_election_end_at: endAt };
+    },
+  },
+  bootstrap_first_user: {
+    method: "POST",
+    rpc: "election_day_bootstrap_first_permission_user",
+    requiresProof: true,
+    requiredKeys: ["name", "password", "roleId"],
+    buildParams: (b) => {
+      const name = str(b.name).trim();
+      const password = str(b.password);
+      const roleId = str(b.roleId);
+      if (!name || !password || !UUID_PATTERN.test(roleId)) return null;
+      return { p_name: name, p_password: password, p_role_id: roleId };
+    },
+  },
   manage_coordinators: {
-    method: "POST", rpc: "election_day_manage_coordinators_owner_v3", requiresProof: true,
-    requiredKeys: ["actions"], buildParams: (b) => (arr(b.actions) ? { p_actions: arr(b.actions) } : null),
+    method: "POST",
+    rpc: "election_day_manage_coordinators_owner_v3",
+    requiresProof: true,
+    requiredKeys: ["actions"],
+    buildParams: (b) => (arr(b.actions) ? { p_actions: arr(b.actions) } : null),
   },
   apply_initial_allocation: {
-    method: "POST", rpc: "election_day_apply_initial_allocation_owner_v3", requiresProof: true,
-    requiredKeys: ["assignments"], buildParams: (b) => (arr(b.assignments) ? { p_assignments: arr(b.assignments) } : null),
+    method: "POST",
+    rpc: "election_day_apply_initial_allocation_owner_v3",
+    requiresProof: true,
+    requiredKeys: ["assignments"],
+    buildParams: (b) =>
+      arr(b.assignments) ? { p_assignments: arr(b.assignments) } : null,
   },
   rebalance_assignments: {
-    method: "POST", rpc: "election_day_rebalance_assignments_owner_v3", requiresProof: true,
+    method: "POST",
+    rpc: "election_day_rebalance_assignments_owner_v3",
+    requiresProof: true,
     requiredKeys: ["sources", "destinations"],
-    buildParams: (b) => (arr(b.sources) && arr(b.destinations) ? { p_sources: arr(b.sources), p_destinations: arr(b.destinations) } : null),
+    buildParams: (b) =>
+      arr(b.sources) && arr(b.destinations)
+        ? { p_sources: arr(b.sources), p_destinations: arr(b.destinations) }
+        : null,
   },
   end_coordinator_activity: {
-    method: "POST", rpc: "election_day_end_coordinator_activity_owner_v3", requiresProof: true,
+    method: "POST",
+    rpc: "election_day_end_coordinator_activity_owner_v3",
+    requiresProof: true,
     requiredKeys: ["coordinatorId", "mode"],
     buildParams: (b) =>
       str(b.coordinatorId) && str(b.mode)
-        ? { p_coordinator_id: str(b.coordinatorId), p_mode: str(b.mode), p_target_coordinator_id: str(b.mode) === "transfer" ? strOrNull(b.targetCoordinatorId) : null }
+        ? {
+            p_coordinator_id: str(b.coordinatorId),
+            p_mode: str(b.mode),
+            p_target_coordinator_id:
+              str(b.mode) === "transfer" ? strOrNull(b.targetCoordinatorId) : null,
+          }
         : null,
   },
 
-  set_ride_arranged: { method: "POST", rpc: "election_day_set_ride_arranged_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_arranged: bool(b.arranged) } : null) },
-  set_ride_requested: { method: "POST", rpc: "election_day_set_ride_requested_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_requested: bool(b.requested) } : null) },
-  set_ride_completed: { method: "POST", rpc: "election_day_set_ride_completed_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_completed: bool(b.completed) } : null) },
-  set_notes: { method: "POST", rpc: "election_day_set_notes_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_notes: str(b.notes) } : null) },
-  set_phone: { method: "POST", rpc: "election_day_set_phone_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_phone: str(b.phone) } : null) },
-  set_reminder: { method: "POST", rpc: "election_day_set_reminder_owner_v3", requiresProof: false, requiredKeys: ["id", "reminderAt"], buildParams: (b) => (str(b.id) && str(b.reminderAt) ? { p_id: str(b.id), p_reminder_at: str(b.reminderAt) } : null) },
-  close_reminder: { method: "POST", rpc: "election_day_close_reminder_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
-  cancel_reminder: { method: "POST", rpc: "election_day_cancel_reminder_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
-  set_voted: { method: "POST", rpc: "election_day_set_voted_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_voted: bool(b.voted) } : null) },
-  set_non_voting_reason: { method: "POST", rpc: "election_day_set_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_reason_id: strOrNull(b.reasonId) } : null) },
-  close_call_as_no_answer: { method: "POST", rpc: "election_day_close_call_as_no_answer_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
-  increment_call_attempts: { method: "POST", rpc: "election_day_increment_call_attempts_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
-  record_no_answer: { method: "POST", rpc: "election_day_record_no_answer_owner_v3", requiresProof: false, requiredKeys: ["id", "callId"], buildParams: (b) => (str(b.id) && str(b.callId) ? { p_id: str(b.id), p_call_id: str(b.callId) } : null) },
-  record_call_answered: { method: "POST", rpc: "election_day_record_call_answered_owner_v3", requiresProof: false, requiredKeys: ["id", "callId"], buildParams: (b) => (str(b.id) && str(b.callId) ? { p_id: str(b.id), p_call_id: str(b.callId) } : null) },
-  extend_no_answer_streak_threshold: { method: "POST", rpc: "election_day_extend_no_answer_streak_threshold_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
+  set_ride_arranged: {
+    method: "POST",
+    rpc: "election_day_set_ride_arranged_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) =>
+      str(b.id) ? { p_id: str(b.id), p_arranged: bool(b.arranged) } : null,
+  },
+  set_ride_requested: {
+    method: "POST",
+    rpc: "election_day_set_ride_requested_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) =>
+      str(b.id) ? { p_id: str(b.id), p_requested: bool(b.requested) } : null,
+  },
+  set_ride_completed: {
+    method: "POST",
+    rpc: "election_day_set_ride_completed_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) =>
+      str(b.id) ? { p_id: str(b.id), p_completed: bool(b.completed) } : null,
+  },
+  set_notes: {
+    method: "POST",
+    rpc: "election_day_set_notes_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_notes: str(b.notes) } : null),
+  },
+  set_phone: {
+    method: "POST",
+    rpc: "election_day_set_phone_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_phone: str(b.phone) } : null),
+  },
+  set_reminder: {
+    method: "POST",
+    rpc: "election_day_set_reminder_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id", "reminderAt"],
+    buildParams: (b) =>
+      str(b.id) && str(b.reminderAt)
+        ? { p_id: str(b.id), p_reminder_at: str(b.reminderAt) }
+        : null,
+  },
+  close_reminder: {
+    method: "POST",
+    rpc: "election_day_close_reminder_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null),
+  },
+  cancel_reminder: {
+    method: "POST",
+    rpc: "election_day_cancel_reminder_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null),
+  },
+  set_voted: {
+    method: "POST",
+    rpc: "election_day_set_voted_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_voted: bool(b.voted) } : null),
+  },
+  set_non_voting_reason: {
+    method: "POST",
+    rpc: "election_day_set_non_voting_reason_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) =>
+      str(b.id) ? { p_id: str(b.id), p_reason_id: strOrNull(b.reasonId) } : null,
+  },
+  close_call_as_no_answer: {
+    method: "POST",
+    rpc: "election_day_close_call_as_no_answer_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null),
+  },
+  increment_call_attempts: {
+    method: "POST",
+    rpc: "election_day_increment_call_attempts_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null),
+  },
+  record_no_answer: {
+    method: "POST",
+    rpc: "election_day_record_no_answer_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id", "callId"],
+    buildParams: (b) =>
+      str(b.id) && str(b.callId) ? { p_id: str(b.id), p_call_id: str(b.callId) } : null,
+  },
+  record_call_answered: {
+    method: "POST",
+    rpc: "election_day_record_call_answered_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id", "callId"],
+    buildParams: (b) =>
+      str(b.id) && str(b.callId) ? { p_id: str(b.id), p_call_id: str(b.callId) } : null,
+  },
+  extend_no_answer_streak_threshold: {
+    method: "POST",
+    rpc: "election_day_extend_no_answer_streak_threshold_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null),
+  },
 
-  list_voters: { method: "GET", rpc: "election_day_list_voters_owner_v3", requiresProof: false, requiredKeys: [], buildParams: () => ({}) },
-  list_reminder_events: { method: "GET", rpc: "election_day_list_reminder_events_owner_v3", requiresProof: false, requiredKeys: ["contactId"], buildParams: (_b, q) => (str(q.contactId) ? { p_contact_id: str(q.contactId) } : null) },
-  list_ride_status_events: { method: "GET", rpc: "election_day_list_ride_status_events_owner_v3", requiresProof: false, requiredKeys: [], buildParams: () => ({}) },
-  list_ride_coordinators: { method: "GET", rpc: "election_day_list_ride_coordinators_owner_v3", requiresProof: false, requiredKeys: [], buildParams: () => ({}) },
-  get_settings: { method: "GET", rpc: "election_day_get_settings_owner_v3", requiresProof: false, requiredKeys: [], buildParams: () => ({}) },
-  list_non_voting_reasons: { method: "GET", rpc: "election_day_list_non_voting_reasons_owner_v3", requiresProof: false, requiredKeys: [], buildParams: () => ({}) },
+  list_voters: {
+    method: "GET",
+    rpc: "election_day_list_voters_owner_v3",
+    requiresProof: false,
+    requiredKeys: [],
+    buildParams: () => ({}),
+  },
+  list_reminder_events: {
+    method: "GET",
+    rpc: "election_day_list_reminder_events_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["contactId"],
+    buildParams: (_b, q) =>
+      str(q.contactId) ? { p_contact_id: str(q.contactId) } : null,
+  },
+  list_ride_status_events: {
+    method: "GET",
+    rpc: "election_day_list_ride_status_events_owner_v3",
+    requiresProof: false,
+    requiredKeys: [],
+    buildParams: () => ({}),
+  },
+  list_ride_coordinators: {
+    method: "GET",
+    rpc: "election_day_list_ride_coordinators_owner_v3",
+    requiresProof: false,
+    requiredKeys: [],
+    buildParams: () => ({}),
+  },
+  get_settings: {
+    method: "GET",
+    rpc: "election_day_get_settings_owner_v3",
+    requiresProof: false,
+    requiredKeys: [],
+    buildParams: () => ({}),
+  },
+  list_non_voting_reasons: {
+    method: "GET",
+    rpc: "election_day_list_non_voting_reasons_owner_v3",
+    requiresProof: false,
+    requiredKeys: [],
+    buildParams: () => ({}),
+  },
 
-  add_ride_coordinator: { method: "POST", rpc: "election_day_add_ride_coordinator_owner_v3", requiresProof: false, requiredKeys: ["name"], buildParams: (b) => (str(b.name) ? { p_name: str(b.name), p_phone: str(b.phone) } : null) },
-  delete_ride_coordinator: { method: "POST", rpc: "election_day_delete_ride_coordinator_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
-  set_settings: { method: "POST", rpc: "election_day_set_settings_owner_v3", requiresProof: false, requiredKeys: [], buildParams: (b) => ({ p_deadline: strOrNull(b.deadline) }) },
+  add_ride_coordinator: {
+    method: "POST",
+    rpc: "election_day_add_ride_coordinator_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["name"],
+    buildParams: (b) =>
+      str(b.name) ? { p_name: str(b.name), p_phone: str(b.phone) } : null,
+  },
+  delete_ride_coordinator: {
+    method: "POST",
+    rpc: "election_day_delete_ride_coordinator_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null),
+  },
+  set_settings: {
+    method: "POST",
+    rpc: "election_day_set_settings_owner_v3",
+    requiresProof: false,
+    requiredKeys: [],
+    buildParams: (b) => ({ p_deadline: strOrNull(b.deadline) }),
+  },
   // requiresFollowUp is required (not optional), same reasoning as
   // actions.ts's own create/update entries - explicit p_requires_follow_up
   // forces PostgREST to resolve the 4-arg _owner_v3 overload, not the
   // pre-existing 3-arg one.
-  create_non_voting_reason: { method: "POST", rpc: "election_day_create_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["name", "requiresFollowUp"], buildParams: (b) => (str(b.name) ? { p_name: str(b.name), p_description: str(b.description), p_requires_follow_up: bool(b.requiresFollowUp) } : null) },
-  update_non_voting_reason: { method: "POST", rpc: "election_day_update_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["id", "name", "requiresFollowUp"], buildParams: (b) => (str(b.id) && str(b.name) ? { p_id: str(b.id), p_name: str(b.name), p_description: str(b.description), p_requires_follow_up: bool(b.requiresFollowUp) } : null) },
-  set_non_voting_reason_active: { method: "POST", rpc: "election_day_set_non_voting_reason_active_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id), p_is_active: bool(b.isActive) } : null) },
-  delete_non_voting_reason: { method: "POST", rpc: "election_day_delete_non_voting_reason_owner_v3", requiresProof: false, requiredKeys: ["id"], buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null) },
-  reorder_non_voting_reasons: { method: "POST", rpc: "election_day_reorder_non_voting_reasons_owner_v3", requiresProof: false, requiredKeys: ["orderedIds"], buildParams: (b) => (arr(b.orderedIds) ? { p_ordered_ids: arr(b.orderedIds) } : null) },
+  create_non_voting_reason: {
+    method: "POST",
+    rpc: "election_day_create_non_voting_reason_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["name", "requiresFollowUp"],
+    buildParams: (b) =>
+      str(b.name)
+        ? {
+            p_name: str(b.name),
+            p_description: str(b.description),
+            p_requires_follow_up: bool(b.requiresFollowUp),
+          }
+        : null,
+  },
+  update_non_voting_reason: {
+    method: "POST",
+    rpc: "election_day_update_non_voting_reason_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id", "name", "requiresFollowUp"],
+    buildParams: (b) =>
+      str(b.id) && str(b.name)
+        ? {
+            p_id: str(b.id),
+            p_name: str(b.name),
+            p_description: str(b.description),
+            p_requires_follow_up: bool(b.requiresFollowUp),
+          }
+        : null,
+  },
+  set_non_voting_reason_active: {
+    method: "POST",
+    rpc: "election_day_set_non_voting_reason_active_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) =>
+      str(b.id) ? { p_id: str(b.id), p_is_active: bool(b.isActive) } : null,
+  },
+  delete_non_voting_reason: {
+    method: "POST",
+    rpc: "election_day_delete_non_voting_reason_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["id"],
+    buildParams: (b) => (str(b.id) ? { p_id: str(b.id) } : null),
+  },
+  reorder_non_voting_reasons: {
+    method: "POST",
+    rpc: "election_day_reorder_non_voting_reasons_owner_v3",
+    requiresProof: false,
+    requiredKeys: ["orderedIds"],
+    buildParams: (b) => (arr(b.orderedIds) ? { p_ordered_ids: arr(b.orderedIds) } : null),
+  },
 };
 
 interface MinimalRequest {
@@ -132,7 +393,10 @@ function sendError(res: MinimalResponse, status: number, code: string): void {
   res.status(status).json({ error: code });
 }
 
-function mapRpcError(error: { message?: string } | undefined): { status: number; code: string } {
+function mapRpcError(error: { message?: string } | undefined): {
+  status: number;
+  code: string;
+} {
   const message = error?.message ?? "";
   switch (message) {
     case "UNAUTHORIZED":
@@ -141,6 +405,8 @@ function mapRpcError(error: { message?: string } | undefined): { status: number;
     case "REASON_NOT_FOUND":
     case "COORDINATOR_NOT_FOUND":
     case "TARGET_NOT_FOUND":
+    case "ROLE_NOT_FOUND":
+    case "PENDING_ACCESS_NOT_FOUND":
       return { status: 404, code: message };
     case "NO_ANSWER_REASON_NOT_CONFIGURED":
     case "REASON_IN_USE":
@@ -163,6 +429,11 @@ function mapRpcError(error: { message?: string } | undefined): { status: number;
     case "ALLOCATION_COUNT_MISMATCH":
     case "INVALID_MODE":
     case "INVALID_TARGET":
+    case "MISSING_WORKSPACE_NAME":
+    case "MISSING_ELECTION_END_AT":
+    case "WORKSPACE_NAME_TOO_LONG":
+    case "NAME_REQUIRED":
+    case "PASSWORD_REQUIRED":
       return { status: 400, code: message };
     case "COORDINATOR_NAME_COLLISION":
     case "ASSIGNMENT_ALREADY_LINKED":
@@ -175,6 +446,9 @@ function mapRpcError(error: { message?: string } | undefined): { status: number;
     case "NO_UNASSIGNED_VOTERS":
     case "REBALANCE_SOURCE_INSUFFICIENT":
     case "LAST_ACTIVE_COORDINATOR":
+    case "PENDING_ACCESS_EXPIRED":
+    case "PENDING_ACCESS_ALREADY_CONSUMED":
+    case "BOOTSTRAP_ALREADY_COMPLETED":
       return { status: 409, code: message };
     default:
       return { status: 500, code: "SERVER_ERROR" };
@@ -240,10 +514,47 @@ async function handleGet(req: MinimalRequest, res: MinimalResponse): Promise<voi
     return;
   }
 
-  if (opName === "list_coordinators") {
-    const { data, error } = await supabase.rpc("election_day_list_coordinators_owner_v3", {
-      p_auth_user_id: verified.authUserId,
+  // op=provisioning_state - Stage 3B. Special-cased next to op=session for the
+  // same structural reason and the opposite requirement: session resolves an
+  // election_owners row and 401s without one, which is exactly the state an
+  // approved-but-not-yet-provisioned Owner is in. This op answers "what should
+  // this authenticated person see next?" and returns provisioned / pending /
+  // expired / invalid without asserting any authority of its own. The JWT is
+  // still verified above, before any dispatch.
+  if (opName === "provisioning_state") {
+    const { data, error } = await supabase.rpc(
+      "election_day_resolve_owner_provisioning_state",
+      { p_auth_user_id: verified.authUserId },
+    );
+
+    if (error || !data || (Array.isArray(data) && data.length === 0)) {
+      sendError(res, 401, "UNAUTHORIZED");
+      return;
+    }
+
+    const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown>;
+    res.status(200).json({
+      state: row.state,
+      ownerId: row.owner_id ?? null,
+      workspaceId: row.workspace_id ?? null,
+      workspaceName: row.workspace_name ?? null,
+      electionEndAt: row.election_end_at ?? null,
+      loginCode: row.login_code ?? null,
+      pendingName: row.pending_name ?? null,
+      pendingEmail: row.pending_email ?? null,
+      pendingExpiresAt: row.pending_expires_at ?? null,
+      hasPermissionUsers: row.has_permission_users === true,
     });
+    return;
+  }
+
+  if (opName === "list_coordinators") {
+    const { data, error } = await supabase.rpc(
+      "election_day_list_coordinators_owner_v3",
+      {
+        p_auth_user_id: verified.authUserId,
+      },
+    );
     if (error) {
       sendError(res, 401, "UNAUTHORIZED");
       return;
@@ -320,7 +631,23 @@ export default async function handler(
     return;
   }
 
-  const allowedBodyKeys = new Set<string>(["op", ...(descriptor.requiresProof ? ["reauthProof"] : []), ...descriptor.requiredKeys, "arranged", "requested", "completed", "notes", "phone", "voted", "reasonId", "callId", "isActive", "description", "targetCoordinatorId", "deadline"]);
+  const allowedBodyKeys = new Set<string>([
+    "op",
+    ...(descriptor.requiresProof ? ["reauthProof"] : []),
+    ...descriptor.requiredKeys,
+    "arranged",
+    "requested",
+    "completed",
+    "notes",
+    "phone",
+    "voted",
+    "reasonId",
+    "callId",
+    "isActive",
+    "description",
+    "targetCoordinatorId",
+    "deadline",
+  ]);
   const unknownKey = Object.keys(body).find((k) => !allowedBodyKeys.has(k));
   if (unknownKey) {
     sendError(res, 400, "INVALID_REQUEST");
@@ -368,7 +695,10 @@ export default async function handler(
     return;
   }
 
-  const rpcParams: Record<string, unknown> = { p_auth_user_id: verified.authUserId, ...params };
+  const rpcParams: Record<string, unknown> = {
+    p_auth_user_id: verified.authUserId,
+    ...params,
+  };
   if (descriptor.requiresProof) {
     rpcParams.p_reauth_proof_hash = toPgBytea(sha256Hex(reauthProof));
   }

@@ -58,3 +58,86 @@ export async function fetchPlatformOwnerSession(
     return { status: "error" };
   }
 }
+
+/* ==========================================================================
+ * Stage 3B - approve a new Election Owner.
+ *
+ * POSTs to the SAME endpoint as the session read above, with an `op`
+ * multiplex. Not a stylistic choice: this project is at 12/12 Vercel Hobby
+ * Functions with no per-project exclusion mechanism, so a dedicated file is
+ * impossible. Keeping the operation on the Platform principal's own endpoint
+ * also keeps it away from the Election Day handlers, whose Origin allow-list
+ * would reject this origin outright.
+ *
+ * The response's activationLink is a ONE-TIME credential. It is returned to
+ * the caller's own control flow and never stored, cached, or logged here.
+ * ========================================================================== */
+
+const PLATFORM_APPROVE_OWNER_OP = "create_owner_access";
+
+export interface CreatedOwnerAccess {
+  pendingId: string;
+  expiresAt: string | null;
+  alreadyExisted: boolean;
+  /** Null when the approval succeeded but link generation did not - the
+   * approval still stands and a link can be regenerated. */
+  activationLink: string | null;
+}
+
+export type CreateOwnerAccessResult =
+  | { status: "ok"; access: CreatedOwnerAccess }
+  | { status: "error"; code: string };
+
+export async function createOwnerAccess(
+  accessToken: string,
+  input: { name: string; email: string; phone?: string },
+): Promise<CreateOwnerAccessResult> {
+  try {
+    const res = await fetch(PLATFORM_SESSION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        op: PLATFORM_APPROVE_OWNER_OP,
+        name: input.name,
+        email: input.email,
+        ...(input.phone ? { phone: input.phone } : {}),
+      }),
+    });
+
+    let parsed: unknown = null;
+    try {
+      parsed = await res.json();
+    } catch {
+      parsed = null;
+    }
+
+    if (res.status === 201) {
+      const v = parsed as Record<string, unknown> | null;
+      if (!v || typeof v.pendingId !== "string") {
+        return { status: "error", code: "SERVER_ERROR" };
+      }
+      return {
+        status: "ok",
+        access: {
+          pendingId: v.pendingId,
+          expiresAt: typeof v.expiresAt === "string" ? v.expiresAt : null,
+          alreadyExisted: v.alreadyExisted === true,
+          activationLink: typeof v.activationLink === "string" ? v.activationLink : null,
+        },
+      };
+    }
+
+    const code =
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { error?: unknown }).error === "string"
+        ? (parsed as { error: string }).error
+        : "SERVER_ERROR";
+    return { status: "error", code };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
+  }
+}

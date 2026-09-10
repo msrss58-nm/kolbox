@@ -42,6 +42,12 @@ export function OwnerLoginScreen() {
       setError(result.message);
       return;
     }
+    // Stage 3B: an approved Owner whose workspace does not exist yet is a
+    // real, authenticated Owner - they just have nowhere to go but setup.
+    if (result.status === "pending") {
+      void navigate(ROUTES.electionDayOwnerSetup, { replace: true });
+      return;
+    }
     void navigate(ROUTES.electionDayOwnerRoles, { replace: true });
   };
 

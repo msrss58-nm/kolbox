@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { ownerAuthClient } from "../../services/supabase/ownerAuthClient";
-import { fetchOwnerSession, type OwnerContext } from "./electionDayOwnerClient";
+import {
+  fetchOwnerProvisioningState,
+  fetchOwnerSession,
+  type OwnerContext,
+  type OwnerProvisioningState,
+} from "./electionDayOwnerClient";
 
 /**
  * Phase 3C Roles Mutations: the frontend half of the Election Owner login
@@ -26,11 +31,20 @@ export interface OwnerSessionUser extends OwnerContext {
 
 export type OwnerLoginResult =
   | { status: "success" }
+  /** Stage 3B: a real, approved Owner whose workspace does not exist yet.
+   * Authenticated, but with no election_owners row - the session is kept
+   * and the caller routes to the provisioning screen. */
+  | { status: "pending" }
   | { status: "error"; message: string }
   | { status: "ignored" };
 
 interface OwnerSessionState {
   owner: OwnerSessionUser | null;
+  /** Stage 3B: set only while an authenticated Owner is NOT provisioned.
+   * Mutually exclusive with `owner` in practice - a provisioned Owner is
+   * represented by `owner`, never by this. Carries no authority: every
+   * privileged call still re-resolves server-side. */
+  provisioning: OwnerProvisioningState | null;
   loggingIn: boolean;
   loggingOut: boolean;
   bootstrapped: boolean;
@@ -42,6 +56,9 @@ interface OwnerSessionState {
    * immediately, matching `election_day_resolve_owner_context`'s own
    * "live lookup, never cached" guarantee end-to-end. */
   bootstrap: () => Promise<void>;
+  /** Re-reads provisioning state after the Owner provisions their
+   * workspace, promoting them from `provisioning` to a real `owner`. */
+  refreshProvisioning: () => Promise<void>;
   /** Returns the current Owner access token for an authenticated request, or
    * `null` if no Owner session exists. Reads directly from `ownerAuthClient`
    * (never cached in this store) so a token refresh performed by the
@@ -51,6 +68,7 @@ interface OwnerSessionState {
 
 export const useOwnerSession = create<OwnerSessionState>((set, get) => ({
   owner: null,
+  provisioning: null,
   loggingIn: false,
   loggingOut: false,
   bootstrapped: false,
@@ -67,14 +85,37 @@ export const useOwnerSession = create<OwnerSessionState>((set, get) => ({
         return { status: "error", message: "פרטי ההתחברות שגויים" };
       }
       const result = await fetchOwnerSession(data.session.access_token);
-      if (result.status !== "ok") {
-        // A valid Supabase Auth account that is NOT a registered Election
-        // Owner - never leave this session sitting in isolated storage.
-        await ownerAuthClient.auth.signOut();
-        return { status: "error", message: "המשתמש אינו בעלים רשום של קמפיין" };
+      if (result.status === "ok") {
+        set({
+          owner: { ...result.context, email: data.session.user.email ?? email },
+          provisioning: null,
+        });
+        return { status: "success" };
       }
-      set({ owner: { ...result.context, email: data.session.user.email ?? email } });
-      return { status: "success" };
+
+      // Stage 3B: not being a registered Owner is no longer automatically a
+      // rejection. An approved Owner who has not provisioned their workspace
+      // yet has no election_owners row, so fetchOwnerSession 401s for them
+      // exactly as it does for a stranger. Ask the pre-owner-context resolver
+      // which of the two this is before deciding to sign anyone out.
+      const provisioning = await fetchOwnerProvisioningState(data.session.access_token);
+      if (provisioning.status === "ok" && provisioning.state.state === "pending") {
+        set({ owner: null, provisioning: provisioning.state });
+        return { status: "pending" };
+      }
+
+      // Anything else - a stranger, an expired approval, or a transport
+      // failure we cannot interpret - never leaves a session sitting in
+      // isolated storage.
+      await ownerAuthClient.auth.signOut();
+      set({ owner: null, provisioning: null });
+      if (provisioning.status === "ok" && provisioning.state.state === "expired") {
+        return {
+          status: "error",
+          message: "תוקף ההרשאה שקיבלתם פג. פנו למנהל הפלטפורמה לקבלת הרשאה חדשה.",
+        };
+      }
+      return { status: "error", message: "המשתמש אינו בעלים רשום של קמפיין" };
     } catch {
       return { status: "error", message: "אין חיבור לאינטרנט - בדקו את החיבור ונסו שוב" };
     } finally {
@@ -87,7 +128,7 @@ export const useOwnerSession = create<OwnerSessionState>((set, get) => ({
     set({ loggingOut: true });
     try {
       await ownerAuthClient.auth.signOut();
-      set({ owner: null });
+      set({ owner: null, provisioning: null });
     } finally {
       set({ loggingOut: false });
     }
@@ -105,22 +146,50 @@ export const useOwnerSession = create<OwnerSessionState>((set, get) => ({
       if (result.status === "ok") {
         set({
           owner: { ...result.context, email: data.session?.user.email ?? "" },
+          provisioning: null,
           bootstrapped: true,
         });
         return;
       }
       if (result.status === "unauthorized") {
-        // Stale/removed Owner membership - sign out of the isolated client
-        // too, not just this store's own cache.
+        // Stage 3B: before treating this as a stale/removed membership, check
+        // whether it is instead an approved Owner mid-onboarding. Only a
+        // genuinely unrecognised account is signed out.
+        const provisioning = await fetchOwnerProvisioningState(accessToken);
+        if (provisioning.status === "ok" && provisioning.state.state === "pending") {
+          set({ owner: null, provisioning: provisioning.state, bootstrapped: true });
+          return;
+        }
         await ownerAuthClient.auth.signOut();
       }
-      set({ owner: null, bootstrapped: true });
+      set({ owner: null, provisioning: null, bootstrapped: true });
     } catch {
       // Transport failure - not proof the session is invalid. Leave `owner`
       // exactly as it was, matching `electionDaySession.ts`'s own bootstrap
       // contract, but still mark bootstrapped so a first-load failure
       // doesn't spin forever.
       set({ bootstrapped: true });
+    }
+  },
+
+  refreshProvisioning: async () => {
+    const { data } = await ownerAuthClient.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (!accessToken) {
+      set({ owner: null, provisioning: null });
+      return;
+    }
+    const result = await fetchOwnerSession(accessToken);
+    if (result.status === "ok") {
+      set({
+        owner: { ...result.context, email: data.session?.user.email ?? "" },
+        provisioning: null,
+      });
+      return;
+    }
+    const provisioning = await fetchOwnerProvisioningState(accessToken);
+    if (provisioning.status === "ok") {
+      set({ provisioning: provisioning.state });
     }
   },
 

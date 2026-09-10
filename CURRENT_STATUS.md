@@ -2727,3 +2727,66 @@ Closes the Platform Owner Origin Separation initiative end-to-end (EXPAND → CU
 **Platform Owner Origin Separation (EXPAND → CUTOVER → CONTRACT) is now CLOSED / PASS end-to-end, with no known open blocker.** Tenant-Safe Login's own **Stage 3B (workspace provisioning) is the next major workstream and has NOT started** - a separate, unrelated programme, unaffected by this closure.
 
 **Status: ORIGIN SEPARATION CONTRACT — CLOSED / PASS (NO-OP BY DESIGN). Platform Owner Origin Separation initiative CLOSED / PASS end-to-end. Stage 3B not started.**
+
+## Follow-up (2026-09-10) - Multi-Tenant / Platform Program: STAGE 3B WORKSPACE PROVISIONING - LOCAL IMPLEMENTATION COMPLETE AND VERIFIED (NOT DEPLOYED, NOT APPLIED TO PRODUCTION)
+
+Stage 3B closes the last structural gap in the multi-tenant programme. Before this, **no deployed code path could create a second workspace at all** - the only function that ever inserted into `election_workspaces` was the one-time historical backfill RPC, dropped in `20260825000000`. Phase 0 (`20260823010000`) designed `election_workspace_pending_owner_access` for this flow and deliberately left it unimplemented; this is that implementation.
+
+**Nothing here has been committed, pushed, deployed, or applied to Production.** HEAD remains `36c4261`. The Production database remains at 83/83. This section records a verified LOCAL state only.
+
+### The flow, end to end
+
+Platform Owner approves an Owner -> Supabase Auth user created with **no password** -> one-time activation link -> Owner sets their OWN password -> Owner signs in and is recognised as *pending* -> Owner confirms a workspace name + election end date -> **atomic** provisioning -> built-in seeds -> pending row consumed -> Owner bootstraps the workspace's first PermissionUser -> that user can log in via `election_day_login_v3`.
+
+### Migration `20260910000000_platform_stage3b_workspace_provisioning.sql` (84th)
+
+Five functions, all `security definer` + `set search_path = ''`, all revoked from `public`/`anon`/`authenticated` **by name** per the permanent ACL guardrail:
+
+- `election_day_seed_new_workspace(uuid)` - internal helper, granted to **no role at all including `service_role`** (matching the `election_day_generate_workspace_login_code` precedent). Seeds 3 built-in roles + 6 non-voting reasons.
+- `platform_create_pending_owner_access(uuid, uuid, text, text, text, integer)` - records approval. Re-resolves the singleton `platform_owners` row itself rather than trusting its caller. Idempotent **only** for a still-pending, unexpired row, which it returns **without extending the window**; consumed / expired / already-provisioned all fail closed.
+- `election_day_resolve_owner_provisioning_state(uuid)` - the pre-owner-context resolver, `stable`. Returns `provisioned` / `pending` / `expired` / `invalid` **without** requiring an `election_owners` row - precisely what `election_day_resolve_owner_context` cannot do, since it 401s for an approved-but-unprovisioned Owner. Confers no authority.
+- `election_day_provision_workspace(uuid, text, timestamptz)` - the atomic core. Per-Owner `pg_advisory_xact_lock`, existing-owner check **inside** the lock, `SELECT ... FOR UPDATE` on the pending row, workspace + unique `login_code` + `election_owners` row + seeds + pending-row consumption, all in one transaction. Idempotent: a retry after success returns the existing context.
+- `election_day_bootstrap_first_permission_user(uuid, bytea, text, text, uuid)` - breaks the circular dependency in `election_day_create_permission_user_v3` (which authenticates its actor through a PermissionUser session that cannot exist yet). Owner-authenticated + a one-time `bootstrap_first_user` proof; asserts an empty roster under a per-workspace lock, so it **self-extinguishes** permanently. `create_permission_user_v3` is untouched and remains the only path for every later user.
+
+### Two deliberate corrections to stale Phase 0 prose (schema unchanged)
+
+1. Phase 0's comment says the pending row is *"deleted (its job is done) rather than updated"*. Superseded: it is **consumed in place** (`status='consumed'`, `consumed_at=now()`) so an approval stays auditable. Phase 0's schema already supported exactly this - `'consumed'` is a CHECKed status value and `election_workspace_pending_owner_access_consumed_at_check` enforces the biconditional. **No column was added to that table.**
+2. Phase 0 anticipated *"the temporary password ... set via the Admin API"*. Superseded: the Platform Owner never sets and never learns an Owner's password.
+
+### Seed parity - a documented widening, not drift
+
+The seed reproduces `20260805181806`'s 3 roles and `20260806160000`'s 6 reasons, with two corrections: the operations role is seeded under its **renamed** value (`20260823000000`), and the manager role is seeded with the **complete current 25-permission catalog** rather than the 22 strings frozen into the 2026-08-05 seed. Three permissions were added to the catalog afterwards and retro-fitted to the existing workspace by targeted UPDATEs; replaying the frozen array would hand every new workspace a manager who cannot manage non-voting reasons or coordinator allocation - the exact bug class this project has already fixed twice. The mandatory no-answer reason is seeded with `requires_follow_up = true`; without it `election_day_close_call_as_no_answer_v3` raises `NO_ANSWER_REASON_NOT_CONFIGURED` for that workspace forever.
+
+### The Origin defect Stage 3B had to fix first
+
+**Every state-changing handler under `/api/election-day/*` rejects the Platform origin.** `allowedOrigins()` resolves to a single value - the Election origin - so after ORIGIN SEPARATION the Platform Owner console could not POST anywhere at all: the console had never needed a mutation before, so nothing surfaced it. `api/platform/session.ts` therefore carries its **own** single-valued allow-list (`PLATFORM_ALLOWED_ORIGIN`, defaulting to the platform origin), deliberately **not** reusing `SESSION_ALLOWED_ORIGIN`, which means exactly one thing (the Election Day browser origin the CSRF checks accept). GET keeps its documented no-Origin-check behaviour.
+
+### API - zero new Vercel Functions (still exactly 12/12)
+
+- `api/platform/session.ts` - gains POST with an `op` multiplex (`create_owner_access`): Auth user with no password -> pending row -> **compensating `deleteUser` scoped to the id just created** if the row insert fails -> one-time activation link.
+- `api/election-day/owner-actions.ts` - gains GET `op=provisioning_state` (special-cased next to `op=session`, since it must NOT require an owner row) and POST `provision_workspace` + `bootstrap_first_user`.
+- `api/election-day/owner-reauth.ts` - `bootstrap_first_user` added to `ALLOWED_OWNER_ACTIONS`. No DB-side action allow-list exists, so no migration was needed for the action string.
+
+### The activation link deliberately avoids GoTrue's redirect allow-list
+
+The link handed to the Owner is the **direct `token_hash` URL**, redeemed client-side with `verifyOtp()`. It never touches GoTrue's `/verify` endpoint, so it does **not** depend on the project's Site URL or Redirect URLs allow-list - which still point at localhost and would have silently swallowed a redirect with no error. It also never puts an `#access_token` fragment on our origin. Same two-link analysis as `scripts/platform-owner-bootstrap.mjs`. **This removes what would otherwise have been a hard Production Auth-config prerequisite.**
+
+### Verification (all local, disposable stack; Production never contacted)
+
+- **84/84 migration replay clean** from scratch (`supabase db reset`).
+- **DB layer 27/27**: approval + idempotency; non-platform-owner approval rejected; pending/invalid/expired/provisioned state resolution; provisioning; seeds (3 roles / 6 reasons, the no-answer reason with `requires_follow_up=true`, manager at 25 permissions, **0 invalid permissions** against the DB catalog); `login_code` format; pending consumed with `consumed_at` set; re-provision idempotent (still 1 workspace); approval of an already-provisioned owner fails closed; provisioning with no pending row fails closed; **two workspaces with the SAME name and distinct codes**; expired pending fails closed; bootstrap rejected without a proof, with a cross-workspace role, and on a second attempt; a proof bound to a different action rejected; the first user logs in via `election_day_login_v3`; **workspace A's code + workspace B's password fails** (tenant-safe login intact).
+- **Concurrency proof**: **5 genuinely parallel** `election_day_provision_workspace` calls for the SAME owner -> all 5 returned a context, **exactly one distinct `workspace_id`**, 1 workspace, 1 owner row, 3 roles (seeds ran once).
+- **API layer 20/20** through the **real bundled handlers**: POST with no Origin -> 403; **POST from the ELECTION origin -> 403** (principal separation holds); unknown op / unknown body key -> 400; no bearer -> 401; **a real Platform Owner JWT at `aal1` -> 401** (the MFA gate is enforced on the new write path); PUT -> 405; GET unchanged; **no pending row created by any rejected call**; and the full Owner flow - pending -> provision (valid code) -> provisioned/empty roster -> bootstrap rejected without/with a bogus proof -> bootstrap succeeds -> **second bootstrap with a FRESH proof still 409 `BOOTSTRAP_ALREADY_COMPLETED`** -> roster reports a user.
+- **ACL verified directly**: all five functions show `postgres` + `service_role` only (the seed helper: `postgres` only). Zero `anon`/`authenticated` grants.
+- **Gate**: `npm run build` clean; `api/` type-checked explicitly (it is **not** covered by `tsc -b`, which includes only `src` and `vite.config.ts`); lint 0 errors and 0 warnings on every changed file; **12/12 Vercel functions**; `git diff --check` clean; secrets/literal-login-code scan clean; **15 protected scripts untouched, checksum `c234ec95de7c00b95cfc4e26dacf75fb`**.
+
+### Known limitations and deliberate decisions
+
+- **The activation link is displayed once in the Platform console.** There is no configured outbound email path, and `generateLink()` does not send mail. The link is a one-time credential held in component state only - never persisted, cached or logged. An emailed flow would require the Production Redirect URLs allow-list fix.
+- **A link-generation failure does not roll back the approval.** The Auth user and pending row are both valid at that point; the console says so explicitly rather than showing an uninterpretable half-success.
+- **An already-registered email fails closed** (`EMAIL_ALREADY_REGISTERED`) rather than adopting the existing account, which could belong to a Platform Owner, a campaign user, or another workspace's Owner.
+- **No `election_day_workspace_settings` row is created at provisioning** - by design; `election_day_get_settings_core` returns a null deadline rather than an error, and the row is created lazily on first write.
+- **A stale `status` is not reconciled on read.** Writing `status='expired'` immediately before `raise` would be rolled back by that same raise - dead code that looks effective. `expires_at` is authoritative, exactly as Phase 0 Design Note 3 specifies; reconciliation belongs to the future cleanup job.
+- **Stale documentation found, not fixed** (out of scope): `CLAUDE.md` still describes a live client-side `isBootstrap` roster-emptiness exception that no longer exists in the code.
+
+**Status: STAGE 3B LOCAL IMPLEMENTATION - PASS / AWAITING PRODUCTION APPROVAL. Not committed, not pushed, not deployed, migration NOT applied to Production.**

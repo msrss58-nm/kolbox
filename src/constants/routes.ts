@@ -30,6 +30,17 @@ export const ROUTES = {
    * though the path happens to share the `/election-day` prefix for
    * discoverability from `ElectionDayLoginScreen`. */
   electionDayOwnerLogin: "/election-day/owner-login",
+  /** Stage 3B: where a newly approved Election Owner lands from their
+   * one-time activation link to set their OWN password. Lives on the
+   * ELECTION surface (not the Platform one) because that is the Owner's
+   * home surface; api/platform/session.ts builds the link against this
+   * exact path, and electionDayOwnerRecoveryUrl.ts scopes its capture to
+   * it. Ungarded by design - the link itself is the proof. */
+  electionDayOwnerSetPassword: "/election-day/owner-set-password",
+  /** Stage 3B: first-run workspace provisioning for an approved Owner who
+   * has no workspace yet. Reachable only while `provisioning.state` is
+   * "pending"; a provisioned Owner is redirected away from it. */
+  electionDayOwnerSetup: "/election-day/owner/setup",
   electionDayOwnerRoles: "/election-day/owner/roles",
   /** Platform Stage 2: the Platform Owner console - a FOURTH, fully
    * independent identity, separate from the campaign Supabase user

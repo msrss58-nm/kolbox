@@ -133,7 +133,49 @@ export const PLATFORM_OWNER_TEXT = {
     emailLabel: "אימייל",
     mfaLabel: "רמת אימות",
     mfaValue: "aal2 - אימות דו-שלבי פעיל",
-    stageNote: "שלב זה מאמת זהות והרשאות בלבד. ניהול סביבות עבודה יתווסף בשלב הבא.",
+    stageNote:
+      "אישור בעלים יוצר חשבון ללא סיסמה ומפיק קישור חד-פעמי. הסיסמה נבחרת על ידי הבעלים בלבד.",
     logout: "התנתקות",
   },
+
+  /** Stage 3B - approving a new Election Owner. */
+  approveOwner: {
+    title: "אישור בעלים חדש",
+    subtitle:
+      "יצירת גישה לבעלים של מערכת בחירות חדשה. מערכת הבחירות עצמה תיווצר על ידי הבעלים בכניסה הראשונה.",
+    nameLabel: "שם הבעלים",
+    emailLabel: "אימייל",
+    phoneLabel: "טלפון (לא חובה)",
+    submit: "אישור ויצירת קישור",
+    submitting: "יוצרים...",
+    missingFields: "יש להזין שם וכתובת אימייל תקינה",
+    successTitle: "הבעלים אושר",
+    alreadyExisted: "לחשבון הזה כבר קיימת הרשאה פעילה. הקישור שלהלן מתאים לה.",
+    linkLabel: "קישור הפעלה חד-פעמי",
+    linkHint:
+      "מסרו את הקישור לבעלים בערוץ מאובטח. הוא חד-פעמי, תקף לזמן מוגבל, ומאפשר להם לבחור סיסמה משלהם. הקישור אינו נשמר ולא יוצג שוב.",
+    linkMissing:
+      "ההרשאה נוצרה, אך הפקת הקישור נכשלה. אפשר להפיק קישור חדש מחדש ללא יצירת בעלים נוסף.",
+    expiresAt: (iso: string) => `תוקף ההרשאה עד ${new Date(iso).toLocaleString("he-IL")}`,
+    copy: "העתקה",
+    copied: "הועתק",
+    another: "אישור בעלים נוסף",
+    errors: {
+      EMAIL_ALREADY_REGISTERED: "כתובת האימייל הזו כבר משויכת לחשבון קיים.",
+      OWNER_ALREADY_PROVISIONED: "החשבון הזה כבר משמש כבעלים של מערכת קיימת.",
+      PENDING_ACCESS_ALREADY_CONSUMED: "ההרשאה של החשבון הזה כבר נוצלה.",
+      PENDING_ACCESS_EXPIRED: "תוקף ההרשאה הקודמת פג.",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      INVALID_REQUEST: "הפרטים שהוזנו אינם תקינים.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
+  },
 } as const;
+
+export function platformApproveOwnerError(code: string): string {
+  return (
+    PLATFORM_OWNER_TEXT.approveOwner.errors[code] ??
+    PLATFORM_OWNER_TEXT.approveOwner.errors.SERVER_ERROR
+  );
+}
