@@ -50,6 +50,7 @@ import { ImportPage } from "../features/import/ImportPage";
 import { PlatformOwnerAuthGuard } from "../features/platform-owner/PlatformOwnerAuthGuard";
 import { PlatformOwnerConsolePage } from "../features/platform-owner/PlatformOwnerConsolePage";
 import { PlatformOwnerLoginScreen } from "../features/platform-owner/PlatformOwnerLoginScreen";
+import { PlatformOwnerMultiEntityPage } from "../features/platform-owner/PlatformOwnerMultiEntityPage";
 import { PlatformOwnerSetPasswordScreen } from "../features/platform-owner/PlatformOwnerSetPasswordScreen";
 import { TeamPage } from "../features/team/TeamPage";
 import { VotersPage } from "../features/voters/VotersPage";
@@ -140,6 +141,12 @@ const platformOwnerRoutes: RouteObject[] = [
     element: <PlatformOwnerAuthGuard />,
     children: [
       { path: ROUTES.platformConsole, element: <PlatformOwnerConsolePage /> },
+      {
+        // Stage 4B: Multi-Entity management. Same guard, same aal2 whitelist -
+        // nothing here is reachable before the server's own 200.
+        path: ROUTES.platformMultiEntity,
+        element: <PlatformOwnerMultiEntityPage />,
+      },
       {
         path: ROUTES.platformMfa,
         element: <Navigate to={ROUTES.platformConsole} replace />,

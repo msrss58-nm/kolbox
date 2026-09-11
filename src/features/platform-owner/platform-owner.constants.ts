@@ -171,6 +171,193 @@ export const PLATFORM_OWNER_TEXT = {
       SERVER_ERROR: "אירעה שגיאה, נסו שוב",
     } as Record<string, string>,
   },
+
+  /** Stage 4B - Multi-Entity Owner management (the FOURTH platform principal).
+   *
+   * Terminology follows what the repo already uses: a workspace is a
+   * "מערכת בחירות", its login_code is a "קוד מערכת"
+   * (election-day.constants.ts), an Election Owner is a "בעלים", and the
+   * Platform Owner is "בעל הפלטפורמה". The fourth principal is
+   * "בעל רב-מערכות".
+   *
+   * D-14: the one-time link is called "קישור לקביעת סיסמה", never an
+   * "activation link" - in Stage 4B it sets a password and nothing more, and
+   * the copy says so explicitly. Runtime access is Stage 5. */
+  multiEntity: {
+    entry: {
+      title: "ניהול בעל רב-מערכות",
+      unprovisioned: "טרם הוקצה בעל רב-מערכות",
+      provisioned: (name: string, assigned: number) =>
+        `${name} - ${assigned} מערכות משויכות`,
+      open: "פתיחת הניהול",
+    },
+
+    page: {
+      title: "ניהול בעל רב-מערכות",
+      back: "חזרה למסוף",
+      loading: "טוענים את הנתונים...",
+      loadError: "לא הצלחנו לטעון את הנתונים.",
+      retry: "נסו שוב",
+      stageNote:
+        "בעל רב-מערכות אינו מקבל בשלב זה גישה בפועל למערכות. השיוך נרשם בלבד; ההתחברות והגישה יופעלו בשלב מאוחר יותר.",
+    },
+
+    seat: {
+      title: "בעל רב-מערכות",
+      emptyTitle: "טרם הוקצה בעל רב-מערכות",
+      emptyHint: "הקצו בעל רב-מערכות כדי שניתן יהיה לשייך אליו מערכות בחירות.",
+      provision: "הקצאת בעל רב-מערכות",
+      replace: "החלפת בעל רב-מערכות",
+      nameLabel: "שם",
+      emailLabel: "אימייל",
+      phoneLabel: "טלפון",
+      authIdLabel: "מזהה חשבון",
+      createdAtLabel: "הוקצה בתאריך",
+      updatedAtLabel: "עודכן בתאריך",
+      noPhone: "לא הוזן",
+    },
+
+    form: {
+      provisionTitle: "הקצאת בעל רב-מערכות",
+      replaceTitle: "החלפת בעל רב-מערכות",
+      subtitle:
+        "יצירת חשבון ללא סיסמה והפקת קישור חד-פעמי לקביעת סיסמה. הסיסמה נבחרת על ידי בעל רב-המערכות בלבד.",
+      nameLabel: "שם מלא",
+      emailLabel: "אימייל",
+      phoneLabel: "טלפון (לא חובה)",
+      submitProvision: "הקצאת בעל רב-מערכות",
+      submitReplace: "החלפת בעל רב-מערכות",
+      submitting: "מבצעים...",
+      missingName: "יש להזין שם מלא",
+      missingEmail: "יש להזין כתובת אימייל תקינה",
+      replaceWarningTitle: "לפני ההחלפה",
+      replaceCurrent: (name: string, email: string) =>
+        `בעל רב-המערכות הנוכחי הוא ${name} (${email}). לאחר ההחלפה:`,
+      replaceBullets: [
+        "כל המערכות המשויכות יעברו אוטומטית לבעל החדש",
+        "החשבון הקודם לא יימחק אוטומטית",
+        "מחיקת החשבון הקודם היא פעולה נפרדת הדורשת אישור מפורש",
+      ],
+      replaceEmailNote:
+        "לא ניתן להשתמש שוב בכתובת האימייל של הבעל הנוכחי לפני מחיקת החשבון הקודם.",
+      confirmReplaceTitle: "להחליף את בעל רב-המערכות?",
+      confirmReplaceMessage: (name: string) =>
+        `${name} יחליף את בעל רב-המערכות הנוכחי. המערכות המשויכות יעברו אליו אוטומטית, והחשבון הקודם יישאר קיים עד למחיקה נפרדת.`,
+      confirmReplace: "החלפה",
+    },
+
+    /** D-14: password-setting link, NOT an "activation link". */
+    passwordLink: {
+      title: "קישור לקביעת סיסמה",
+      hint: "מסרו את הקישור בערוץ מאובטח. הוא חד-פעמי, תקף לזמן מוגבל, ואינו נשמר - לאחר סגירת הפאנל לא ניתן יהיה להציגו שוב.",
+      accessNote: "הקישור מאפשר קביעת סיסמה בלבד. גישה בפועל למערכות אינה פעילה בשלב זה.",
+      copy: "העתקה",
+      copied: "הועתק",
+      copyFailed: "ההעתקה נכשלה. סמנו את הקישור והעתיקו ידנית.",
+      missing:
+        "החשבון נוצר, אך הפקת הקישור נכשלה. אפשר להפיק קישור חדש על ידי ביצוע ההקצאה מחדש - אין צורך ליצור חשבון נוסף.",
+      dismiss: "סגירה",
+      replacedNote: "ההחלפה הושלמה. שימו לב לפעולת המחיקה הממתינה מטה.",
+    },
+
+    /** Accounts displaced from the seat by a replacement. */
+    replacementCleanup: {
+      titleOne: "מחיקת חשבון קודם - נדרש אישור",
+      titleMany: "מחיקת חשבונות קודמים - נדרש אישור",
+      count: (n: number) => `${n} חשבונות ממתינים למחיקה`,
+      body: "החלפת בעל רב-המערכות הושלמה במסד הנתונים. חשבון ההתחברות הקודם עדיין קיים ולא נמחק.",
+      idLabel: "מזהה החשבון הקודם",
+      replacedAt: (d: string) => `הוחלף בתאריך ${d}`,
+      failures: (n: number, d: string) =>
+        `ניסיון מחיקה קודם נכשל - ${n} ניסיונות, האחרון ב-${d}`,
+      action: "מחיקת החשבון",
+      confirmTitle: "למחוק לצמיתות את החשבון הקודם?",
+      confirmMessage: (id: string) =>
+        `פעולה זו מוחקת את חשבון ההתחברות ${id} לצמיתות ואינה ניתנת לביטול. החלפת בעל רב-המערכות כבר הושלמה בהצלחה - זוהי פעולת ניקוי נפרדת בלבד.`,
+      confirm: "מחיקה לצמיתות",
+      success: "החשבון הקודם נמחק והפעולה נרשמה ביומן.",
+    },
+
+    /** Accounts left behind by a FAILED provisioning attempt - a different
+     * business fact from a replacement, so a visibly different card. */
+    orphanCleanup: {
+      title: "חשבונות שנוצרו בניסיון הקצאה שנכשל",
+      count: (n: number) => `${n} חשבונות ממתינים למחיקה`,
+      body: "בניסיון הקצאה שנכשל נוצר חשבון התחברות שלא הפך לבעל רב-מערכות. החשבון אינו משמש לשום דבר וניתן למחוק אותו.",
+      idLabel: "מזהה חשבון",
+      emailLabel: "אימייל שהוזן",
+      noEmail: "לא נשמר אימייל",
+      mintedAt: (d: string) => `נוצר בתאריך ${d}`,
+      failures: (n: number, d: string) =>
+        `ניסיון מחיקה קודם נכשל - ${n} ניסיונות, האחרון ב-${d}`,
+      action: "מחיקת החשבון",
+      confirmTitle: "למחוק לצמיתות את החשבון?",
+      confirmMessage: (id: string) =>
+        `פעולה זו מוחקת את חשבון ההתחברות ${id} לצמיתות ואינה ניתנת לביטול. החשבון נוצר בניסיון הקצאה שנכשל ואינו משמש כבעל רב-מערכות.`,
+      confirm: "מחיקה לצמיתות",
+      success: "החשבון נמחק והפעולה נרשמה ביומן.",
+    },
+
+    workspaces: {
+      title: "מערכות בחירות",
+      count: (assigned: number, total: number) => `${assigned} מתוך ${total} משויכות`,
+      empty: "אין מערכות בחירות במערכת",
+      noResults: "לא נמצאו מערכות התואמות לחיפוש",
+      search: "חיפוש לפי שם או קוד מערכת",
+      onlyAssigned: "משויכות בלבד",
+      codeLabel: "קוד מערכת",
+      duplicateName: "שם כפול - הבחינו לפי קוד המערכת",
+      active: "פעילה",
+      ended: "הסתיימה",
+      assigned: "משויכת",
+      unassigned: "לא משויכת",
+      assignedAt: (d: string) => `שויכה ב-${d}`,
+      endsAt: (d: string) => `מסתיימת ב-${d}`,
+      assign: "שיוך",
+      unassign: "ביטול שיוך",
+      blocked: "יש להקצות בעל רב-מערכות לפני שיוך מערכות.",
+      confirmUnassignTitle: "לבטל את השיוך?",
+      confirmUnassignMessage: (name: string, code: string) =>
+        `${name} (קוד ${code}) לא תהיה עוד גלויה לבעל רב-המערכות. ניתן לשייך אותה מחדש בכל עת.`,
+      confirmUnassign: "ביטול שיוך",
+    },
+
+    errors: {
+      EMAIL_ALREADY_REGISTERED:
+        "כתובת האימייל הזו כבר משויכת לחשבון קיים. אם זו הכתובת של הבעל הנוכחי, יש למחוק תחילה את החשבון הקודם.",
+      IDENTITY_ALREADY_PRINCIPAL:
+        "החשבון הזה כבר משמש כבעל הפלטפורמה או כבעלים של מערכת קיימת.",
+      IDENTITY_PENDING_ELECTION_OWNER:
+        "לחשבון הזה קיימת הרשאת בעלים ממתינה. יש להשלים או לבטל אותה תחילה.",
+      MULTI_ENTITY_OWNER_NOT_PROVISIONED: "יש להקצות בעל רב-מערכות לפני שיוך מערכות.",
+      WORKSPACE_NOT_FOUND: "מערכת הבחירות לא נמצאה. רעננו את הדף ונסו שוב.",
+      AUTH_USER_STILL_HELD:
+        "לא ניתן למחוק את החשבון - הוא עדיין משויך לתפקיד פעיל במערכת.",
+      NOT_A_REPLACED_PRINCIPAL: "החשבון אינו רשום כחשבון שהוחלף. לא בוצעה מחיקה.",
+      NOT_A_PROVISIONING_ORPHAN:
+        "החשבון אינו רשום כחשבון שנוצר בניסיון הקצאה שנכשל. לא בוצעה מחיקה.",
+      AUTH_CLEANUP_AUDIT_WRITE_FAILED:
+        "המחיקה בוצעה אך רישום היומן נכשל. הריצו את הפעולה שוב כדי להשלים את הרישום.",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      INVALID_REQUEST: "הפרטים שהוזנו אינם תקינים.",
+      SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
+
+    /** Provisioning failed AND the compensating Auth delete could not be
+     * confirmed. Deliberately not in the map above: it is a WARNING appended
+     * to whatever the real failure was, and it carries an id. */
+    orphanWarning: (id: string) =>
+      `בנוסף, לא ניתן היה לאמת שחשבון ההתחברות שנוצר נמחק. מזהה החשבון: ${id}. החשבון יופיע ברשימת המחיקה לאחר רענון.`,
+
+    heldBy: {
+      platform: "בעל הפלטפורמה",
+      election: "בעלים של מערכת בחירות",
+      multi_entity: "בעל רב-מערכות נוכחי",
+      pending_owner: "הרשאת בעלים ממתינה",
+    } as Record<string, string>,
+  },
 } as const;
 
 export function platformApproveOwnerError(code: string): string {
@@ -178,4 +365,23 @@ export function platformApproveOwnerError(code: string): string {
     PLATFORM_OWNER_TEXT.approveOwner.errors[code] ??
     PLATFORM_OWNER_TEXT.approveOwner.errors.SERVER_ERROR
   );
+}
+
+/** Maps a Stage 4B server error code to Hebrew. Same shape and same
+ * unknown-code fallback as platformApproveOwnerError - a code the backend
+ * does not actually emit is never invented here, and an unrecognised one
+ * degrades to the generic message rather than rendering a raw literal. */
+export function platformMultiEntityError(code: string): string {
+  return (
+    PLATFORM_OWNER_TEXT.multiEntity.errors[code] ??
+    PLATFORM_OWNER_TEXT.multiEntity.errors.SERVER_ERROR
+  );
+}
+
+/** Hebrew label for the linkage that still holds an Auth account
+ * (409 AUTH_USER_STILL_HELD -> `heldBy`). Returns null for an unknown label
+ * so the caller simply omits the detail rather than printing a raw token. */
+export function platformHeldByLabel(heldBy: string | null | undefined): string | null {
+  if (!heldBy) return null;
+  return PLATFORM_OWNER_TEXT.multiEntity.heldBy[heldBy] ?? null;
 }

@@ -1,4 +1,4 @@
-import { Copy, ShieldCheck, UserPlus } from "lucide-react";
+import { Copy, Network, ShieldCheck, UserPlus } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { LogoMark } from "../../components/Logo";
@@ -13,9 +13,12 @@ import {
 import { createOwnerAccess, type CreatedOwnerAccess } from "./platformOwnerClient";
 import { platformOwnerAuthClient } from "../../services/supabase/platformOwnerAuthClient";
 import { usePlatformOwnerSession } from "./platformOwnerSession";
+import { useMultiEntityManagement } from "./useMultiEntityManagement";
+import { Skeleton } from "../../components/ui/Skeleton";
 
 const text = PLATFORM_OWNER_TEXT.console;
 const approveText = PLATFORM_OWNER_TEXT.approveOwner;
+const multiEntityText = PLATFORM_OWNER_TEXT.multiEntity.entry;
 
 function IdentityRow({ label, value }: { label: string; value: string }) {
   return (
@@ -28,6 +31,49 @@ function IdentityRow({ label, value }: { label: string; value: string }) {
         {value}
       </span>
     </div>
+  );
+}
+
+/**
+ * Stage 4B entry point. A summary line plus a link - deliberately NOT the
+ * management surface itself, which lives on its own route so it survives a
+ * reload mid-workflow and keeps this page from growing a second admin domain.
+ *
+ * It reuses the management hook purely for its read: one `multi_entity_state`
+ * call, the same 401-to-refreshStatus handling, and no duplicated mapping. On
+ * a read error the button still renders - the target page owns real error
+ * handling, and a summary that failed to load is no reason to block access.
+ */
+function MultiEntityEntryCard() {
+  const { seat, assignedCount, loading } = useMultiEntityManagement();
+  const navigate = useNavigate();
+
+  return (
+    <Card className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Network className="size-5 text-slate-700" />
+        <CardTitle>{multiEntityText.title}</CardTitle>
+      </div>
+
+      {loading ? (
+        <Skeleton className="w-2/3" />
+      ) : (
+        <p className="text-sm break-words text-slate-600">
+          {seat
+            ? multiEntityText.provisioned(seat.name, assignedCount)
+            : multiEntityText.unprovisioned}
+        </p>
+      )}
+
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => void navigate(ROUTES.platformMultiEntity)}
+        className="w-full sm:w-auto"
+      >
+        {multiEntityText.open}
+      </Button>
+    </Card>
   );
 }
 
@@ -151,6 +197,8 @@ export function PlatformOwnerConsolePage() {
           <IdentityRow label={text.mfaLabel} value={text.mfaValue} />
         </div>
       </Card>
+
+      <MultiEntityEntryCard />
 
       <Card className="space-y-4">
         <div className="flex items-center gap-2">

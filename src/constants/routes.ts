@@ -55,6 +55,16 @@ export const ROUTES = {
   platformLogin: "/platform/login",
   platformMfa: "/platform/mfa",
   platformConsole: "/platform",
+  /** Platform Stage 4B: Multi-Entity Owner management. A child of
+   * `PlatformOwnerAuthGuard` exactly like `platformConsole`, so it inherits
+   * the same aal2 + platform_owners whitelist and needs no guard of its own.
+   * Deliberately a real route rather than a tab inside the console: the
+   * console's `Tabs` primitive is explicitly not a router and resets to its
+   * first tab on every remount, which would drop the operator out of a
+   * provision/cleanup workflow on any reload. No `platformCompatRedirects`
+   * entry - that array exists only for four pre-cutover bookmarked paths on
+   * the election origin, and this path has no legacy bookmarks. */
+  platformMultiEntity: "/platform/multi-entity",
   /** Platform Stage 2 (password set/recovery): the landing page for a
    * Supabase recovery/invite link addressed to the Platform Owner account.
    * Deliberately a TOP-LEVEL SIBLING route, NOT nested under
