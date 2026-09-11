@@ -265,6 +265,84 @@ function sendOrphanedAuthUser(
 }
 
 /**
+ * Close a provisioning orphan's lifecycle: the attempt failed AND the account
+ * it minted is CONFIRMED gone, so write the terminal audit row.
+ *
+ * Without this, a failed provision whose compensating delete SUCCEEDED left the
+ * write-ahead `provisioning_auth_minted` row with no terminal counterpart, and
+ * platform_get_multi_entity_state - which derives eligibility from exactly that
+ * absence - went on listing an account that no longer exists. The console then
+ * showed a permanent "delete this account" card for nothing: a phantom cleanup
+ * task standing in front of genuine ones.
+ *
+ * MAY ONLY BE CALLED WHERE THE MINT RECORD IS KNOWN TO BE DURABLE.
+ * platform_record_provisioning_orphan_cleanup deliberately does NOT re-check
+ * the mint binding - that check lives in platform_check_provisioning_orphan_-
+ * purgeable, which runs on the operator-driven purge path where the id is
+ * untrusted input. Here the id is not untrusted: it is `created.user.id` from
+ * this same request, and the mint RPC returned success moments ago. Both call
+ * sites below are past that point, which is exactly why the mint-failure branch
+ * does NOT call this - an id with no committed mint row must never acquire a
+ * terminal cleanup row, because that would assert history that was rolled back.
+ *
+ * Returns whether the terminal row is durable. Idempotent: a duplicate is
+ * absorbed by the recorder (existing-row short-circuit, plus a unique_violation
+ * catch for a genuine race), so a repeat converges instead of raising.
+ */
+async function recordProvisioningOrphanCleared(
+  supabase: ReturnType<typeof getServiceClient>,
+  platformOwnerAuthUserId: string,
+  authUserId: string,
+): Promise<boolean> {
+  const { error } = await supabase.rpc("platform_record_provisioning_orphan_cleanup", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_auth_user_id: authUserId,
+    p_deleted: true,
+  });
+  return !error;
+}
+
+/**
+ * Provisioning failed and the compensating Auth delete IS confirmed.
+ *
+ * The HTTP status and `error` code are always the provisioning failure's own,
+ * unchanged. When the terminal audit row was also written this is an ordinary
+ * error response and nothing is added.
+ *
+ * When only the audit write failed, saying nothing would be a lie by omission:
+ * the destructive step DID happen. It deliberately does not reuse
+ * AUTH_CLEANUP_INCOMPLETE - that code means "an account may still exist", which
+ * is the opposite of what is known here - and it does not return
+ * `orphanedAuthUserId`, because there is no orphaned account to hand back. It
+ * reuses handlePurgeProvisioningOrphan's exact vocabulary for exactly the same
+ * situation (`accountDeleted` / `auditRecorded` / AUTH_CLEANUP_AUDIT_WRITE_-
+ * FAILED) rather than minting a second name for it.
+ *
+ * Recovery needs nothing from this response: the mint row is still terminal-
+ * less, so the id stays in pending_provisioning_orphans and the operator's
+ * ordinary purge converges on it - the guard passes, the delete probes absent,
+ * and the terminal row is written then. No raw GoTrue/Postgres text is
+ * included in either shape.
+ */
+function sendProvisioningFailure(
+  res: MinimalResponse,
+  status: number,
+  code: string,
+  auditRecorded: boolean,
+): void {
+  if (auditRecorded) {
+    sendError(res, status, code);
+    return;
+  }
+  res.status(status).json({
+    error: code,
+    warning: "AUTH_CLEANUP_AUDIT_WRITE_FAILED",
+    accountDeleted: true,
+    auditRecorded: false,
+  });
+}
+
+/**
  * Approve a new Election Owner.
  *
  * Order matters and is not interchangeable:
@@ -528,6 +606,16 @@ async function handleProvisionMultiEntityOwner(
     // and the account is seconds old and holds nothing, so compensating now is
     // strictly safer than continuing. Same delete-then-probe classification and
     // the same unconfirmed-cleanup reporting as the seat-failure path below.
+    //
+    // NO terminal cleanup row is written on this branch, in either outcome.
+    // The write that failed IS the binding evidence, so there is no mint record
+    // for a terminal row to close, and inventing one would assert a history
+    // that was rolled back. Nothing is lost by staying silent: with no mint
+    // row, this id was never eligible for pending_provisioning_orphans in the
+    // first place, so a confirmed delete needs no bookkeeping to disappear from
+    // the console. The unconfirmed case keeps the response-only warning below -
+    // and that is genuinely the limit of what is recoverable here, because
+    // durable recovery is precisely the thing that failed.
     const cleaned = await deleteAuthUserConfirmed(supabase, authUserId);
     const { status, code } = mapRpcError(mintErr.message ?? "");
     if (!cleaned) {
@@ -559,10 +647,19 @@ async function handleProvisionMultiEntityOwner(
     const cleaned = await deleteAuthUserConfirmed(supabase, authUserId);
     const { status, code } = mapRpcError(rpcErr.message ?? "");
     if (!cleaned) {
+      // The account MAY still exist. No terminal row: the mint record must stay
+      // the sole outstanding fact so the console keeps listing it for cleanup.
       sendOrphanedAuthUser(res, status, code, authUserId);
       return;
     }
-    sendError(res, status, code);
+    // Confirmed gone - close the lifecycle the mint record opened, so the
+    // console does not list an account that is already deleted.
+    const auditRecorded = await recordProvisioningOrphanCleared(
+      supabase,
+      platformOwnerAuthUserId,
+      authUserId,
+    );
+    sendProvisioningFailure(res, status, code, auditRecorded);
     return;
   }
 
@@ -580,7 +677,12 @@ async function handleProvisionMultiEntityOwner(
       sendOrphanedAuthUser(res, 500, "SERVER_ERROR", authUserId);
       return;
     }
-    sendError(res, 500, "SERVER_ERROR");
+    const auditRecorded = await recordProvisioningOrphanCleared(
+      supabase,
+      platformOwnerAuthUserId,
+      authUserId,
+    );
+    sendProvisioningFailure(res, 500, "SERVER_ERROR", auditRecorded);
     return;
   }
 
