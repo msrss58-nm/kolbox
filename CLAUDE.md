@@ -143,6 +143,16 @@ The fifth independent identity (after the campaign user, the Election Day Permis
 - **Tests** live in `scripts/stage5/`, `scripts/stage6/` and `scripts/stage7/` and run ONLY against an isolated scratch stack built by `scripts/stage5/mkScratchStack.mjs` (never the developer's `kolbox` stack, never Production). The committed `supabase/config.toml` stays TOTP-disabled on purpose.
 - **Stages 5 (authentication), 6 (aggregate-only read backend) and 7 (frontend/dashboard) are closed.** Historical / post-election figures are deliberately NOT on the live dashboard; they belong to a separate, not-yet-approved report/download capability with its own privacy review.
 
+## Election Owner approval recovery (Platform Stage 8B - CLOSED / PASS, live since 2026-09-11)
+
+The Platform Owner console (`/platform`) lists every Election Owner approval and recovers it. Full record: `CURRENT_STATUS.md`'s Stage 8B section.
+
+- **Ops** on `api/platform/session.ts` (still 12/12): `GET ?op=owner_access` (list) and `POST reissue_owner_access {pendingId}`; both behind `verifyPlatformOwnerJwt` + the Platform Origin allow-list.
+- **Rules (DB-authoritative)**: active -> new link, window unchanged; expired -> renewed 7 days + link; consumed -> never re-issued; an account now held by another principal -> refused. Renewal happens ONLY through re-issue - `platform_create_pending_owner_access` still never extends an expired approval.
+- **No duplicate Auth users**: `create_owner_access` calls `platform_classify_owner_access_email` BEFORE `createUser`; an address with an approval -> 409 `APPROVAL_EXISTS`; any other existing account -> `EMAIL_ALREADY_REGISTERED`, never adopted. Only an unheld account carrying the service-role-only `app_metadata.kolbox_mint = "election_owner_approval"` marker (set by this flow) is re-used. Never authorize anything from that marker.
+- **Cleanup is confirmed, never fire-and-forget** (`deleteAuthUserConfirmed`); an unconfirmed delete answers `AUTH_CLEANUP_INCOMPLETE` + `orphanedAuthUserId`. An adopted account is never deleted by the compensation.
+- **Tests** in `scripts/stage8/` (scratch stack only). After a Windows reboot the default scratch ports can fall inside a WinNAT-reserved range - set `S5_PORT_OFFSET` (e.g. 1000) for both `mkScratchStack.mjs` and the suites.
+
 ## Known Security Limitations (Election Day → Supabase migration)
 
 Accepted, explicit trade-offs from the approved Election Day → Supabase migration plan (see task-plan.md) - not oversights, deliberately not solved yet:
