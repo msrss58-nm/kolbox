@@ -33,7 +33,15 @@ if (path.resolve(outSupabase).startsWith(path.join(repoRoot, "supabase"))) {
   process.exit(2);
 }
 
-export const SCRATCH_PORTS = { api: 54721, db: 54722, shadow: 54720 };
+// S5_PORT_OFFSET (opt-in, default 0) shifts all three ports together: after a
+// reboot Windows can reserve 54115-54814 for WinNAT, making the defaults
+// unbindable. lib.mjs reads the same variable, so both always agree.
+const PORT_OFFSET = Number(process.env.S5_PORT_OFFSET ?? 0) || 0;
+export const SCRATCH_PORTS = {
+  api: 54721 + PORT_OFFSET,
+  db: 54722 + PORT_OFFSET,
+  shadow: 54720 + PORT_OFFSET,
+};
 export const SCRATCH_PROJECT_ID = "kolboxs5";
 
 // section -> { key: newValue }. Only the FIRST occurrence of a key inside its

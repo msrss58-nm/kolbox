@@ -155,19 +155,78 @@ export const PLATFORM_OWNER_TEXT = {
     linkHint:
       "מסרו את הקישור לבעלים בערוץ מאובטח. הוא חד-פעמי, תקף לזמן מוגבל, ומאפשר להם לבחור סיסמה משלהם. הקישור אינו נשמר ולא יוצג שוב.",
     linkMissing:
-      "ההרשאה נוצרה, אך הפקת הקישור נכשלה. אפשר להפיק קישור חדש מחדש ללא יצירת בעלים נוסף.",
+      "ההרשאה נוצרה, אך הפקת הקישור נכשלה. ניתן להפיק קישור חדש מרשימת ההרשאות שלמטה - לא ייווצר חשבון נוסף.",
     expiresAt: (iso: string) => `תוקף ההרשאה עד ${new Date(iso).toLocaleString("he-IL")}`,
     copy: "העתקה",
     copied: "הועתק",
     another: "אישור בעלים נוסף",
     errors: {
       EMAIL_ALREADY_REGISTERED: "כתובת האימייל הזו כבר משויכת לחשבון קיים.",
+      APPROVAL_EXISTS:
+        "לכתובת הזו כבר קיימת הרשאת בעלים. ניתן להפיק עבורה קישור חדש מרשימת ההרשאות שלמטה.",
       OWNER_ALREADY_PROVISIONED: "החשבון הזה כבר משמש כבעלים של מערכת קיימת.",
       PENDING_ACCESS_ALREADY_CONSUMED: "ההרשאה של החשבון הזה כבר נוצלה.",
       PENDING_ACCESS_EXPIRED: "תוקף ההרשאה הקודמת פג.",
       FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
       UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
       INVALID_REQUEST: "הפרטים שהוזנו אינם תקינים.",
+      SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
+    /** Stage 8B: the approval failed AND the compensating delete of the account
+     * it created could not be confirmed. Appended to the real failure. */
+    orphanWarning: (id: string) =>
+      `בנוסף, לא ניתן היה לאמת שחשבון ההתחברות שנוצר נמחק (מזהה ${id}). אישור חוזר של אותה כתובת ישתמש בחשבון זה - לא ייווצר חשבון כפול.`,
+  },
+
+  /** Stage 8B - shared copy for a one-time link box. */
+  oneTimeLink: {
+    copy: "העתקה",
+    copied: "הועתק",
+    copyFailed: "ההעתקה נכשלה. סמנו את הקישור והעתיקו ידנית.",
+  },
+
+  /** Stage 8B - the Election Owner approvals list and its recovery actions. */
+  ownerAccess: {
+    title: "הרשאות בעלים",
+    subtitle:
+      "כל הבעלים שאושרו. לבעלים שטרם השלימו את ההרשמה ניתן להפיק קישור חדש; הרשאה שפג תוקפה ניתנת לחידוש.",
+    empty: "טרם אושרו בעלים",
+    loadError: "לא הצלחנו לטעון את רשימת ההרשאות.",
+    retry: "נסו שוב",
+    states: {
+      active: "ממתינה להרשמה",
+      expired: "פג תוקף",
+      consumed: "הושלמה",
+    },
+    expiresAt: (d: string) => `בתוקף עד ${d}`,
+    expiredAt: (d: string) => `פג תוקף ב-${d}`,
+    consumedAt: (d: string) => `ההרשמה הושלמה ב-${d}`,
+    workspace: (name: string) => `מערכת: ${name}`,
+    reissue: "הפקת קישור חדש",
+    renew: "חידוש והפקת קישור",
+    confirmReissueTitle: "להפיק קישור חדש?",
+    confirmReissueMessage: (name: string) =>
+      `יופק קישור חד-פעמי חדש עבור ${name}. קישור שנמסר קודם יפסיק לעבוד. תוקף ההרשאה לא ישתנה.`,
+    confirmRenewTitle: "לחדש את ההרשאה?",
+    confirmRenewMessage: (name: string) =>
+      `ההרשאה של ${name} תחודש ל-7 ימים ויופק קישור חד-פעמי חדש. קישור שנמסר קודם יפסיק לעבוד.`,
+    confirm: "הפקת קישור",
+    linkTitle: (name: string) => `קישור חד-פעמי חדש עבור ${name}`,
+    renewedNote: "ההרשאה חודשה ל-7 ימים.",
+    linkMissing: "ההרשאה בתוקף, אך הפקת הקישור נכשלה. ניתן לנסות שוב מהרשימה.",
+    dismiss: "סגירה",
+    errors: {
+      PENDING_ACCESS_ALREADY_CONSUMED:
+        "הבעלים כבר השלים את ההרשמה - לא ניתן להפיק עבורו קישור חדש.",
+      OWNER_ALREADY_PROVISIONED:
+        "הבעלים כבר השלים את ההרשמה - לא ניתן להפיק עבורו קישור חדש.",
+      IDENTITY_ALREADY_PRINCIPAL: "החשבון משמש כבר בתפקיד אחר במערכת. לא הופק קישור.",
+      PENDING_ACCESS_NOT_FOUND: "ההרשאה לא נמצאה. רעננו את הדף.",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      INVALID_REQUEST: "הבקשה אינה תקינה.",
+      SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
       SERVER_ERROR: "אירעה שגיאה, נסו שוב",
     } as Record<string, string>,
   },
@@ -182,7 +241,8 @@ export const PLATFORM_OWNER_TEXT = {
    *
    * D-14: the one-time link is called "קישור לקביעת סיסמה", never an
    * "activation link" - in Stage 4B it sets a password and nothing more, and
-   * the copy says so explicitly. Runtime access is Stage 5. */
+   * the copy says so explicitly; the holder then signs in on the dedicated
+   * Multi-Entity origin (Stages 5-7). */
   multiEntity: {
     entry: {
       title: "ניהול בעל רב-מערכות",
@@ -199,7 +259,7 @@ export const PLATFORM_OWNER_TEXT = {
       loadError: "לא הצלחנו לטעון את הנתונים.",
       retry: "נסו שוב",
       stageNote:
-        "בעל רב-מערכות מתחבר בכתובת ייעודית עם אימות דו-שלבי ורואה את רשימת המערכות המשויכות אליו בלבד. צפייה בנתוני המערכות תתווסף בשלב מאוחר יותר.",
+        "בעל רב-מערכות מתחבר בכתובת ייעודית עם אימות דו-שלבי ורואה נתונים מצטברים בלבד (ספירות) של המערכות הפעילות המשויכות אליו - ללא פרטי בוחרים.",
     },
 
     seat: {
@@ -251,12 +311,13 @@ export const PLATFORM_OWNER_TEXT = {
       title: "קישור לקביעת סיסמה",
       hint: "מסרו את הקישור בערוץ מאובטח. הוא חד-פעמי, תקף לזמן מוגבל, ואינו נשמר - לאחר סגירת הפאנל לא ניתן יהיה להציגו שוב.",
       accessNote:
-        "הקישור מאפשר קביעת סיסמה בלבד. לאחר מכן בעל רב-המערכות מתחבר בכתובת הייעודית ומגדיר אימות דו-שלבי.",
+        "הקישור מאפשר קביעת סיסמה בלבד. לאחר מכן בעל רב-המערכות מתחבר בכתובת הכניסה שלהלן ומגדיר אימות דו-שלבי.",
+      destinationLabel: "כתובת הכניסה של בעל רב-המערכות",
       copy: "העתקה",
       copied: "הועתק",
       copyFailed: "ההעתקה נכשלה. סמנו את הקישור והעתיקו ידנית.",
       missing:
-        "החשבון נוצר, אך הפקת הקישור נכשלה. אפשר להפיק קישור חדש על ידי ביצוע ההקצאה מחדש - אין צורך ליצור חשבון נוסף.",
+        "בעל רב-המערכות הוקצה, אך הפקת הקישור נכשלה. לא ניתן להפיק מהמסוף קישור חדש לאותו חשבון; להשלמה יש לפעול לפי נוהל ההחלפה (החלפה לכתובת זמנית, מחיקת החשבון הקודם והחלפה חזרה).",
       dismiss: "סגירה",
       replacedNote: "ההחלפה הושלמה. שימו לב לפעולת המחיקה הממתינה מטה.",
     },
@@ -360,6 +421,15 @@ export const PLATFORM_OWNER_TEXT = {
     } as Record<string, string>,
   },
 } as const;
+
+/** Stage 8B - maps an approvals-list / re-issue error code to Hebrew, with the
+ * same unknown-code fallback as the functions around it. */
+export function platformOwnerAccessError(code: string): string {
+  return (
+    PLATFORM_OWNER_TEXT.ownerAccess.errors[code] ??
+    PLATFORM_OWNER_TEXT.ownerAccess.errors.SERVER_ERROR
+  );
+}
 
 export function platformApproveOwnerError(code: string): string {
   return (

@@ -13,7 +13,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
-export const SCRATCH_API_URL = "http://127.0.0.1:54721";
+// S5_PORT_OFFSET: same opt-in shift as mkScratchStack.mjs (default 0 -> 54721).
+const PORT_OFFSET = Number(process.env.S5_PORT_OFFSET ?? 0) || 0;
+export const SCRATCH_API_URL = `http://127.0.0.1:${54721 + PORT_OFFSET}`;
 export const SCRATCH_DB_CONTAINER = "supabase_db_kolboxs5";
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost"]);
 

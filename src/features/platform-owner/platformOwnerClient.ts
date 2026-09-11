@@ -86,7 +86,10 @@ export interface CreatedOwnerAccess {
 
 export type CreateOwnerAccessResult =
   | { status: "ok"; access: CreatedOwnerAccess }
-  | { status: "error"; code: string };
+  /** `orphanedAuthUserId`: the approval failed AND its compensating Auth
+   * delete could not be confirmed (AUTH_CLEANUP_INCOMPLETE). Re-approving the
+   * same address re-uses that account rather than creating a second one. */
+  | { status: "error"; code: string; orphanedAuthUserId?: string };
 
 export async function createOwnerAccess(
   accessToken: string,
@@ -136,7 +139,11 @@ export async function createOwnerAccess(
       typeof (parsed as { error?: unknown }).error === "string"
         ? (parsed as { error: string }).error
         : "SERVER_ERROR";
-    return { status: "error", code };
+    const orphan =
+      rec(parsed) && str((parsed as Record<string, unknown>).orphanedAuthUserId);
+    return orphan
+      ? { status: "error", code, orphanedAuthUserId: orphan }
+      : { status: "error", code };
   } catch {
     return { status: "error", code: "SERVER_ERROR" };
   }
@@ -498,4 +505,103 @@ export async function purgeProvisioningOrphan(
     { op: "purge_provisioning_orphan", authUserId },
     mapCleanupOutcome,
   );
+}
+
+/* ==========================================================================
+ * Stage 8B - Election Owner approvals: list + re-issue.
+ *
+ * Same endpoint and op multiplex. `?op=owner_access` returns the RPC's
+ * snake_case rows inside `{approvals}`; they are mapped here and nowhere else.
+ * A re-issue never creates an Auth user - it returns a new one-time link for
+ * the approval's existing account (and, for an expired approval, a renewed
+ * window). The link is a credential-grade value: returned to the caller's own
+ * control flow only, never stored here.
+ * ========================================================================== */
+
+export type OwnerAccessState = "active" | "expired" | "consumed";
+
+export interface OwnerAccessApproval {
+  pendingId: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  createdAt: string | null;
+  expiresAt: string | null;
+  consumedAt: string | null;
+  state: OwnerAccessState;
+  /** Present only once the Owner has provisioned their workspace. */
+  workspaceName: string | null;
+}
+
+export interface ReissuedOwnerAccess {
+  pendingId: string;
+  expiresAt: string | null;
+  /** True when an EXPIRED approval received a new window. */
+  renewed: boolean;
+  /** Null when the re-issue succeeded but link generation did not - the op is
+   * safely repeatable. */
+  activationLink: string | null;
+}
+
+const OWNER_ACCESS_STATES = new Set<string>(["active", "expired", "consumed"]);
+
+function mapApprovals(v: unknown): OwnerAccessApproval[] {
+  const list = rec(v)?.approvals;
+  if (!Array.isArray(list)) return [];
+  const out: OwnerAccessApproval[] = [];
+  for (const raw of list) {
+    const o = rec(raw);
+    const id = o && str(o.pending_id);
+    const state = o && str(o.state);
+    // Drop a malformed row rather than render half of it (or offer an action
+    // on a state the server did not state).
+    if (!o || !id || !state || !OWNER_ACCESS_STATES.has(state)) continue;
+    out.push({
+      pendingId: id,
+      name: str(o.name) ?? "",
+      email: str(o.email) ?? "",
+      phone: str(o.phone),
+      createdAt: str(o.created_at),
+      expiresAt: str(o.expires_at),
+      consumedAt: str(o.consumed_at),
+      state: state as OwnerAccessState,
+      workspaceName: str(o.workspace_name),
+    });
+  }
+  return out;
+}
+
+export async function fetchOwnerAccess(
+  accessToken: string,
+): Promise<MultiEntityResult<OwnerAccessApproval[]>> {
+  try {
+    const res = await fetch(`${PLATFORM_SESSION_ENDPOINT}?op=owner_access`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    const parsed = await parseJson(res);
+    if (res.status !== 200) return failure<OwnerAccessApproval[]>(res.status, parsed);
+    if (!rec(parsed)) return { status: "error", code: "SERVER_ERROR" };
+    return { status: "ok", data: mapApprovals(parsed) };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
+  }
+}
+
+/** Body key is exactly `pendingId` - the server rejects any other key. */
+export async function reissueOwnerAccess(
+  accessToken: string,
+  pendingId: string,
+): Promise<MultiEntityResult<ReissuedOwnerAccess>> {
+  return postOp(accessToken, { op: "reissue_owner_access", pendingId }, (parsed) => {
+    const o = rec(parsed);
+    const id = o && str(o.pendingId);
+    if (!o || !id) return null;
+    return {
+      pendingId: id,
+      expiresAt: str(o.expiresAt),
+      renewed: o.renewed === true,
+      activationLink: str(o.activationLink),
+    };
+  });
 }

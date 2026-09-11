@@ -19,6 +19,8 @@ export function PlatformOwnerMfaEnrollScreen() {
   const mfaState = usePlatformOwnerSession((s) => s.mfaState);
   const enrollMfa = usePlatformOwnerSession((s) => s.enrollMfa);
   const verifyMfa = usePlatformOwnerSession((s) => s.verifyMfa);
+  const logout = usePlatformOwnerSession((s) => s.logout);
+  const loggingOut = usePlatformOwnerSession((s) => s.loggingOut);
 
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +126,20 @@ export function PlatformOwnerMfaEnrollScreen() {
             </Button>
           </form>
         )}
+
+        {/* Stage 8B: the challenge screen always had a way out; enrollment did
+            not, which stranded any aal1 session here (signup is open, so a
+            non-owner can reach this screen too). Same control, same copy. */}
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={() => void logout()}
+            disabled={loggingOut}
+            className="touch-target text-sm font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
+          >
+            {PLATFORM_OWNER_TEXT.forbidden.logout}
+          </button>
+        </div>
       </div>
     </div>
   );

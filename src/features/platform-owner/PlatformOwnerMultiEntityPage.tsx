@@ -31,9 +31,8 @@ const text = PLATFORM_OWNER_TEXT.multiEntity.page;
  * them under a workspace list is how an orphaned Auth account gets forgotten.
  * They render only when the server says there is something to clean.
  *
- * This grants the Multi-Entity Owner no runtime access whatsoever - the footer
- * says so in as many words. Authentication and entity-scoped authorization for
- * that principal are a later stage.
+ * The Multi-Entity Owner itself signs in on its own origin (Stages 5-7) and
+ * sees aggregate counts only; the footer says so.
  */
 export function PlatformOwnerMultiEntityPage() {
   const m = useMultiEntityManagement();
@@ -42,6 +41,14 @@ export function PlatformOwnerMultiEntityPage() {
 
   const provisionError = m.errorFor(BUSY.provision);
   const provisionBusy = m.isBusy(BUSY.provision);
+
+  // Stage 8B: every open starts clean - no error left over from an earlier
+  // attempt. The modal is also only MOUNTED while open (below), so its fields
+  // and confirmation step reset after a success as well as after a cancel.
+  const openForm = () => {
+    m.clearError();
+    setFormOpen(true);
+  };
 
   const submit = async (input: { name: string; email: string; phone?: string }) => {
     const ok = await m.provision(input);
@@ -108,8 +115,8 @@ export function PlatformOwnerMultiEntityPage() {
             seat={m.seat}
             loading={m.loading}
             disabled={m.anyBusy}
-            onProvision={() => setFormOpen(true)}
-            onReplace={() => setFormOpen(true)}
+            onProvision={openForm}
+            onReplace={openForm}
           />
 
           {/* Shown once, straight after a successful provision/replacement.
@@ -138,14 +145,16 @@ export function PlatformOwnerMultiEntityPage() {
 
       <p className="text-center text-xs text-slate-500">{text.stageNote}</p>
 
-      <MultiEntityProvisionModal
-        open={formOpen}
-        seat={m.seat}
-        busy={provisionBusy}
-        error={provisionError}
-        onSubmit={(input) => void submit(input)}
-        onClose={() => setFormOpen(false)}
-      />
+      {formOpen && (
+        <MultiEntityProvisionModal
+          open
+          seat={m.seat}
+          busy={provisionBusy}
+          error={provisionError}
+          onSubmit={(input) => void submit(input)}
+          onClose={() => setFormOpen(false)}
+        />
+      )}
     </div>
   );
 }

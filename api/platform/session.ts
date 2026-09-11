@@ -15,9 +15,10 @@ import { handleMultiEntityRequest, isMultiEntityRequest } from "./_multiEntitySe
 // APIs are reachable through it.
 //
 // POST carries an `op` multiplex (create_owner_access, the Stage 4A
-// Multi-Entity seat/assignment ops, and the Stage 4B provisioning-orphan
-// purge). GET carries an optional `op` too, with the original no-op payload
-// preserved as the default.
+// Multi-Entity seat/assignment ops, the Stage 4B provisioning-orphan purge,
+// and the Stage 8B reissue_owner_access). GET carries an optional `op` too
+// (multi_entity_state, Stage 8B owner_access), with the original no-op
+// payload preserved as the default.
 //
 // Platform Stage 5 - a SECOND, fully separate principal partition. Any request
 // carrying the `me_op` query key belongs to the MULTI-ENTITY OWNER and is
@@ -112,9 +113,17 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   unassign_workspace: ["workspaceId"],
   purge_replaced_auth_user: ["previousAuthUserId"],
   purge_provisioning_orphan: ["authUserId"],
+  reissue_owner_access: ["pendingId"],
 };
 
-const GET_OPS = new Set<string>(["multi_entity_state"]);
+const GET_OPS = new Set<string>(["multi_entity_state", "owner_access"]);
+
+// Stage 8B: set in app_metadata on every Auth user create_owner_access creates.
+// app_metadata is writable only through the service-role Admin API, so an
+// unheld account carrying this marker can only be one this flow created and
+// then failed to attach - platform_classify_owner_access_email re-uses it
+// instead of creating a duplicate. Never read for authorization.
+const ELECTION_OWNER_MINT_MARKER = { kolbox_mint: "election_owner_approval" } as const;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -189,6 +198,13 @@ function mapRpcError(message: string): { status: number; code: string } {
   }
   if (m.includes("PENDING_ACCESS_EXPIRED")) {
     return { status: 409, code: "PENDING_ACCESS_EXPIRED" };
+  }
+  // Stage 8B - re-issue of an approval that does not exist (never, or deleted).
+  if (m.includes("PENDING_ACCESS_NOT_FOUND")) {
+    return { status: 404, code: "PENDING_ACCESS_NOT_FOUND" };
+  }
+  if (m.includes("INVALID_PENDING_ID")) {
+    return { status: 400, code: "INVALID_REQUEST" };
   }
   if (m.includes("MISSING_OWNER_NAME") || m.includes("MISSING_OWNER_EMAIL")) {
     return { status: 400, code: "INVALID_REQUEST" };
@@ -380,6 +396,10 @@ function sendProvisioningFailure(
  * Approve a new Election Owner.
  *
  * Order matters and is not interchangeable:
+ *   0. (Stage 8B) Classify the address first - an existing approval answers
+ *      409 APPROVAL_EXISTS (re-issue it from the list), any other account
+ *      409 EMAIL_ALREADY_REGISTERED, and only an unheld account this flow
+ *      itself minted earlier (app_metadata marker) is re-used. No duplicate.
  *   1. Create the Supabase Auth user with NO PASSWORD. The Platform Owner
  *      never sets and never learns an Election Owner's credential - the same
  *      rule scripts/platform-owner-bootstrap.mjs already enforces for the
@@ -443,27 +463,83 @@ async function handleCreateOwnerAccess(
     return;
   }
 
-  // --- 1. Auth user, no password ------------------------------------------
-  const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-    email,
-    email_confirm: true,
-  });
-
-  if (createErr || !created?.user?.id) {
-    // An address that already has an account is an ambiguous state, not
-    // something to silently adopt: the existing account may belong to a
-    // Platform Owner, a campaign user, or an Owner of another workspace.
-    // Fail closed and let a human resolve it.
-    const msg = (createErr?.message ?? "").toLowerCase();
-    if (msg.includes("already") || msg.includes("registered")) {
-      sendError(res, 409, "EMAIL_ALREADY_REGISTERED");
-      return;
-    }
-    sendError(res, 500, "SERVER_ERROR");
+  // --- 0. Classify the address BEFORE creating anything (Stage 8B) ---------
+  // An address with an approval is re-issued from the approvals list, never
+  // re-created; any other existing account is refused as before. Only an
+  // account this same flow created and failed to attach (marker, unheld) is
+  // re-used - so no request here ever creates a duplicate Auth user.
+  const { data: cls, error: clsErr } = await supabase.rpc(
+    "platform_classify_owner_access_email",
+    { p_platform_owner_auth_user_id: platformOwnerAuthUserId, p_email: email },
+  );
+  if (clsErr) {
+    const { status, code } = mapRpcError(clsErr.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  const classified = rpcRow<{ classification?: unknown; auth_user_id?: unknown }>(cls);
+  const kind = classified?.classification;
+  if (kind === "approval_exists") {
+    sendError(res, 409, "APPROVAL_EXISTS");
+    return;
+  }
+  if (kind === "registered") {
+    sendError(res, 409, "EMAIL_ALREADY_REGISTERED");
     return;
   }
 
-  const authUserId = created.user.id;
+  // --- 1. Auth user, no password ------------------------------------------
+  let authUserId: string;
+  // Whether THIS request created the account - only such an account may be
+  // deleted by the compensation below. An adopted one pre-dates the request.
+  let createdHere: boolean;
+  if (
+    kind === "adoptable" &&
+    typeof classified?.auth_user_id === "string" &&
+    UUID_PATTERN.test(classified.auth_user_id)
+  ) {
+    authUserId = classified.auth_user_id;
+    createdHere = false;
+  } else if (kind === "new") {
+    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+      email,
+      email_confirm: true,
+      app_metadata: ELECTION_OWNER_MINT_MARKER,
+    });
+
+    if (createErr || !created?.user?.id) {
+      // Most often a concurrent request created the address between the
+      // classification and here. GoTrue does not answer that race with a
+      // stable shape (observed locally: status 500, message "{}"), so the
+      // address is re-classified instead of the message being trusted. Never
+      // adopted from this branch - the other request may still be mid-flight.
+      const { data: again } = await supabase.rpc("platform_classify_owner_access_email", {
+        p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+        p_email: email,
+      });
+      const now = rpcRow<{ classification?: unknown }>(again)?.classification;
+      if (now === "approval_exists") {
+        sendError(res, 409, "APPROVAL_EXISTS");
+        return;
+      }
+      const msg = (createErr?.message ?? "").toLowerCase();
+      if (
+        (typeof now === "string" && now !== "new") ||
+        msg.includes("already") ||
+        msg.includes("registered")
+      ) {
+        sendError(res, 409, "EMAIL_ALREADY_REGISTERED");
+        return;
+      }
+      sendError(res, 500, "SERVER_ERROR");
+      return;
+    }
+    authUserId = created.user.id;
+    createdHere = true;
+  } else {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
 
   // --- 2. Pending access row ----------------------------------------------
   const { data: pending, error: rpcErr } = await supabase.rpc(
@@ -480,9 +556,14 @@ async function handleCreateOwnerAccess(
 
   if (rpcErr) {
     // --- 3. Compensating delete, scoped to the id created moments ago ------
-    await supabase.auth.admin.deleteUser(authUserId);
     const { status, code } = mapRpcError(rpcErr.message ?? "");
-    sendError(res, status, code);
+    await sendOwnerAccessFailure(
+      res,
+      supabase,
+      status,
+      code,
+      createdHere ? authUserId : null,
+    );
     return;
   }
 
@@ -491,33 +572,165 @@ async function handleCreateOwnerAccess(
     | undefined;
 
   if (!row || typeof row.pending_id !== "string") {
-    await supabase.auth.admin.deleteUser(authUserId);
-    sendError(res, 500, "SERVER_ERROR");
+    await sendOwnerAccessFailure(
+      res,
+      supabase,
+      500,
+      "SERVER_ERROR",
+      createdHere ? authUserId : null,
+    );
     return;
   }
 
   // --- 4. One-time activation link ----------------------------------------
+  // The pending row and the Auth user are both valid at this point, so a link
+  // failure is NOT rolled back - the approval stands and a new link can be
+  // issued from the approvals list (reissue_owner_access). The console is told
+  // so explicitly rather than being shown a half-success it cannot interpret.
+  const activationLink = await mintOwnerActivationLink(supabase, email);
+
+  res.status(201).json({
+    pendingId: row.pending_id,
+    expiresAt: typeof row.expires_at === "string" ? row.expires_at : null,
+    alreadyExisted: row.already_existed === true,
+    activationLink,
+  });
+}
+
+/**
+ * The Election Owner's direct token_hash set-password link for an EXISTING
+ * Auth account, or null when GoTrue could not mint one. A recovery link
+ * replaces the account's previous recovery token, so issuing a new one
+ * invalidates any earlier link for the same account.
+ */
+async function mintOwnerActivationLink(
+  supabase: ReturnType<typeof getServiceClient>,
+  email: string,
+): Promise<string | null> {
   const redirectTo = `${electionAppBaseUrl()}${OWNER_SET_PASSWORD_PATH}`;
   const { data: link, error: linkErr } = await supabase.auth.admin.generateLink({
     type: "recovery",
     email,
     options: { redirectTo },
   });
-
   const hashedToken = link?.properties?.hashed_token;
-  // The pending row and the Auth user are both valid at this point, so a link
-  // failure is NOT rolled back - the approval stands and the link can be
-  // regenerated. The console is told so explicitly rather than being shown a
-  // half-success it cannot interpret.
-  const activationLink =
-    !linkErr && typeof hashedToken === "string" && hashedToken
-      ? `${redirectTo}?${new URLSearchParams({ token_hash: hashedToken, type: "recovery" }).toString()}`
-      : null;
+  return !linkErr && typeof hashedToken === "string" && hashedToken
+    ? `${redirectTo}?${new URLSearchParams({ token_hash: hashedToken, type: "recovery" }).toString()}`
+    : null;
+}
 
-  res.status(201).json({
-    pendingId: row.pending_id,
+/**
+ * create_owner_access failed after an Auth account was attached to it.
+ *
+ * Stage 8B: the compensating delete is CONFIRMED (deleteAuthUserConfirmed),
+ * never fire-and-forget. When it cannot be confirmed the response keeps the
+ * failure's own status/code and adds AUTH_CLEANUP_INCOMPLETE + the id
+ * (sendOrphanedAuthUser, the Stage 4A shape). That account carries the mint
+ * marker, so re-approving the same address re-uses it rather than creating a
+ * duplicate. An ADOPTED account (createdAuthUserId null) pre-dates this request
+ * and is never deleted here - it simply stays re-usable.
+ */
+async function sendOwnerAccessFailure(
+  res: MinimalResponse,
+  supabase: ReturnType<typeof getServiceClient>,
+  status: number,
+  code: string,
+  createdAuthUserId: string | null,
+): Promise<void> {
+  if (
+    createdAuthUserId &&
+    !(await deleteAuthUserConfirmed(supabase, createdAuthUserId))
+  ) {
+    sendOrphanedAuthUser(res, status, code, createdAuthUserId);
+    return;
+  }
+  sendError(res, status, code);
+}
+
+/** Stage 8B: every Election Owner approval, with its derived state. */
+async function handleOwnerAccessList(
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_list_owner_access", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  res.status(200).json({ approvals: Array.isArray(data) ? data : [] });
+}
+
+/**
+ * Stage 8B: re-issue access for one approval - a new one-time link for an
+ * active approval (window unchanged), or a renewed window plus a link for an
+ * expired one. Never creates an Auth user: the link is minted for the
+ * approval's own existing account, whose address is read by id from GoTrue.
+ * The DB refuses a consumed approval or an account now held by a principal.
+ */
+async function handleReissueOwnerAccess(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const pendingId = str(body.pendingId);
+  if (!UUID_PATTERN.test(pendingId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_reissue_pending_owner_access", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_pending_id: pendingId,
+    p_expires_in_days: 7,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  const row = rpcRow<{ auth_user_id?: unknown; expires_at?: unknown; renewed?: unknown }>(
+    data,
+  );
+  if (!row || typeof row.auth_user_id !== "string") {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  // The renewal (if any) is already committed; a link failure leaves it in
+  // place and a repeat of this op simply issues the link.
+  const { data: account, error: accountErr } = await supabase.auth.admin.getUserById(
+    row.auth_user_id,
+  );
+  const accountEmail = !accountErr ? (account?.user?.email ?? null) : null;
+  const activationLink = accountEmail
+    ? await mintOwnerActivationLink(supabase, accountEmail)
+    : null;
+
+  res.status(200).json({
+    pendingId,
     expiresAt: typeof row.expires_at === "string" ? row.expires_at : null,
-    alreadyExisted: row.already_existed === true,
+    renewed: row.renewed === true,
     activationLink,
   });
 }
@@ -1151,6 +1364,10 @@ export default async function handler(
       await handleMultiEntityState(res, verified.authUserId);
       return;
     }
+    if (getOp === "owner_access") {
+      await handleOwnerAccessList(res, verified.authUserId);
+      return;
+    }
     // Default GET payload is deliberately unchanged - the Platform Owner client
     // shape-guards on exactly these two keys.
     res
@@ -1162,6 +1379,9 @@ export default async function handler(
   switch (postOp) {
     case "create_owner_access":
       await handleCreateOwnerAccess(req, res, verified.authUserId);
+      return;
+    case "reissue_owner_access":
+      await handleReissueOwnerAccess(req, res, verified.authUserId);
       return;
     case "provision_multi_entity_owner":
       await handleProvisionMultiEntityOwner(req, res, verified.authUserId);

@@ -163,7 +163,14 @@ try {
   }
   check("U6 TOTP verified -> server 200 -> authorized home", enrolled);
   check("U6 privileged call happened only after aal2", sessionCalls.length >= 1);
-  check("U7 zero assignments -> explicit empty state", (await text()).includes("אין מערכות משויכות"));
+  // Since Stage 7 the empty state renders only after the aggregate read
+  // returns, so wait for it rather than reading the page the instant the
+  // heading appears (same assertion, no longer timing-dependent).
+  const emptyShown = await page
+    .getByText("אין מערכות משויכות")
+    .waitFor({ timeout: 10000 })
+    .then(() => true, () => false);
+  check("U7 zero assignments -> explicit empty state", emptyShown);
   await shot("04-home-empty-390");
 
   section("ENTITY SCOPE + FRESHNESS");

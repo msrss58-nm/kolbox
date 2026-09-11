@@ -182,7 +182,11 @@ export function useMultiEntityManagement() {
           return null;
         },
       );
-      if (ok) await load();
+      // Stage 8B: the authoritative refetch still always follows a success,
+      // but it no longer holds the caller back - the provision form closes the
+      // moment the server has succeeded instead of staying open (with a live
+      // submit button) for the duration of the refetch.
+      if (ok) void load();
       return ok;
     },
     [run, load],
@@ -278,6 +282,8 @@ export function useMultiEntityManagement() {
      * so a second destructive action cannot be started mid-flight. */
     anyBusy: busyKey !== null,
     errorFor: (key: string) => (actionError?.key === key ? actionError.message : null),
+    /** Stage 8B: drops a stale action error (e.g. before re-opening a form). */
+    clearError: () => setActionError(null),
     noticeFor: (key: string) => (notice?.key === key ? notice : null),
 
     passwordLink,
