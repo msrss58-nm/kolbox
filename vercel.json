@@ -29,6 +29,14 @@
       "destination": "/api/platform/session?me_op=workspace"
     },
     {
+      "source": "/api/multi-entity/aggregates",
+      "destination": "/api/platform/session?me_op=aggregates"
+    },
+    {
+      "source": "/api/multi-entity/workspace-aggregates",
+      "destination": "/api/platform/session?me_op=workspace_aggregates"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
