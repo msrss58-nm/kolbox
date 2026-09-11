@@ -92,6 +92,9 @@ export const ROUTES = {
   multiEntityLogin: "/multi-entity/login",
   multiEntitySetPassword: "/multi-entity/set-password",
   multiEntityHome: "/multi-entity",
+  /** Platform Stage 7: one assigned workspace's aggregates (under the guard).
+   * The id in the URL is untrusted - the server authorizes it. */
+  multiEntityWorkspace: "/multi-entity/workspaces/:workspaceId",
 } as const;
 
 /** Election Day's own sub-navigation (UX v3 - "shell" architecture, see

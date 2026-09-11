@@ -57,6 +57,7 @@ import { MultiEntityOwnerAuthGuard } from "../features/multi-entity-owner/MultiE
 import { MultiEntityOwnerHomePage } from "../features/multi-entity-owner/MultiEntityOwnerHomePage";
 import { MultiEntityOwnerLoginScreen } from "../features/multi-entity-owner/MultiEntityOwnerLoginScreen";
 import { MultiEntityOwnerSetPasswordScreen } from "../features/multi-entity-owner/MultiEntityOwnerSetPasswordScreen";
+import { MultiEntityOwnerWorkspacePage } from "../features/multi-entity-owner/MultiEntityOwnerWorkspacePage";
 import { PlatformOwnerAuthGuard } from "../features/platform-owner/PlatformOwnerAuthGuard";
 import { PlatformOwnerConsolePage } from "../features/platform-owner/PlatformOwnerConsolePage";
 import { PlatformOwnerLoginScreen } from "../features/platform-owner/PlatformOwnerLoginScreen";
@@ -148,7 +149,12 @@ const multiEntityOwnerRoutes: RouteObject[] = [
   { path: ROUTES.multiEntitySetPassword, element: <MultiEntityOwnerSetPasswordScreen /> },
   {
     element: <MultiEntityOwnerAuthGuard />,
-    children: [{ path: ROUTES.multiEntityHome, element: <MultiEntityOwnerHomePage /> }],
+    children: [
+      { path: ROUTES.multiEntityHome, element: <MultiEntityOwnerHomePage /> },
+      // Platform Stage 7: one workspace's aggregates. Same guard - nothing here
+      // renders before the server's own 200; the id is authorized server-side.
+      { path: ROUTES.multiEntityWorkspace, element: <MultiEntityOwnerWorkspacePage /> },
+    ],
   },
   { path: "/", element: <Navigate to={ROUTES.multiEntityHome} replace /> },
   { path: "*", element: <Navigate to={ROUTES.multiEntityHome} replace /> },

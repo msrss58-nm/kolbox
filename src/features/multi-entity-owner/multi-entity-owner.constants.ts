@@ -109,17 +109,84 @@ export const MULTI_ENTITY_OWNER_TEXT = {
     logout: "התנתקות",
   },
 
+  /** Platform Stage 7 - the live dashboard (`/multi-entity`). */
   home: {
     title: "המערכות שלי",
+    subtitle: "תמונת מצב חיה של מערכות הבחירות המשויכות אליכם",
     signedInAs: (name: string) => `מחובר כ-${name}`,
     count: (n: number) => (n === 1 ? "מערכת משויכת אחת" : `${n} מערכות משויכות`),
     endsAtLabel: "מועד סיום הבחירות",
-    assignedAtLabel: "שויכה בתאריך",
     emptyTitle: "אין מערכות משויכות",
     emptyHint: "בעל הפלטפורמה טרם שייך אליכם מערכות בחירות. לאחר השיוך הן יופיעו כאן.",
     refresh: "רענון",
     logout: "התנתקות",
-    stageNote:
-      "מוצגת כאן רשימת המערכות שאליהן יש לכם הרשאה בלבד. צפייה בנתוני המערכות תתווסף בשלב מאוחר יותר.",
+    lastUpdated: (time: string) => `עודכן לאחרונה ב-${time}`,
+    loading: "טוענים את נתוני המערכות...",
+    listTitle: "מערכות משויכות",
+    viewDetails: "לפרטי המערכת",
+    openDetails: (name: string) => `לפרטי המערכת ${name}`,
+    privacyNote:
+      "מוצגים כאן סיכומים מספריים בלבד, ללא פרטים אישיים. מערכת עם פחות מ-10 אנשי קשר, ומערכת שהבחירות בה הסתיימו, אינן מציגות נתונים.",
+    loadError: {
+      title: "לא הצלחנו לטעון את נתוני המערכות",
+      body: "ייתכן שאין חיבור לאינטרנט או שהשירות אינו זמין כרגע. כדי לא להציג מידע שאינו עדכני, הנתונים לא יוצגו עד לטעינה מוצלחת.",
+      retry: "נסו שוב",
+    },
+  },
+
+  /** Cross-workspace totals - exactly as the server summed them (released
+   * workspaces only). */
+  summary: {
+    title: "סיכום המערכות המדווחות",
+    basis: (reported: number, total: number) =>
+      `מבוסס על ${reported} מתוך ${total} מערכות משויכות`,
+    excluded: (suppressed: number, ended: number) =>
+      [
+        suppressed > 0 ? `${suppressed} עם נתונים מוסתרים` : null,
+        ended > 0 ? `${ended} שהבחירות בהן הסתיימו` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") + " - אינן נכללות בסיכום",
+    noReportable: "אין כרגע מערכת שמציגה נתונים, ולכן אין סיכום להצגה.",
+  },
+
+  /** Status text is always shown in words (never color alone). */
+  status: {
+    reported: "פעילה",
+    suppressed: "פעילה · נתונים מוסתרים",
+    ended: "הבחירות הסתיימו",
+  },
+
+  withheld: {
+    suppressed:
+      "במערכת זו פחות מ-10 אנשי קשר, ולכן הנתונים אינם מוצגים כדי להגן על הפרטיות.",
+    ended:
+      "הבחירות במערכת זו הסתיימו. לוח זה מציג נתונים חיים בלבד, ולכן נתוני המערכת אינם מוצגים.",
+  },
+
+  metrics: {
+    groups: {
+      turnout: "הצבעה",
+      followUp: "מעקב טיפול",
+      rides: "הסעות",
+    },
+    contactsTotal: 'סה"כ אנשי קשר',
+    voted: "הצביעו",
+    votedPct: "אחוז הצבעה",
+    followUpClosed: "נסגרו ללא המשך טיפול",
+    followUpRemaining: "נותרו לטיפול",
+    rideNeeded: "צריכים הסעה",
+    rideArranged: "הסעה תואמה",
+    rideCompleted: "הסעה הושלמה",
+  },
+
+  /** `/multi-entity/workspaces/:workspaceId` - one workspace, same numbers. */
+  detail: {
+    title: "פרטי מערכת",
+    back: "חזרה לכל המערכות",
+    notAssigned: {
+      title: "המערכת אינה זמינה",
+      body: "המערכת אינה משויכת אליכם, או שהשיוך בוטל. חזרו לרשימת המערכות.",
+    },
   },
 } as const;
