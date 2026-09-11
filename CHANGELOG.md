@@ -4,6 +4,16 @@ Notable changes to KolBox, in reverse chronological order.
 
 > **Note on the gap below**: entries from 2026-08-06 through 2026-08-10 (covering `8045f0e` through `6f9f3f4`) were backfilled retroactively during a 2026-08-10 documentation-sync audit - this changelog had silently stopped being updated after `0aa25c0` while `task-plan.md`'s Progress Log kept (partial) track instead. See that file's Progress Log for the fullest per-commit detail. **A second gap exists between `6f9f3f4` (2026-08-10) and `98fde6c` (2026-08-20)** - the coordinator-allocation feature and several call-attempts/filter commits landed in that window without changelog entries of their own; only their commit subjects are listed below rather than reconstructed narrative, to avoid inventing detail this update wasn't briefed on. **A third gap exists between the 2026-08-23 entries below and 2026-08-30** - the Multi-Tenant Phase 1 (workspace_id columns), Phase 2 (historical Backfill, Expand→Contract), and Phase 3 (Users/Roles/Coordinator-Allocation/Import v3 cutover, Contract) initiatives all landed in that window without their own changelog entries; `CURRENT_STATUS.md`'s "Follow-up" sections and `task-plan.md`'s Progress Log carry the fullest per-step detail. Phase 3's close-out entry is below. **A fourth gap exists between 2026-08-30 and 2026-09-01** - Multi-Tenant Phase 4B's Backend EXPAND, Backend Compatibility Fix, and Frontend Cutover steps landed without their own changelog entries (same convention: only phase close-outs get one); Phase 4B's close-out entry is below.
 
+## 2026-09-11 - Platform Program: Stage 6 aggregate-only cross-workspace read backend - CLOSED / PASS (committed, migrated, deployed on three surfaces, Production verified)
+
+**Status: `STAGE 6 - CLOSED / PASS`** (one consolidated stage).
+
+- **Live**: implementation `1788e34bb6beca7cd4f5dc207a0a39857b9651d5` serves all three surfaces. The Multi-Entity Owner gets two read-only endpoints - `GET /api/multi-entity/aggregates` (every currently assigned workspace plus cross-workspace totals) and `GET /api/multi-entity/workspace-aggregates?workspaceId=` - behind the existing `me_op` partition (still 12/12 functions).
+- **Counts only**, using the Election Day dashboard's own definitions: contacts, voted, follow-up closed/remaining, and the ride pipeline (needed/arranged/completed). No names, phones, addresses, notes, reason labels, coordinators, timestamps or `login_code`.
+- **Privacy rules enforced in the database**: only workspaces whose election has not ended, and only workspaces with at least 10 contacts, release numbers (the others return `suppressed` or `ended` with no numbers at all); totals are built only from released workspaces.
+- **Production DB 88/88, zero drift**; delta exactly +3 functions with direct privilege checks. Zero-mutation Production verification 21/21; DB snapshot unchanged. **No real Production Multi-Entity Owner was created; Multi-Entity rows remain 0/0/0.**
+- **Next**: Stage 7 - Multi-Entity Owner frontend/dashboard.
+
 ## 2026-09-11 - Platform Program: Stage 5 Multi-Entity Owner authentication + entity-scoped authorization - CLOSED / PASS (committed, migrated, deployed on three surfaces, Production verified)
 
 **Status: `STAGE 5 - CLOSED / PASS`** (one consolidated stage).
