@@ -1,0 +1,17 @@
+{
+  "//": "Platform Stage 5: strict type-check of the Vercel handlers. api/ sits outside both app tsconfigs, so `npm run build` never type-checks it. Run: npx tsc -p scripts/stage5/tsconfig.api.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true
+  },
+  "include": ["../../api/**/*.ts"]
+}

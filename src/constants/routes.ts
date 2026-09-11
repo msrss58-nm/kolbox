@@ -83,6 +83,15 @@ export const ROUTES = {
    * configures when sending the link, and it is the ONLY pathname on which
    * `platformOwnerRecoveryUrl.ts` will consume auth tokens from the URL. */
   platformSetPassword: "/platform/set-password",
+  /** Platform Stage 5: the Multi-Entity Owner surface - served ONLY by the
+   * dedicated `multi_entity` build (its own origin), never by the Election or
+   * Platform builds. `multiEntitySetPassword` is the exact path
+   * api/platform/session.ts mints the seat holder's one-time link against,
+   * and the only pathname `multiEntityOwnerRecoveryUrl.ts` acts on. It is a
+   * top-level route outside `MultiEntityOwnerAuthGuard` and grants nothing. */
+  multiEntityLogin: "/multi-entity/login",
+  multiEntitySetPassword: "/multi-entity/set-password",
+  multiEntityHome: "/multi-entity",
 } as const;
 
 /** Election Day's own sub-navigation (UX v3 - "shell" architecture, see

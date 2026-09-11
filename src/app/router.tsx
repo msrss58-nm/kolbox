@@ -26,6 +26,12 @@ import "../features/platform-owner/platformOwnerRecoveryUrl";
 // evaluates first. The two modules are pathname-scoped to different routes
 // and cannot capture each other's links.
 import "../features/election-day/electionDayOwnerRecoveryUrl";
+// Platform Stage 5 - the Multi-Entity Owner equivalent, for
+// `/multi-entity/set-password`. Pathname-scoped like the two above. Its only
+// job is token hygiene (strip with replaceState before render): the Multi-
+// Entity client has `detectSessionInUrl: false` and the `token_hash` query
+// shape is never auto-consumed, so there is no client race to win here.
+import "../features/multi-entity-owner/multiEntityOwnerRecoveryUrl";
 import { createBrowserRouter, Navigate, type RouteObject } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
@@ -47,6 +53,10 @@ import { OwnerRolesPage } from "../features/election-day/OwnerRolesPage";
 import { OwnerSetPasswordScreen } from "../features/election-day/OwnerSetPasswordScreen";
 import { OwnerSetupPage } from "../features/election-day/OwnerSetupPage";
 import { ImportPage } from "../features/import/ImportPage";
+import { MultiEntityOwnerAuthGuard } from "../features/multi-entity-owner/MultiEntityOwnerAuthGuard";
+import { MultiEntityOwnerHomePage } from "../features/multi-entity-owner/MultiEntityOwnerHomePage";
+import { MultiEntityOwnerLoginScreen } from "../features/multi-entity-owner/MultiEntityOwnerLoginScreen";
+import { MultiEntityOwnerSetPasswordScreen } from "../features/multi-entity-owner/MultiEntityOwnerSetPasswordScreen";
 import { PlatformOwnerAuthGuard } from "../features/platform-owner/PlatformOwnerAuthGuard";
 import { PlatformOwnerConsolePage } from "../features/platform-owner/PlatformOwnerConsolePage";
 import { PlatformOwnerLoginScreen } from "../features/platform-owner/PlatformOwnerLoginScreen";
@@ -78,10 +88,15 @@ import { PlatformOriginRedirect } from "./PlatformOriginRedirect";
  * production build behaviourally unchanged: a deployment that never sets this
  * variable routes exactly as it did before origin separation.
  *
- * THREE VALUES:
- *   "election" - Election Day / Election Owner / campaign only (the default).
- *   "platform" - Platform Owner only.
- *   "both"     - every route, for the EXPAND window only.
+ * FOUR VALUES:
+ *   "election"     - Election Day / Election Owner / campaign only (default).
+ *   "platform"     - Platform Owner only.
+ *   "both"         - election + platform routes, for the EXPAND window only.
+ *   "multi_entity" - Multi-Entity Owner only (Platform Stage 5), on its own
+ *                    origin. Never part of "both": it is a new surface with no
+ *                    legacy paths to keep alive, and sharing an origin with
+ *                    any other principal's login form is exactly what origin
+ *                    separation exists to prevent.
  *
  * "both" exists because origin separation has to roll out additively. While
  * the new platform origin is being introduced, the OLD origin must keep
@@ -104,14 +119,40 @@ import { PlatformOriginRedirect } from "./PlatformOriginRedirect";
  * bookmarks reach the new origin instead of a no-match page. They render no
  * credential field and are not a catch-all.
  */
-type AppSurface = "election" | "platform" | "both";
+type AppSurface = "election" | "platform" | "both" | "multi_entity";
 
 const APP_SURFACE: AppSurface =
   import.meta.env.VITE_APP_SURFACE === "platform"
     ? "platform"
     : import.meta.env.VITE_APP_SURFACE === "both"
       ? "both"
-      : "election";
+      : import.meta.env.VITE_APP_SURFACE === "multi_entity"
+        ? "multi_entity"
+        : "election";
+
+/**
+ * Platform Stage 5 - Multi-Entity Owner surface (its own origin). Same shape
+ * as the Platform Owner surface: login and set-password are top-level
+ * siblings (set-password must NOT sit under the guard, which would divert the
+ * aal1 recovery session into MFA); everything else is under
+ * MultiEntityOwnerAuthGuard, which renders MFA inline at aal1 and only reaches
+ * a child after the server's own 200.
+ *
+ * "/" and every unmatched path redirect to the guarded home. On this surface
+ * that is safe: it is a brand-new origin with no pre-existing URL behaviour to
+ * preserve, and the only credential form reachable here is this principal's
+ * own. (The Election surface's raw no-match page is deliberately untouched.)
+ */
+const multiEntityOwnerRoutes: RouteObject[] = [
+  { path: ROUTES.multiEntityLogin, element: <MultiEntityOwnerLoginScreen /> },
+  { path: ROUTES.multiEntitySetPassword, element: <MultiEntityOwnerSetPasswordScreen /> },
+  {
+    element: <MultiEntityOwnerAuthGuard />,
+    children: [{ path: ROUTES.multiEntityHome, element: <MultiEntityOwnerHomePage /> }],
+  },
+  { path: "/", element: <Navigate to={ROUTES.multiEntityHome} replace /> },
+  { path: "*", element: <Navigate to={ROUTES.multiEntityHome} replace /> },
+];
 
 /** Platform Owner surface - the FOURTH identity, served from its own origin. */
 const platformOwnerRoutes: RouteObject[] = [
@@ -281,7 +322,9 @@ const electionRoutes: RouteObject[] = [
 export const router = createBrowserRouter(
   APP_SURFACE === "platform"
     ? [...platformOwnerRoutes, platformRootRedirect]
-    : APP_SURFACE === "both"
-      ? [...electionRoutes, ...platformOwnerRoutes]
-      : [...electionRoutes, ...platformCompatRedirects],
+    : APP_SURFACE === "multi_entity"
+      ? multiEntityOwnerRoutes
+      : APP_SURFACE === "both"
+        ? [...electionRoutes, ...platformOwnerRoutes]
+        : [...electionRoutes, ...platformCompatRedirects],
 );

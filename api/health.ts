@@ -27,8 +27,10 @@ const LOCAL_COMMIT_FALLBACK = "local";
 
 /** The surfaces a deployment may be built as. "both" is the transitional
  * EXPAND state in which one deployment serves every route; cutover is the flip
- * from "both" to "election". Mirrors src/app/router.tsx's APP_SURFACE. */
-const KNOWN_SURFACES = ["election", "platform", "both"] as const;
+ * from "both" to "election". "multi_entity" (Platform Stage 5) is the Multi-
+ * Entity Owner's own origin and is never part of "both". Mirrors
+ * src/app/router.tsx's APP_SURFACE. */
+const KNOWN_SURFACES = ["election", "platform", "both", "multi_entity"] as const;
 
 /** Anything unset or unrecognised resolves to "election", matching the
  * router's own default so the reported surface can never disagree with the

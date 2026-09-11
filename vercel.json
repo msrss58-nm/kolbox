@@ -21,6 +21,14 @@
       "destination": "/api/election-day/owner-actions?op=session"
     },
     {
+      "source": "/api/multi-entity/session",
+      "destination": "/api/platform/session?me_op=session"
+    },
+    {
+      "source": "/api/multi-entity/workspace",
+      "destination": "/api/platform/session?me_op=workspace"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

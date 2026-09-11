@@ -3,6 +3,7 @@ import {
   verifyPlatformOwnerJwt,
 } from "../election-day/_platformAuth.js";
 import { getServiceClient } from "../election-day/_ownerAuth.js";
+import { handleMultiEntityRequest, isMultiEntityRequest } from "./_multiEntitySession.js";
 
 // Platform Stage 2 - PLATFORM OWNER session/context endpoint.
 // Platform Stage 3B - plus the Platform Owner's one write operation.
@@ -17,6 +18,16 @@ import { getServiceClient } from "../election-day/_ownerAuth.js";
 // Multi-Entity seat/assignment ops, and the Stage 4B provisioning-orphan
 // purge). GET carries an optional `op` too, with the original no-op payload
 // preserved as the default.
+//
+// Platform Stage 5 - a SECOND, fully separate principal partition. Any request
+// carrying the `me_op` query key belongs to the MULTI-ENTITY OWNER and is
+// handed WHOLESALE to _multiEntitySession.ts before a single line of the
+// Platform Owner path below runs (no Origin/op parsing, no Platform verifier).
+// That handler has its own verifier (_multiEntityAuth.ts) and its own rules;
+// `op` + `me_op` together is refused there as ambiguous. The Platform Owner
+// path is otherwise unchanged. A separate file is impossible for the same
+// 12/12 reason given below, and vercel.json maps the clean public paths
+// /api/multi-entity/{session,workspace} onto this partition.
 //
 // Stage 3B needed the Platform Owner console to perform a real mutation, and
 // this project is at exactly 12/12 Vercel Hobby Functions with no per-project
@@ -63,17 +74,30 @@ interface MinimalRequest {
 interface MinimalResponse {
   status: (code: number) => MinimalResponse;
   json: (body: unknown) => void;
+  // Present on Vercel's response object; used only by the Stage 5 Multi-Entity
+  // partition (Cache-Control: no-store). The Platform path never calls it.
+  setHeader: (name: string, value: string) => unknown;
 }
 
 const DEFAULT_PLATFORM_ORIGIN = "https://kolbox-platform.vercel.app";
 
-// The Election origin, used ONLY to build the Owner's activation link - the
-// owner set-password route lives on the Election surface, not the Platform
-// one. Deliberately a separate variable from SESSION_ALLOWED_ORIGIN (see the
-// header) and from the Platform origin above.
+// The Election origin, used ONLY to build the Election Owner's activation link
+// - the owner set-password route lives on the Election surface, not the
+// Platform one. Deliberately a separate variable from SESSION_ALLOWED_ORIGIN
+// (see the header) and from the Platform origin above.
 const DEFAULT_ELECTION_APP_BASE_URL = "https://kolbox-gamma.vercel.app";
 const LOCAL_APP_BASE_URL = "http://localhost:5173";
 const OWNER_SET_PASSWORD_PATH = "/election-day/owner-set-password";
+
+// Platform Stage 5 - the Multi-Entity Owner's set-password route, served ONLY
+// by the dedicated `multi_entity` surface (its own origin). Stage 4B pointed
+// this link at the Election Owner screen on the Election origin, which would
+// have dead-ended the seat holder AND made the most privileged cross-workspace
+// credential a saved-password fill candidate on the Election login forms.
+// One variable, one purpose - and deliberately NO hardcoded production
+// default: the origin is only known once its Vercel project exists, so an
+// unset value in production must fail closed rather than guess.
+const MULTI_ENTITY_SET_PASSWORD_PATH = "/multi-entity/set-password";
 
 // Per-op body-key allow-lists. Deliberately NOT one flat shared set: an op must
 // not silently accept another op's fields. Matches owner-actions.ts's own
@@ -126,6 +150,16 @@ function electionAppBaseUrl(): string {
   const configured = process.env.KOLBOX_ELECTION_APP_BASE_URL;
   if (configured) return configured.replace(/\/+$/, "");
   return isProduction() ? DEFAULT_ELECTION_APP_BASE_URL : LOCAL_APP_BASE_URL;
+}
+
+/** Stage 5: the Multi-Entity origin for the seat holder's set-password link.
+ * `null` in production when KOLBOX_MULTI_ENTITY_APP_BASE_URL is unset - the
+ * caller must refuse BEFORE creating any Auth account. Local/preview builds
+ * fall back to the dev server, matching electionAppBaseUrl(). */
+function multiEntityAppBaseUrl(): string | null {
+  const configured = (process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL ?? "").trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  return isProduction() ? null : LOCAL_APP_BASE_URL;
 }
 
 function sendError(res: MinimalResponse, status: number, code: string): void {
@@ -557,6 +591,16 @@ async function handleProvisionMultiEntityOwner(
     return;
   }
 
+  // Stage 5: the set-password link must target the dedicated Multi-Entity
+  // origin. Resolved FIRST, before any Auth account exists, so a missing
+  // production configuration can never strand an orphan or fall back to the
+  // Election origin.
+  const multiEntityBaseUrl = multiEntityAppBaseUrl();
+  if (!multiEntityBaseUrl) {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
   let supabase: ReturnType<typeof getServiceClient>;
   try {
     supabase = getServiceClient();
@@ -690,8 +734,8 @@ async function handleProvisionMultiEntityOwner(
   const previousAuthUserId =
     typeof row.previous_auth_user_id === "string" ? row.previous_auth_user_id : null;
 
-  // --- 4. One-time activation link ----------------------------------------
-  const redirectTo = `${electionAppBaseUrl()}${OWNER_SET_PASSWORD_PATH}`;
+  // --- 4. One-time set-password link (Multi-Entity origin, Stage 5) --------
+  const redirectTo = `${multiEntityBaseUrl}${MULTI_ENTITY_SET_PASSWORD_PATH}`;
   const { data: link, error: linkErr } = await supabase.auth.admin.generateLink({
     type: "recovery",
     email,
@@ -1029,6 +1073,12 @@ export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
 ): Promise<void> {
+  // Stage 5 partition - evaluated before ANY Platform Owner logic. See header.
+  if (isMultiEntityRequest(req.url)) {
+    await handleMultiEntityRequest(req, res);
+    return;
+  }
+
   const method = req.method ?? "GET";
 
   if (method !== "GET" && method !== "POST") {
