@@ -6,6 +6,7 @@
 
 ## Production
 
+- **STAGE 7 MULTI-ENTITY OWNER FRONTEND/DASHBOARD - CLOSED / PASS (2026-09-11).** One consolidated stage, now live: implementation `cdd12bd77bb3d7ab992dc19b049096e4c6eeada9` pushed; **all three surfaces on `cdd12bd`**; no backend, API, schema or migration change (Production DB still **88/88, zero drift**, snapshot unchanged). The Multi-Entity Owner now has a LIVE dashboard at `https://kolbox-multi-entity.vercel.app/multi-entity` (server totals + one card per assigned workspace) and a per-workspace detail view, built only on the Stage 6 aggregate endpoints: `reported` workspaces show the approved counts; `suppressed` (fewer than 10 contacts) and `ended` workspaces show a notice and no numbers; `null` is never shown as zero; nothing is stored in the browser. Zero-mutation Production verification: UI 9/9, API 20/20. **Multi-Entity rows remain 0/0/0; no real Production Multi-Entity Owner exists.** Authoritative record: the Stage 7 CLOSED section at the end of this file.
 - **STAGE 6 AGGREGATE-ONLY CROSS-WORKSPACE READ BACKEND - CLOSED / PASS (2026-09-11).** One consolidated stage, now live: implementation `1788e34bb6beca7cd4f5dc207a0a39857b9651d5` pushed; Production DB **88/88, zero drift** (delta exactly +3 functions, every other catalog fingerprint unchanged); **all three surfaces on `1788e34`**. The Multi-Entity Owner can read per-workspace **aggregate counts only** (`GET /api/multi-entity/aggregates`, `GET /api/multi-entity/workspace-aggregates`) for currently assigned workspaces; an ended workspace or one with fewer than 10 contacts releases no numbers. Zero-mutation Production verification 21/21, DB snapshot unchanged. **Multi-Entity rows remain 0/0/0; no real Production Multi-Entity Owner exists.** Authoritative record: the Stage 6 CLOSED section at the end of this file. Next: Stage 7 (Multi-Entity Owner frontend/dashboard), not started.
 - **STAGE 5 MULTI-ENTITY OWNER AUTHENTICATION (AAL2) + ENTITY-SCOPED AUTHORIZATION - CLOSED / PASS (2026-09-11).** One consolidated stage, now live: implementation `f980e5923e9a74f0e5c50a4d1b44f2bb5c759194` pushed; Production DB **87/87, zero drift** (delta exactly +4 functions and 2 table ACLs); **three surfaces on the same commit** - `election` (`kolbox-gamma.vercel.app`), `platform` (`kolbox-platform.vercel.app`, now carrying `KOLBOX_MULTI_ENTITY_APP_BASE_URL`), and the new `multi_entity` (`kolbox-multi-entity.vercel.app`, Git-sourced first deployment). Zero-mutation Production verification passed (Multi-Entity 13/13, three-surface 12/12, DB snapshot unchanged). **Multi-Entity rows remain 0/0/0; no real Production Multi-Entity Owner exists.** Authoritative record: the Stage 5 CLOSED section at the end of this file. Next: Stage 6 (aggregate-only read backend), not started.
 - _(Superseded by the CLOSED / PASS entry above.)_ **STAGE 5 MULTI-ENTITY OWNER AUTHENTICATION (AAL2) + ENTITY-SCOPED AUTHORIZATION - LOCAL IMPLEMENTATION PASS (2026-09-11). NOT committed, NOT pushed, NOT deployed, NOT applied to Production - Stage 5 is NOT closed.** Production is unchanged (86/86 migrations, Multi-Entity tables 0/0/0, no real Multi-Entity Owner); Git `HEAD` == `origin/master` == `3ba0da2fa4109ff69a940183861915ae4ffdc1de`. Locally, on an isolated scratch stack: one migration (+4 functions, service_role table revoke), a separate aal2 verifier behind a `me_op` partition (still 12/12 functions), the `multi_entity` surface, and retained suites - DB 102/102, API 120/120, UI 31/31, bundle isolation 18/18 - with **equivalent Stage 4B regression coverage rebuilt**. Full record, residuals and the remaining rollout gates: the Stage 5 follow-up section at the end of this file.
@@ -3307,3 +3308,82 @@ Consume only `GET /api/multi-entity/aggregates` and `/api/multi-entity/workspace
 ### Exact NEXT
 
 **Stage 7 - Multi-Entity Owner frontend/dashboard.** Not started and not designed; it requires its own design, approval and gates. Still deliberately **not** next without separate approval: provisioning the first real Production Multi-Entity Owner and any real assignment, unassignment or purge.
+
+---
+
+## Follow-up (2026-09-11) - Platform Program: STAGE 7 MULTI-ENTITY OWNER FRONTEND/DASHBOARD - CLOSED / PASS (committed, deployed on three surfaces, Production verified zero-mutation)
+
+**Status: `STAGE 7 - CLOSED / PASS`.** Executed and closed as ONE consolidated stage (plan -> implementation and local gate -> commit -> push -> deployment and zero-mutation verification -> this documentation commit). This section is the authoritative Stage 7 checkpoint; the Stage 6 section's "Exact NEXT" above is historical.
+
+### Checkpoint
+
+- **Git**: implementation commit `cdd12bd77bb3d7ab992dc19b049096e4c6eeada9` ("feat: add multi-entity owner live dashboard", 15 files, +1536/-93), pushed `bac9321..cdd12bd` (fast-forward, no force). This documentation commit closes the stage on top of it.
+- **No backend change**: `api/`, `supabase/` and `vercel.json` untouched; still **12/12** Vercel functions; no migration (Production **88/88, zero drift**).
+- **Production Multi-Entity rows: 0 / 0 / 0.** No real Production Multi-Entity Owner exists; no Production Auth user, assignment or business data was created or changed. The authorized dashboard is proven locally, by decision.
+- **Three live surfaces, one commit** - each `/api/health` returns `200 {"ok":true,"commit":"cdd12bd77bb3d7ab992dc19b049096e4c6eeada9","surface":...}` (~60 s after the push):
+
+| Surface | Vercel project | Serving deployment (push-triggered, READY, `master`) |
+| --- | --- | --- |
+| `election` | `kolbox` | `dpl_H45YuKJAaJpwxNM13fJf9aVMw9kN` |
+| `platform` | `kolbox-platform` | `dpl_J4JVa33AmFBvbBtJzMrA66K7NJjP` |
+| `multi_entity` | `kolbox-multi-entity` | `dpl_6f8p9osLSFBRaozpwTonbbeJZXLy` |
+
+### Dashboard contract
+
+- **Data source**: ONLY `GET /api/multi-entity/aggregates` (dashboard) and `GET /api/multi-entity/workspace-aggregates?workspaceId=` (detail). Stage 5's `/api/multi-entity/session` stays the guard's authority and supplies the header identity. No new metric, endpoint or data contract.
+- **`/multi-entity`** (still under `MultiEntityOwnerAuthGuard`): heading "המערכות שלי", last-updated time, "רענון"; a **summary** of the server's `totals` exactly as returned ("מבוסס על N מתוך M", plus how many workspaces were withheld); then one **card per assigned workspace in the server's order** with name, election end date and a status badge in words + icon.
+  - `reported` -> contacts, voted, voted share (derived client-side ONLY from released counts), follow-up remaining/closed, ride needed/arranged/completed, and a link to the detail view.
+  - `suppressed` (fewer than 10 contacts) -> privacy notice, **no numbers, no link**.
+  - `ended` (`election_end_at <= now()`) -> "election ended - live data not shown" notice, **no numbers, no historical figures**.
+  - No reporting workspace -> the summary shows a notice instead of a row of zeros; zero assignments -> an empty state (not an error).
+- **`/multi-entity/workspaces/:workspaceId`**: the same numbers for one workspace from the single-workspace endpoint; unassigned and nonexistent ids show the same "not available" state (server 403); a malformed id never leaves the browser.
+- **Historical / post-election information is not part of the live dashboard.** It belongs to a future, separate report/download capability that needs its own approval and privacy review.
+
+### Data / privacy semantics
+
+- `metrics: null` is never rendered as a number; withheld rows render no metric element at all.
+- Nothing is inferred, recomputed or combined client-side beyond the voted share of a released row/total; the summary is the server's `totals`.
+- `multiEntityOwnerClient.ts` parses strictly: a withheld row carrying numbers, a count that is not a non-negative integer, a partition that does not add up, or `totals` that do not describe exactly the returned rows turns the whole response into an error - nothing partial is rendered.
+- No person-level data exists in any response, so none can reach the DOM (verified by a planted-marker scan); no `login_code`.
+
+### Freshness / storage
+
+One trigger, no polling: the aggregate read is keyed on the session store's `context`, which is replaced on every successful server re-resolution - dashboard entry, the guard's tab-visible revalidation, and the manual "רענון". An assignment added or removed therefore appears or disappears on that next read; a seat replacement lands on the guard's "forbidden" screen. Data lives in React component state only - never localStorage, sessionStorage, IndexedDB or Cache Storage (verified). On any failed read the previous numbers are removed and an error card (role `alert`, focused) offers a retry; an aggregate 401 re-runs the store's resolver (with a 10 s cooldown against loops).
+
+### Accessibility / responsive
+
+Hebrew RTL; one `h1`, no skipped heading levels; every control named and at least 44x44 px; status always stated in words; loading announced (`role="status"`); keyboard path to every detail link; screenshots at 360/390/768/1280 with no horizontal overflow (a 360 px header squeeze found in review was fixed before commit).
+
+### Files
+
+Modified: `src/app/router.tsx` (one guarded child route), `src/constants/routes.ts` (`multiEntityWorkspace`), `src/features/multi-entity-owner/{MultiEntityOwnerHomePage.tsx, multi-entity-owner.constants.ts, multiEntityOwnerClient.ts}`. New: `src/features/multi-entity-owner/{useMultiEntityAggregates.ts, multiEntityAggregateFormat.ts, MultiEntityMetrics.tsx, MultiEntityWorkspaceCard.tsx, MultiEntitySummaryCard.tsx, MultiEntityOwnerPageHeader.tsx, MultiEntityDashboardStates.tsx, MultiEntityOwnerWorkspacePage.tsx}`, `scripts/stage7/{ui-stage7.mjs, bundle-stage7.mjs}`.
+
+### Tests (retained, `scripts/stage7/`, scratch stack only)
+
+- `ui-stage7.mjs` - **76/76** real-local (real GoTrue password + TOTP seat, real Stage 6 aggregates from fixture contacts with planted PII markers, real Platform assignment ops): anonymous / aal1 (zero aggregate requests) / aal2; zero assignments; mixed reported/suppressed/ended with exact values; summary equal to the server totals; withheld cards with no metric element; accessibility (RTL, headings, names, 44 px, keyboard Tab + Enter into the detail view); detail view states (reported, suppressed, ended, unassigned, nonexistent, malformed without a request); freshness (no polling while idle, unassignment on tab-visible, assignment on refresh, stale detail corrected, withheld-only summary); forced 500 / network failure / withheld-row-with-numbers / inconsistent totals / 401; delayed first load; privacy DOM + storage scans; expired session -> login; seat replacement -> forbidden; rewrites.
+- `bundle-stage7.mjs` - **16/16**: dashboard copy and both aggregate endpoints only in the `multi_entity` build (absent from `election`, `platform`, `both`).
+- **Regression**: Stage 5 UI 31/31 (unmodified - the dashboard keeps its heading, empty text, list and refresh button), DB 102/102, API 120/120; Stage 6 DB 73/73, API 89/89; bundle isolation 18/18; typecheck, `npm run build`, lint (0 errors), `git diff --check`.
+
+### Production evidence (zero-mutation)
+
+- **UI 9/9** (anonymous headless Chromium on the live origins): `/multi-entity` and the new detail route -> Multi-Entity login; zero aggregate requests while signed out; set-password without a link -> invalid-link screen; nothing stored; no page errors; the live `multi_entity` bundle contains the dashboard and both aggregate endpoints, the live `election` and `platform` bundles contain none of it.
+- **API 20/20**: new and Stage 5 endpoints refuse without a valid seat token (401 / 400 / 405, all `no-store`); SPA routes 200; Platform 401 / 403 `FORBIDDEN_ORIGIN`; Election 401.
+- **DB**: 88/88 zero drift; catalog snapshot identical to the pre-rollout snapshot across all 18 fields; rows 0/0/0. No broad dump.
+
+### Residual risks (recorded)
+
+- **No auto-refresh while a tab stays in the foreground** - by design (no polling); numbers update on entry, tab re-focus or "רענון", and the "last updated" time is always shown.
+- **Two authoritative reads** (session for identity, aggregates for data) can differ for one refresh if an assignment changes between them; the next refresh converges and the server refuses any stale access.
+- The aggregate-401 cooldown can show the error card instead of an immediate "forbidden" in a pathological 401 loop (guard state still wins on the next re-resolution).
+- No automated axe audit (axe is not installed); accessibility is asserted explicitly in the UI suite instead.
+- The authorized dashboard has not run in Production (no real seat) - proven locally only. All Stage 5 and Stage 6 residuals carry forward unchanged (including homogeneity and live-count differencing).
+
+### Roadmap / program status
+
+| Stage | Scope | Status |
+| ----- | ----- | ------ |
+| Stage 5 | Multi-Entity Owner authentication, AAL2, entity-scoped authorization | **CLOSED / PASS** |
+| Stage 6 | Aggregate-only cross-workspace read backend | **CLOSED / PASS** |
+| Stage 7 | Multi-Entity Owner frontend/dashboard | **CLOSED / PASS** |
+
+The Multi-Entity Owner track defined by the roadmap is complete. **No further stage is defined.** Candidates, each requiring its own separate approval (and, where it touches data, its own privacy review): provisioning the first real Production Multi-Entity Owner and real assignments; a historical / post-election report or download capability; the carried residuals (Stage 4B `passwordLink.missing` copy, lost-mint-response phantom, Election raw 404, D-8 reverse direction).
