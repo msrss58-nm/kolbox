@@ -125,7 +125,7 @@ export function useElectionDay() {
   // ElectionDayShell.tsx (which already renders this hook's other shared
   // dialog, ElectionDayContactModal). Platform Stage 9: user management is
   // no longer part of this (worker) hook at all - it is Election Owner
-  // authority only (OwnerRolesPage / useOwnerUserManagement).
+  // authority only (OwnerAdminShell / useOwnerUserManagement).
   const reauth = useElectionDayReauth();
   // Phase 3 Import/Clear frontend cutover: independent-hook pattern - own
   // dialog/proof, never touching `reauth`/`useElectionDayReauthProof`.

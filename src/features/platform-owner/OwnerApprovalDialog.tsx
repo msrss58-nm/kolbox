@@ -1,14 +1,13 @@
-import { UserPlus } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Button } from "../../components/ui/Button";
-import { Card, CardTitle } from "../../components/ui/Card";
 import { Field, Input } from "../../components/ui/Field";
+import { Modal } from "../../components/ui/Modal";
+import { moduleLabel } from "../../constants/labels";
 import { platformOwnerAuthClient } from "../../services/supabase/platformOwnerAuthClient";
 import {
   PLATFORM_OWNER_TEXT,
   platformApproveOwnerError,
 } from "./platform-owner.constants";
-import { moduleLabel } from "../../constants/labels";
 import { OneTimeLinkBox } from "./OneTimeLinkBox";
 import {
   createOwnerAccess,
@@ -21,24 +20,26 @@ const text = PLATFORM_OWNER_TEXT.approveOwner;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Stage 3B approval form, extracted from the console page in Stage 8B.
+ * Stage 3B approval, as a dialog opened from the Owners section.
  *
  * The activation link is a one-time credential: it lives in this component's
- * state for exactly as long as the success panel is on screen and is never
- * persisted, cached, or sent anywhere else. `onChanged` lets the approvals list
- * refetch after every outcome that may have changed the server's state.
+ * state only while the success panel is on screen. The dialog is mounted only
+ * while open, so closing it discards the link - it is never persisted, cached
+ * or sent anywhere else. `onChanged` refetches the approvals list after every
+ * outcome that may have changed the server's state.
  *
  * Stage 9: the Platform Owner must choose the new workspace's modules
  * explicitly - nothing is pre-selected, at least one is required, and the
- * server validates the choice against its own catalog (`catalog`, loaded by
- * the console page from the same server).
+ * server validates the choice against its own catalog (`catalog`).
  */
-export function OwnerApprovalCard({
+export function OwnerApprovalDialog({
   onChanged,
+  onClose,
   catalog,
   catalogError,
 }: {
   onChanged: () => void;
+  onClose: () => void;
   catalog: ModuleCatalogEntry[];
   catalogError: boolean;
 }) {
@@ -105,6 +106,7 @@ export function OwnerApprovalCard({
             ? `${base} ${text.orphanWarning(result.orphanedAuthUserId)}`
             : base,
         );
+        onChanged();
         return;
       }
       setCreated(result.access);
@@ -115,37 +117,35 @@ export function OwnerApprovalCard({
   };
 
   return (
-    <Card className="space-y-4">
-      <div className="flex items-center gap-2">
-        <UserPlus className="size-5 text-slate-700" />
-        <CardTitle>{text.title}</CardTitle>
-      </div>
-
+    <Modal open wide title={text.title} onClose={approving ? () => {} : onClose}>
       {!created && (
         <form onSubmit={(e) => void submit(e)} className="space-y-3">
           <p className="text-sm text-slate-600">{text.subtitle}</p>
 
-          <Field label={text.nameLabel}>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={200}
-              autoComplete="off"
-              required
-            />
-          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={text.nameLabel}>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={200}
+                autoComplete="off"
+                required
+                autoFocus
+              />
+            </Field>
 
-          <Field label={text.emailLabel}>
-            <Input
-              type="email"
-              dir="ltr"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              maxLength={254}
-              autoComplete="off"
-              required
-            />
-          </Field>
+            <Field label={text.emailLabel}>
+              <Input
+                type="email"
+                dir="ltr"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                maxLength={254}
+                autoComplete="off"
+                required
+              />
+            </Field>
+          </div>
 
           <Field label={text.phoneLabel}>
             <Input
@@ -230,11 +230,16 @@ export function OwnerApprovalCard({
             </p>
           )}
 
-          <Button type="button" variant="secondary" size="sm" onClick={reset}>
-            {text.another}
-          </Button>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button type="button" variant="secondary" size="sm" onClick={reset}>
+              {text.another}
+            </Button>
+            <Button type="button" size="sm" onClick={onClose}>
+              {text.done}
+            </Button>
+          </div>
         </div>
       )}
-    </Card>
+    </Modal>
   );
 }

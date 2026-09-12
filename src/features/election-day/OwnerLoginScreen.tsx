@@ -48,7 +48,7 @@ export function OwnerLoginScreen() {
       void navigate(ROUTES.electionDayOwnerSetup, { replace: true });
       return;
     }
-    void navigate(ROUTES.electionDayOwnerRoles, { replace: true });
+    void navigate(ROUTES.electionDayOwnerAdmin, { replace: true });
   };
 
   return (

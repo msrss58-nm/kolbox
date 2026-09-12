@@ -1,9 +1,12 @@
-import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { AdminListFrame, AdminSection } from "../../components/admin/AdminSection";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Input } from "../../components/ui/Field";
+import { Modal } from "../../components/ui/Modal";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { toast } from "../../components/ui/Toast";
 import {
   ALL_PERMISSIONS,
@@ -21,12 +24,17 @@ import {
 import type { OwnerRoleManagementHook } from "./useOwnerRoleManagement";
 
 const text = ELECTION_DAY_TEXT.rolesManager;
+const pageText = ELECTION_DAY_TEXT.owner.rolesPage;
+const rolesText = ELECTION_DAY_TEXT.owner.admin.roles;
 
 // Platform Stage 9: inert permissions are not offered. A role that still
 // carries one keeps it untouched in `form.permissions` on save.
 const GRANTABLE_PERMISSIONS = ALL_PERMISSIONS.filter(
   (p) => !NON_GRANTABLE_PERMISSIONS.has(p),
 );
+
+const ICON_BUTTON =
+  "touch-target grid place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-primary-500";
 
 interface RoleFormState {
   name: string;
@@ -56,27 +64,16 @@ function formFromRole(role: RoleRecord): RoleFormState {
   };
 }
 
-/** Navigation Refactor: extracted from the old `RoleManagementModal` - same
- * content, no `Modal` wrapper, now rendered as a tab on `/election-day/permissions`
- * instead of a dialog. The nested create/edit form and `ConfirmDialog` below
- * are unchanged - the extraction only un-modal-ifies the outermost container.
+/**
+ * The Election Owner's Roles & Permissions section - its only consumer is the
+ * Owner administration shell (fed by `useOwnerRoleManagement`). The list is
+ * the section body; create / edit open a wide dialog with the permissions
+ * editor instead of replacing the list in place, so the page never grows.
  *
- * Phase 3 Contract: the PermissionUser-facing `useRoleManagement` this
- * component originally typed its prop against was deleted as dead code (the
- * "roles" tab it fed was removed from `ElectionDayPermissionsPage.tsx` in an
- * earlier phase, leaving it with zero live callers) - this component is now
- * typed directly against `OwnerRoleManagementHook`, its only real consumer.
- *
- * Reused, unchanged, by the Owner-only Role Management surface
- * (`OwnerRolesPage.tsx`, fed by `useOwnerRoleManagement`) -
- * `permissionUsers` is optional there since
- * the Owner surface has no live PermissionUser-roster visibility in this
- * phase (Users management stays PermissionUser-session-only until a
- * separate, later Owner migration); it only ever drives the per-role
- * assigned-count badge and the disabled-delete hint, never an authorization
- * decision, so an empty list there degrades to "no known assignments"
- * without misrepresenting anything - the server-side ROLE_HAS_ASSIGNED_USERS
- * check still blocks a real deletion regardless. */
+ * `permissionUsers` drives only the per-role assigned-count and the
+ * disabled-delete hint, never an authorization decision - the server-side
+ * ROLE_HAS_ASSIGNED_USERS check still blocks a real deletion regardless.
+ */
 export function RoleManagementPanel({
   permissionUsers = [],
   roleManagement,
@@ -86,6 +83,7 @@ export function RoleManagementPanel({
 }) {
   const {
     roles,
+    rolesLoaded,
     createRole,
     updateRole,
     deleteRole,
@@ -96,7 +94,7 @@ export function RoleManagementPanel({
     reauthDialog,
   } = roleManagement;
 
-  // `null` = list view, "new" = creating, a RoleRecord = editing that role.
+  // `null` = no editor open, "new" = creating, a RoleRecord = editing it.
   const [editing, setEditing] = useState<RoleRecord | "new" | null>(null);
   const [form, setForm] = useState<RoleFormState>(emptyForm());
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -123,7 +121,11 @@ export function RoleManagementPanel({
     });
   };
 
-  const handleSave = async () => {
+  const busy = creatingRole || updatingRole;
+
+  const handleSave = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
     if (!form.name.trim()) {
       toast.error(text.toast.invalid);
       return;
@@ -142,34 +144,49 @@ export function RoleManagementPanel({
     if (result !== undefined) closeEditor();
   };
 
-  const handleClone = (role: RoleRecord) => {
-    void cloneRole(role.id, text.cloneSuffix(role.name));
-  };
-
-  const busy = creatingRole || updatingRole;
-
   return (
     <>
-      {editing === null ? (
-        <div className="space-y-4">
-          <Button className="w-full" onClick={openCreate}>
-            ➕ {text.newRoleButton}
+      <AdminSection
+        testId="owner-roles-section"
+        title={pageText.rolesTitle}
+        description={rolesText.description}
+        actions={
+          <Button onClick={openCreate}>
+            <Plus className="size-4" aria-hidden />
+            {text.newRoleButton}
           </Button>
-
-          {roles.length === 0 ? (
-            <EmptyState icon={ShieldCheck} title={text.empty} />
-          ) : (
-            <ul className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-100">
+        }
+        toolbar={
+          roles.length > 0 ? (
+            <span className="text-xs font-semibold text-slate-500">
+              {rolesText.count(roles.length)}
+            </span>
+          ) : undefined
+        }
+      >
+        {!rolesLoaded ? (
+          <div className="space-y-2" aria-hidden>
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full" />
+          </div>
+        ) : roles.length === 0 ? (
+          <EmptyState icon={ShieldCheck} title={text.empty} />
+        ) : (
+          <AdminListFrame>
+            <ul className="divide-y divide-slate-100" data-testid="owner-roles-list">
               {roles.map((role) => {
                 const count = assignedCount(role.id);
                 return (
                   <li
                     key={role.id}
-                    className="flex items-center justify-between gap-2 px-3 py-2.5"
+                    data-manager={role.isManager === true ? "true" : "false"}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5"
                   >
                     <div className="min-w-0">
                       <p className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-800">
-                        <span className="truncate">{role.name}</span>
+                        <span className="truncate" dir="auto">
+                          {role.name}
+                        </span>
                         {role.isManager && (
                           <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-700">
                             {text.managerBadge}
@@ -183,7 +200,8 @@ export function RoleManagementPanel({
                       )}
                       <p className="text-xs text-slate-400">
                         {ROLE_SCOPE_LABELS[role.scopeType ?? "assigned_to_me"]} ·{" "}
-                        {text.usersCount(count)}
+                        {text.usersCount(count)} ·{" "}
+                        {rolesText.permissionsCount(role.permissions.length)}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -191,123 +209,146 @@ export function RoleManagementPanel({
                         type="button"
                         onClick={() => openEdit(role)}
                         aria-label={text.editAriaLabel}
-                        className="touch-target grid place-items-center rounded-lg text-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                        title={text.editAriaLabel}
+                        className={ICON_BUTTON}
                       >
-                        ✏️
+                        <Pencil className="size-4" aria-hidden />
                       </button>
                       <button
                         type="button"
-                        onClick={() => handleClone(role)}
+                        onClick={() =>
+                          void cloneRole(role.id, text.cloneSuffix(role.name))
+                        }
                         aria-label={text.cloneButton}
-                        className="touch-target grid place-items-center rounded-lg text-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                        title={text.cloneButton}
+                        className={ICON_BUTTON}
                       >
-                        📄
+                        <Copy className="size-4" aria-hidden />
                       </button>
                       <button
                         type="button"
                         disabled={count > 0}
                         onClick={() => setPendingDeleteId(role.id)}
                         aria-label={text.deleteAriaLabel}
-                        className="touch-target grid place-items-center rounded-lg text-lg text-slate-400 hover:bg-opponent-soft hover:text-opponent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                        title={text.deleteAriaLabel}
+                        className={`${ICON_BUTTON} hover:bg-opponent-soft hover:text-opponent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400`}
                       >
-                        🗑️
+                        <Trash2 className="size-4" aria-hidden />
                       </button>
                     </div>
                   </li>
                 );
               })}
             </ul>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <Field label={text.nameLabel}>
-            <Input
-              value={form.name}
-              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-              placeholder={text.namePlaceholder}
-            />
-          </Field>
-          <Field label={text.descriptionLabel}>
-            <Input
-              value={form.description}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, description: e.target.value }))
-              }
-              placeholder={text.descriptionPlaceholder}
-            />
-          </Field>
+          </AdminListFrame>
+        )}
+      </AdminSection>
 
-          <div>
-            <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-              {text.scopeLabel}
-            </span>
-            <div className="flex gap-4">
-              {(Object.keys(ROLE_SCOPE_LABELS) as RoleScopeType[]).map((scopeType) => (
-                <label
-                  key={scopeType}
-                  className="flex items-center gap-2 text-sm font-medium text-slate-700"
-                >
-                  <input
-                    type="radio"
-                    checked={form.scopeType === scopeType}
-                    onChange={() => setForm((prev) => ({ ...prev, scopeType }))}
-                    className="size-4 accent-primary-600"
-                  />
-                  {ROLE_SCOPE_LABELS[scopeType]}
-                </label>
-              ))}
+      {editing !== null && (
+        <Modal
+          open
+          wide
+          title={editing === "new" ? text.createTitle : text.editTitle}
+          onClose={busy ? () => {} : closeEditor}
+        >
+          <form onSubmit={(e) => void handleSave(e)} className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label={text.nameLabel}>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder={text.namePlaceholder}
+                  autoFocus
+                />
+              </Field>
+              <Field label={text.descriptionLabel}>
+                <Input
+                  value={form.description}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, description: e.target.value }))
+                  }
+                  placeholder={text.descriptionPlaceholder}
+                />
+              </Field>
             </div>
-          </div>
 
-          <label className="flex items-start gap-2 rounded-xl p-2 ring-1 ring-slate-100">
-            <input
-              type="checkbox"
-              checked={form.isManager}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, isManager: e.target.checked }))
-              }
-              className="mt-0.5 size-4 shrink-0 accent-primary-600"
-            />
-            <span>
-              <span className="block text-sm font-semibold text-slate-700">
-                {text.managerLabel}
+            <fieldset>
+              <legend className="mb-1.5 block text-sm font-semibold text-slate-700">
+                {text.scopeLabel}
+              </legend>
+              <div className="flex flex-wrap gap-4">
+                {(Object.keys(ROLE_SCOPE_LABELS) as RoleScopeType[]).map((scopeType) => (
+                  <label
+                    key={scopeType}
+                    className="flex min-h-11 items-center gap-2 text-sm font-medium text-slate-700"
+                  >
+                    <input
+                      type="radio"
+                      name="role-scope"
+                      checked={form.scopeType === scopeType}
+                      onChange={() => setForm((prev) => ({ ...prev, scopeType }))}
+                      className="size-4 accent-primary-600"
+                    />
+                    {ROLE_SCOPE_LABELS[scopeType]}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="flex items-start gap-2 rounded-xl p-3 ring-1 ring-slate-200">
+              <input
+                type="checkbox"
+                checked={form.isManager}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, isManager: e.target.checked }))
+                }
+                className="mt-0.5 size-4 shrink-0 accent-primary-600"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-slate-700">
+                  {text.managerLabel}
+                </span>
+                <span className="block text-xs text-slate-500">{text.managerHint}</span>
               </span>
-              <span className="block text-xs text-slate-500">{text.managerHint}</span>
-            </span>
-          </label>
+            </label>
 
-          <div>
-            <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-              {text.permissionsLabel}
-            </span>
-            <div className="grid max-h-64 grid-cols-1 gap-1.5 overflow-y-auto rounded-xl p-1 ring-1 ring-slate-100 sm:grid-cols-2">
-              {GRANTABLE_PERMISSIONS.map((permission) => (
-                <label
-                  key={permission}
-                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.permissions.has(permission)}
-                    onChange={() => togglePermission(permission)}
-                    className="size-4 shrink-0 accent-primary-600"
-                  />
-                  <span className="truncate">{PERMISSION_LABELS[permission]}</span>
-                </label>
-              ))}
+            <fieldset>
+              <legend className="mb-1.5 block text-sm font-semibold text-slate-700">
+                {text.permissionsLabel}
+              </legend>
+              <div className="grid grid-cols-1 gap-1 rounded-xl p-1 ring-1 ring-slate-200 sm:grid-cols-2">
+                {GRANTABLE_PERMISSIONS.map((permission) => (
+                  <label
+                    key={permission}
+                    className="flex min-h-10 items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.permissions.has(permission)}
+                      onChange={() => togglePermission(permission)}
+                      className="size-4 shrink-0 accent-primary-600"
+                    />
+                    <span className="min-w-0">{PERMISSION_LABELS[permission]}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <div className="flex gap-2 pt-1">
+              <Button type="submit" className="flex-1" loading={busy}>
+                {text.saveButton}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={closeEditor}
+                disabled={busy}
+              >
+                {text.cancelButton}
+              </Button>
             </div>
-          </div>
-
-          <div className="flex gap-2">
-            <Button className="flex-1" loading={busy} onClick={() => void handleSave()}>
-              {text.saveButton}
-            </Button>
-            <Button variant="secondary" onClick={closeEditor}>
-              {text.cancelButton}
-            </Button>
-          </div>
-        </div>
+          </form>
+        </Modal>
       )}
 
       <ConfirmDialog
@@ -325,10 +366,8 @@ export function RoleManagementPanel({
         onCancel={() => setPendingDeleteId(null)}
       />
 
-      {/* Security Hardening (Reauth): the shared password-reauth prompt for
-          create/update/delete/clone - reuses `AllocationPasswordDialog`'s
-          existing visual pattern, same as the coordinator-allocation
-          mutations already do. */}
+      {/* The shared Owner step-up prompt for create/update/delete/clone -
+          rendered after the editor so it stacks above it. */}
       {reauthDialog && <AllocationPasswordDialog {...reauthDialog} />}
     </>
   );

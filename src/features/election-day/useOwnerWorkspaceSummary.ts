@@ -10,6 +10,7 @@ import { useOwnerSession } from "./ownerSession";
 export interface OwnerWorkspaceSummary {
   workspaceName: string | null;
   loginCode: string | null;
+  electionEndAt: string | null;
   modules: OwnerWorkspaceModule[];
 }
 
@@ -36,6 +37,7 @@ export function useOwnerWorkspaceSummary() {
     return {
       workspaceName: state.state.workspaceName,
       loginCode: state.state.loginCode,
+      electionEndAt: state.state.electionEndAt,
       modules: modules.data,
     };
   }, [owner, getAccessToken]);

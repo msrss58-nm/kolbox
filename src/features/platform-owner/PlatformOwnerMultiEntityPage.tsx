@@ -1,10 +1,7 @@
-import { ArrowRight } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router";
-import { LogoMark } from "../../components/Logo";
+import { AdminSection } from "../../components/admin/AdminSection";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
-import { ROUTES } from "../../constants/routes";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { MultiEntityPasswordLinkPanel } from "./MultiEntityPasswordLinkPanel";
 import { MultiEntityProvisionModal } from "./MultiEntityProvisionModal";
@@ -17,26 +14,23 @@ import { BUSY, useMultiEntityManagement } from "./useMultiEntityManagement";
 const text = PLATFORM_OWNER_TEXT.multiEntity.page;
 
 /**
- * Platform Stage 4B: Multi-Entity Owner management.
+ * Platform Stage 4B: Multi-Entity Owner management - the `multi-entity`
+ * section of the Platform console shell (`/platform/multi-entity`).
  *
- * A child of `PlatformOwnerAuthGuard`, exactly like the console, so it
- * inherits the same single "authorized" branch and needs no guard of its own -
- * nothing here renders before the server's `GET /api/platform/session` returns
- * 200 for an aal2 session. It reuses the console's standalone layout
- * (`max-w-2xl` card stack) rather than introducing a second admin shell, and
- * it never imports Election Day data: no voter PII may reach this surface.
+ * A child of `PlatformOwnerAuthGuard` through the shell, so nothing here
+ * renders before the server's `GET /api/platform/session` returns 200 for an
+ * aal2 session. It never imports Election Day data: no voter PII may reach
+ * this surface. Its hook is mounted here (not in the shell) on purpose: the
+ * one-time password link lives in memory only and is gone when the operator
+ * leaves the section, exactly as it was when this was a separate page.
  *
- * Card order is deliberate. The two cleanup queues sit ABOVE the seat, because
- * they are the only outstanding irreversible work on the page, and burying
- * them under a workspace list is how an orphaned Auth account gets forgotten.
- * They render only when the server says there is something to clean.
- *
- * The Multi-Entity Owner itself signs in on its own origin (Stages 5-7) and
- * sees aggregate counts only; the footer says so.
+ * Card order is deliberate. The two cleanup queues come first, because they
+ * are the only outstanding irreversible work here, and burying them under a
+ * workspace list is how an orphaned Auth account gets forgotten. They render
+ * only when the server says there is something to clean.
  */
 export function PlatformOwnerMultiEntityPage() {
   const m = useMultiEntityManagement();
-  const navigate = useNavigate();
   const [formOpen, setFormOpen] = useState(false);
 
   const provisionError = m.errorFor(BUSY.provision);
@@ -58,92 +52,76 @@ export function PlatformOwnerMultiEntityPage() {
   };
 
   return (
-    <div className="mx-auto min-h-dvh max-w-2xl space-y-6 p-4 sm:p-6">
-      <header className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <LogoMark className="size-9 shrink-0" />
-          {/* Wraps rather than truncates: at 360px the back button leaves the
-              title barely enough room, and an ellipsised page title is worse
-              than a two-line one. */}
-          <h1 className="text-base font-extrabold break-words text-slate-800 sm:text-lg">
-            {text.title}
-          </h1>
-        </div>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => void navigate(ROUTES.platformConsole)}
-          className="shrink-0"
-        >
-          <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
-          {text.back}
-        </Button>
-      </header>
+    <>
+      <AdminSection
+        testId="platform-multi-entity-section"
+        title={text.title}
+        description={text.stageNote}
+      >
+        {m.readError ? (
+          <Card className="space-y-3">
+            <p role="alert" className="text-sm font-medium text-opponent">
+              {m.readError}
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => void m.reload()}>
+              {text.retry}
+            </Button>
+          </Card>
+        ) : (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] xl:items-start">
+            <div className="space-y-4">
+              <MultiEntityReplacementCleanupCard
+                items={m.pendingAuthCleanup}
+                isBusy={m.isBusy}
+                anyBusy={m.anyBusy}
+                errorFor={m.errorFor}
+                noticeFor={m.noticeFor}
+                onPurge={(id) => void m.purgeReplaced(id)}
+              />
 
-      {m.readError && (
-        <Card className="space-y-3">
-          <p role="alert" className="text-sm font-medium text-opponent">
-            {m.readError}
-          </p>
-          <Button variant="secondary" size="sm" onClick={() => void m.reload()}>
-            {text.retry}
-          </Button>
-        </Card>
-      )}
+              <MultiEntityProvisioningOrphanCard
+                items={m.pendingProvisioningOrphans}
+                isBusy={m.isBusy}
+                anyBusy={m.anyBusy}
+                errorFor={m.errorFor}
+                noticeFor={m.noticeFor}
+                onPurge={(id) => void m.purgeOrphan(id)}
+              />
 
-      {!m.readError && (
-        <>
-          <MultiEntityReplacementCleanupCard
-            items={m.pendingAuthCleanup}
-            isBusy={m.isBusy}
-            anyBusy={m.anyBusy}
-            errorFor={m.errorFor}
-            noticeFor={m.noticeFor}
-            onPurge={(id) => void m.purgeReplaced(id)}
-          />
+              <MultiEntitySeatCard
+                seat={m.seat}
+                loading={m.loading}
+                disabled={m.anyBusy}
+                onProvision={openForm}
+                onReplace={openForm}
+              />
 
-          <MultiEntityProvisioningOrphanCard
-            items={m.pendingProvisioningOrphans}
-            isBusy={m.isBusy}
-            anyBusy={m.anyBusy}
-            errorFor={m.errorFor}
-            noticeFor={m.noticeFor}
-            onPurge={(id) => void m.purgeOrphan(id)}
-          />
+              {/* Shown once, straight after a successful provision /
+                  replacement. In memory only - gone on dismiss, on reload and
+                  when leaving this section - unlike the cleanup queues above,
+                  which are durable by design. */}
+              {m.passwordLink && (
+                <MultiEntityPasswordLinkPanel
+                  value={m.passwordLink}
+                  onDismiss={m.dismissPasswordLink}
+                />
+              )}
+            </div>
 
-          <MultiEntitySeatCard
-            seat={m.seat}
-            loading={m.loading}
-            disabled={m.anyBusy}
-            onProvision={openForm}
-            onReplace={openForm}
-          />
-
-          {/* Shown once, straight after a successful provision/replacement.
-              The value lives in memory only and is gone on dismiss or reload -
-              unlike the cleanup queues above, which are durable by design. */}
-          {m.passwordLink && (
-            <MultiEntityPasswordLinkPanel
-              value={m.passwordLink}
-              onDismiss={m.dismissPasswordLink}
+            <MultiEntityWorkspaceList
+              workspaces={m.workspaces}
+              loading={m.loading}
+              hasSeat={m.seat !== null}
+              assignedCount={m.assignedCount}
+              isBusy={m.isBusy}
+              anyBusy={m.anyBusy}
+              errorFor={m.errorFor}
+              onAssign={(id) => void m.assign(id)}
+              onUnassign={(id) => void m.unassign(id)}
             />
-          )}
-
-          <MultiEntityWorkspaceList
-            workspaces={m.workspaces}
-            loading={m.loading}
-            hasSeat={m.seat !== null}
-            assignedCount={m.assignedCount}
-            isBusy={m.isBusy}
-            anyBusy={m.anyBusy}
-            errorFor={m.errorFor}
-            onAssign={(id) => void m.assign(id)}
-            onUnassign={(id) => void m.unassign(id)}
-          />
-        </>
-      )}
-
-      <p className="text-center text-xs text-slate-500">{text.stageNote}</p>
+          </div>
+        )}
+      </AdminSection>
 
       {formOpen && (
         <MultiEntityProvisionModal
@@ -155,6 +133,6 @@ export function PlatformOwnerMultiEntityPage() {
           onClose={() => setFormOpen(false)}
         />
       )}
-    </div>
+    </>
   );
 }

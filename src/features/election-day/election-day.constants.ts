@@ -1152,6 +1152,57 @@ export const ELECTION_DAY_TEXT = {
       loadError: "לא הצלחנו לטעון את הנתונים.",
       retry: "נסו שוב",
     },
+    /** The Owner administration shell: side navigation + one route per
+     * section. Section titles reuse `rolesPage` above. */
+    admin: {
+      brandSubtitle: "ניהול מערכת הבחירות",
+      accountRole: "בעלי המערכת",
+      nav: {
+        users: "משתמשים",
+        roles: "תפקידים והרשאות",
+        modules: "מודולים",
+        settings: "הגדרות",
+      },
+      users: {
+        add: "הוספת משתמש",
+        search: "חיפוש לפי שם",
+        roleFilterLabel: "סינון לפי תפקיד",
+        roleFilterAll: "כל התפקידים",
+        count: (shown: number, total: number) =>
+          shown === total ? `${total} משתמשים` : `${shown} מתוך ${total} משתמשים`,
+        noResults: "לא נמצאו משתמשים התואמים לחיפוש",
+        emptyHint:
+          "הוסיפו את המשתמש הראשון - למשל מנהל שינהל את יום הבחירות. קוד המערכת מופיע בראש המסך.",
+      },
+      roles: {
+        description:
+          "תפקיד קובע מה משתמש רשאי לראות ולעשות ביום הבחירות. ניהול התפקידים זמין לבעלים בלבד.",
+        count: (n: number) => `${n} תפקידים`,
+        permissionsCount: (n: number) => `${n} הרשאות`,
+      },
+      modules: {
+        description:
+          "המודולים שמערכת הבחירות שלכם זכאית להם. ההקצאה נקבעת על ידי בעל הפלטפורמה.",
+        readOnlyNote: "לשינוי המודולים פנו לבעל הפלטפורמה.",
+      },
+      settings: {
+        title: "הגדרות",
+        description: "פרטי מערכת הבחירות וחשבון הבעלים. לקריאה בלבד.",
+        workspaceName: "שם המערכת",
+        loginCode: "קוד מערכת",
+        electionEnd: "מועד סיום הבחירות",
+        ownerAccount: "חשבון הבעלים",
+        ownerRoleLabel: "הרשאה",
+        ownerRoleValue:
+          "בעלים - מנהל/ת המערכת. חשבון יחיד לכל מערכת, נפרד ממשתמשי יום הבחירות.",
+        notSet: "לא הוגדר",
+        formatDateTime: (iso: string) =>
+          new Date(iso).toLocaleString("he-IL", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          }),
+      },
+    },
     /** Maps a fixed error code from `api/election-day/owner-roles.ts`'s own
      * `mapRpcError`/body-validation responses to Hebrew copy - see
      * `useOwnerRoleManagement.ts`'s `mapOwnerMutationErrorCode`. */

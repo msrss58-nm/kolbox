@@ -46,9 +46,15 @@ import { ElectionDayReportsPage } from "../features/election-day/ElectionDayRepo
 import { ElectionDayRidesPage } from "../features/election-day/ElectionDayRidesPage";
 import { ElectionDayShell } from "../features/election-day/ElectionDayShell";
 import { ElectionDayVotersPage } from "../features/election-day/ElectionDayVotersPage";
+import { OwnerAdminShell } from "../features/election-day/OwnerAdminShell";
+import {
+  OwnerModulesSection,
+  OwnerRolesSection,
+  OwnerSettingsSection,
+  OwnerUsersSection,
+} from "../features/election-day/OwnerAdminSections";
 import { OwnerAuthGuard } from "../features/election-day/OwnerAuthGuard";
 import { OwnerLoginScreen } from "../features/election-day/OwnerLoginScreen";
-import { OwnerRolesPage } from "../features/election-day/OwnerRolesPage";
 import { OwnerSetPasswordScreen } from "../features/election-day/OwnerSetPasswordScreen";
 import { OwnerSetupPage } from "../features/election-day/OwnerSetupPage";
 import { ImportPage } from "../features/import/ImportPage";
@@ -57,8 +63,15 @@ import { MultiEntityOwnerHomePage } from "../features/multi-entity-owner/MultiEn
 import { MultiEntityOwnerLoginScreen } from "../features/multi-entity-owner/MultiEntityOwnerLoginScreen";
 import { MultiEntityOwnerSetPasswordScreen } from "../features/multi-entity-owner/MultiEntityOwnerSetPasswordScreen";
 import { MultiEntityOwnerWorkspacePage } from "../features/multi-entity-owner/MultiEntityOwnerWorkspacePage";
+import { PlatformAdminShell } from "../features/platform-owner/PlatformAdminShell";
+import {
+  PlatformAuditSection,
+  PlatformModulesSection,
+  PlatformOwnersSection,
+  PlatformSettingsSection,
+  PlatformWorkspacesSection,
+} from "../features/platform-owner/PlatformAdminSections";
 import { PlatformOwnerAuthGuard } from "../features/platform-owner/PlatformOwnerAuthGuard";
-import { PlatformOwnerConsolePage } from "../features/platform-owner/PlatformOwnerConsolePage";
 import { PlatformOwnerLoginScreen } from "../features/platform-owner/PlatformOwnerLoginScreen";
 import { PlatformOwnerMultiEntityPage } from "../features/platform-owner/PlatformOwnerMultiEntityPage";
 import { PlatformOwnerSetPasswordScreen } from "../features/platform-owner/PlatformOwnerSetPasswordScreen";
@@ -186,12 +199,22 @@ const platformOwnerRoutes: RouteObject[] = [
     // destination is the console itself.
     element: <PlatformOwnerAuthGuard />,
     children: [
-      { path: ROUTES.platformConsole, element: <PlatformOwnerConsolePage /> },
       {
-        // Stage 4B: Multi-Entity management. Same guard, same aal2 whitelist -
-        // nothing here is reachable before the server's own 200.
-        path: ROUTES.platformMultiEntity,
-        element: <PlatformOwnerMultiEntityPage />,
+        // The console shell: fixed side navigation, one child route per
+        // section (relative paths below == ROUTES.platform* constants). Same
+        // guard, same aal2 whitelist - no section is reachable before the
+        // server's own 200. `multi-entity` keeps its Stage 4B path.
+        path: ROUTES.platformConsole,
+        element: <PlatformAdminShell />,
+        children: [
+          { index: true, element: <Navigate to="owners" replace /> },
+          { path: "owners", element: <PlatformOwnersSection /> },
+          { path: "workspaces", element: <PlatformWorkspacesSection /> },
+          { path: "modules", element: <PlatformModulesSection /> },
+          { path: "multi-entity", element: <PlatformOwnerMultiEntityPage /> },
+          { path: "audit", element: <PlatformAuditSection /> },
+          { path: "settings", element: <PlatformSettingsSection /> },
+        ],
       },
       {
         path: ROUTES.platformMfa,
@@ -266,7 +289,22 @@ const electionRoutes: RouteObject[] = [
     // app's Supabase Auth) - see ownerSession.ts's own doc comment for why
     // these three identities must stay structurally independent.
     element: <OwnerAuthGuard />,
-    children: [{ path: ROUTES.electionDayOwnerRoles, element: <OwnerRolesPage /> }],
+    children: [
+      {
+        // Owner administration shell - fixed side navigation, one child route
+        // per section (relative paths == ROUTES.electionDayOwner* constants;
+        // `roles` keeps the pre-shell /election-day/owner/roles path valid).
+        path: ROUTES.electionDayOwnerAdmin,
+        element: <OwnerAdminShell />,
+        children: [
+          { index: true, element: <Navigate to="users" replace /> },
+          { path: "users", element: <OwnerUsersSection /> },
+          { path: "roles", element: <OwnerRolesSection /> },
+          { path: "modules", element: <OwnerModulesSection /> },
+          { path: "settings", element: <OwnerSettingsSection /> },
+        ],
+      },
+    ],
   },
   {
     // Main app shell (Supabase-authenticated routes only).

@@ -194,6 +194,8 @@ try {
   await page.getByRole("button", { name: "התחברות" }).click();
   await page.getByRole("heading", { name: "אימות דו-שלבי" }).waitFor({ timeout: 15000 });
   check("P1 password + TOTP -> console", await totpInto(page, poApi.secret, page.getByRole("heading", { name: "מסוף בעל הפלטפורמה" })));
+  // Admin shell: approval is a dialog opened from the Owners section.
+  await page.getByRole("button", { name: "אישור בעלים חדש" }).click();
   const form = page.locator("form").filter({ has: page.getByRole("button", { name: "אישור ויצירת קישור" }) });
   await form.locator('[data-testid="approval-modules"] input[type="checkbox"]').first().waitFor({ timeout: 15000 });
   const boxes = await form.locator('[data-testid="approval-modules"] input[type="checkbox"]').count();
@@ -268,12 +270,16 @@ try {
   section("OWNER USER MANAGEMENT");
   const usersCard = ePage.locator('[data-testid="owner-users-card"]');
   async function addUser(name, password, roleName) {
-    await usersCard.locator('input[name="new-permission-user-name"]').fill(name);
-    await usersCard.locator('input[name="new-permission-user-password"]').fill(password);
-    await usersCard.locator("select").selectOption({ label: roleName });
-    await usersCard.getByRole("button", { name: /הוספה/ }).click();
+    // Admin shell: "add user" opens a dialog; the Owner step-up stacks on it.
+    await usersCard.getByRole("button", { name: "הוספת משתמש" }).click();
+    const dlg = ePage.getByRole("dialog").filter({ hasText: "הוספת משתמש" });
+    await dlg.locator('input[name="new-permission-user-name"]').fill(name);
+    await dlg.locator('input[name="new-permission-user-password"]').fill(password);
+    await dlg.locator("select").selectOption({ label: roleName });
+    await dlg.getByRole("button", { name: "הוספה", exact: true }).click();
     await reauthConfirm(ePage, ownerPw);
     await usersCard.getByText(name, { exact: true }).waitFor({ timeout: 15000 });
+    await dlg.waitFor({ state: "detached", timeout: 10000 });
   }
   await addUser("s9ui-manager", managerPw, "מנהל");
   check("U1 Owner creates the first Manager from administration", true);
@@ -320,14 +326,17 @@ try {
 
   // -------------------------------------------------------------------------
   section("ENTITLEMENT EDIT FROM THE PLATFORM CONSOLE");
-  await page.reload();
+  // Admin shell: module assignment is its own section; the editor is a dialog
+  // and the confirmation stacks on it.
+  await page.goto(`${PBASE}/platform/modules`);
   const wsRow = page.locator('[data-testid="workspace-modules-list"] li').filter({ hasText: WS_NAME });
+  const modDlg = page.getByRole("dialog").filter({ hasText: "עריכת מודולים" });
   await wsRow.waitFor({ timeout: 15000 });
   check("E1 the console lists the new workspace with Election Day", (await wsRow.innerText()).includes("ניהול יום הבחירות"));
   await wsRow.getByRole("button", { name: "עריכת מודולים" }).click();
-  await wsRow.getByRole("checkbox", { name: "ניהול יום הבחירות" }).uncheck();
-  await wsRow.getByRole("checkbox", { name: /ניהול תקציב/ }).check();
-  await wsRow.getByRole("button", { name: "שמירה" }).click();
+  await modDlg.getByRole("checkbox", { name: "ניהול יום הבחירות" }).uncheck();
+  await modDlg.getByRole("checkbox", { name: /ניהול תקציב/ }).check();
+  await modDlg.getByRole("button", { name: "שמירה" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "עדכון" }).click();
   check("E2 saving the new module set succeeds", await waitText(page, "המודולים עודכנו"));
   check("E3 the database now holds budget only",
@@ -348,8 +357,8 @@ try {
     await waitText(ePage, "מודול יום הבחירות אינו פעיל למערכת זו") && (await usersCard.innerText()).includes("s9ui-manager"));
 
   await wsRow.getByRole("button", { name: "עריכת מודולים" }).click();
-  await wsRow.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
-  await wsRow.getByRole("button", { name: "שמירה" }).click();
+  await modDlg.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
+  await modDlg.getByRole("button", { name: "שמירה" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "עדכון" }).click();
   await waitText(page, "המודולים עודכנו");
   psql("delete from public.election_day_login_attempts;");
@@ -370,6 +379,131 @@ try {
     await row.waitFor({ state: "detached", timeout: 15000 });
   }
   check("D1 Owner deleted the ordinary user and the Manager", await waitText(ePage, "לא נוספו משתמשים עדיין"));
+
+  // -------------------------------------------------------------------------
+  section("ADMIN SHELL LAYOUT - fixed viewport, side navigation, internal scroll");
+  // The shell is one viewport tall: the DOCUMENT must never scroll vertically;
+  // only a section's own [data-admin-scroll-region] may.
+  const pageScrolls = (p) =>
+    p.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 1);
+  const sideMenu = (p) => p.locator("aside nav");
+  const menuBtn = (p) => p.getByRole("button", { name: "פתיחת תפריט הניווט" });
+  const activeNav = (p) => p.locator('aside a[aria-current="page"]').innerText();
+  const drawer = (p) => p.getByRole("dialog", { name: "ניווט ראשי" });
+
+  for (const [w, h] of [[1440, 900], [1280, 800], [1024, 768]]) {
+    await ePage.setViewportSize({ width: w, height: h });
+    await ePage.goto(`${EBASE}/election-day/owner/users`);
+    await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
+    check(`L1 Owner ${w}px: fixed side menu visible, no menu button, active item = משתמשים`,
+      (await sideMenu(ePage).isVisible()) && !(await menuBtn(ePage).isVisible()) && (await activeNav(ePage)).includes("משתמשים"));
+    check(`L2 Owner ${w}px: the page itself does not scroll; no horizontal overflow`,
+      !(await pageScrolls(ePage)) && (await noOverflow(ePage)));
+    await shot(ePage, `10-owner-users-${w}`);
+  }
+
+  await ePage.setViewportSize({ width: 1280, height: 800 });
+  await usersCard.getByRole("button", { name: "הוספת משתמש" }).click();
+  await ePage.getByRole("dialog").filter({ hasText: "הוספת משתמש" }).waitFor({ timeout: 10000 });
+  check("L3 the add-user dialog opens over the shell - the page does not grow", !(await pageScrolls(ePage)));
+  await shot(ePage, "11-owner-add-user-dialog-1280");
+  await ePage.keyboard.press("Escape");
+  check("L3 Escape closes the add-user dialog",
+    await ePage.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false));
+
+  await ePage.goto(`${EBASE}/election-day/owner/modules`);
+  await ePage.locator('[data-module="election_day"]').waitFor({ timeout: 15000 });
+  check("L4 direct link to Modules: Election Day shown as enabled, read-only, nav item active",
+    (await ePage.locator('[data-module="election_day"]').innerText()).includes("פעיל") &&
+    (await ePage.locator('[data-testid="owner-modules-section"] button').count()) === 0 &&
+    (await activeNav(ePage)).includes("מודולים"));
+  await shot(ePage, "12-owner-modules-1280");
+
+  await ePage.goto(`${EBASE}/election-day/owner/settings`);
+  await ePage.locator('[data-testid="owner-settings-section"]').getByText(loginCode).first().waitFor({ timeout: 15000 });
+  check("L5 direct link to Settings: workspace code + Owner account shown",
+    (await ePage.locator('[data-testid="owner-settings-section"]').innerText()).includes(email("owner")));
+
+  await ePage.goto(`${EBASE}/election-day/owner/roles`);
+  const mgrRoles = ePage.locator('[data-testid="owner-roles-list"] li[data-manager="true"]');
+  await mgrRoles.first().waitFor({ timeout: 15000 });
+  check("L6 Roles: the seeded מנהל role carries the Manager marker",
+    (await mgrRoles.count()) >= 1 && (await mgrRoles.first().innerText()).includes("מנהל"));
+  await ePage.getByRole("button", { name: "תפקיד חדש" }).click();
+  await ePage.getByRole("dialog").filter({ hasText: "תפקיד חדש" }).waitFor({ timeout: 10000 });
+  check("L7 the role editor is a dialog - the page does not grow", !(await pageScrolls(ePage)));
+  await shot(ePage, "13-owner-role-editor-1280");
+  await ePage.keyboard.press("Escape");
+  await ePage.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
+  await ePage.reload();
+  await ePage.getByRole("heading", { name: "תפקידים והרשאות", level: 2 }).waitFor({ timeout: 15000 });
+  check("L8 reload keeps the Owner on the same section", new URL(ePage.url()).pathname === "/election-day/owner/roles");
+
+  await ePage.setViewportSize({ width: 390, height: 844 });
+  await ePage.goto(`${EBASE}/election-day/owner/users`);
+  await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
+  check("L9 390px: side menu hidden, menu button shown, no page scroll / overflow",
+    !(await sideMenu(ePage).isVisible()) && (await menuBtn(ePage).isVisible()) && !(await pageScrolls(ePage)) && (await noOverflow(ePage)));
+  await menuBtn(ePage).click();
+  await drawer(ePage).getByRole("link", { name: "תפקידים והרשאות" }).click();
+  await ePage.waitForURL(/\/election-day\/owner\/roles$/, { timeout: 10000 });
+  check("L10 390px: the navigation drawer navigates and closes itself", (await drawer(ePage).count()) === 0);
+  await menuBtn(ePage).click();
+  await drawer(ePage).waitFor({ timeout: 5000 });
+  await shot(ePage, "14-owner-drawer-390");
+  await ePage.keyboard.press("Escape");
+  check("L11 Escape closes the navigation drawer",
+    await drawer(ePage).waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false));
+
+  // Platform: long lists scroll ONLY inside their section region.
+  psql(`
+    insert into public.election_workspaces (name, election_end_at, login_code)
+    select 'S9UI L' || lpad(g::text, 2, '0'), now() + interval '10 days', public.election_day_generate_workspace_login_code()
+    from generate_series(1, 40) g;
+  `);
+  for (const [w, h] of [[1440, 900], [1280, 800], [1024, 768]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto(`${PBASE}/platform/modules`);
+    await page.locator('[data-testid="workspace-modules-list"] li').nth(35).waitFor({ timeout: 15000 });
+    const region = page.locator('[data-testid="workspace-modules-card"] [data-admin-scroll-region]');
+    const r = await region.evaluate((el) => {
+      const overflows = el.scrollHeight > el.clientHeight + 1;
+      el.scrollTop = 400;
+      return { overflows, scrolled: el.scrollTop > 0 };
+    });
+    check(`L12 Platform ${w}px: 40+ workspaces scroll inside the list region; the page does not`,
+      r.overflows && r.scrolled && !(await pageScrolls(page)) && (await noOverflow(page)), JSON.stringify(r));
+    check(`L13 Platform ${w}px: fixed side menu, active item = הקצאת מודולים`,
+      (await sideMenu(page).isVisible()) && (await activeNav(page)).includes("הקצאת מודולים"));
+    await shot(page, `15-platform-modules-${w}`);
+  }
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${PBASE}/platform/workspaces`);
+  await page.getByRole("button", { name: `פרטי ${WS_NAME}` }).click();
+  const detailDrawer = page.getByRole("dialog").filter({ hasText: "קוד מערכת" });
+  await detailDrawer.waitFor({ timeout: 10000 });
+  check("L14 Workspaces: the detail panel shows the Owner, the code and Election Day",
+    ((t) => t.includes(loginCode) && t.includes("בעלים ניסוי") && t.includes("ניהול יום הבחירות"))(await detailDrawer.innerText()));
+  check("L14 ... and the page does not grow", !(await pageScrolls(page)));
+  await shot(page, "16-platform-workspace-detail-1280");
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
+
+  await page.goto(`${PBASE}/platform/audit`);
+  check("L15 Audit: an explicit 'not available yet' state (no invented backend)", await waitText(page, "תצוגת היומן תתווסף בהמשך"));
+  await page.goto(`${PBASE}/platform/settings`);
+  check("L16 Settings: the verified identity", await waitText(page, email("po")));
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${PBASE}/platform/owners`);
+  await page.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }).waitFor({ timeout: 15000 });
+  await menuBtn(page).click();
+  await drawer(page).getByRole("link", { name: "רב-מערכות" }).click();
+  check("L17 390px: the drawer reaches Multi-Entity management",
+    await page.getByRole("heading", { name: "ניהול בעל רב-מערכות" }).waitFor({ timeout: 15000 }).then(() => true, () => false));
+  check("L18 390px Platform: no page scroll, no horizontal overflow", !(await pageScrolls(page)) && (await noOverflow(page)));
+  await shot(page, "17-platform-multi-entity-390");
 
   check("Z1 no uncaught page errors on any page", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));
 } catch (err) {

@@ -116,7 +116,7 @@ export function OwnerSetupPage() {
   };
 
   const goToAdministration = () =>
-    void navigate(ROUTES.electionDayOwnerRoles, { replace: true });
+    void navigate(ROUTES.electionDayOwnerAdmin, { replace: true });
 
   const heading = useMemo(
     () => (stage === "setup" ? setupText.title : createdText.title),
@@ -133,7 +133,7 @@ export function OwnerSetupPage() {
 
   // Already provisioned and not mid-flow - administration is the home page.
   if (owner && stage === "setup") {
-    return <Navigate to={ROUTES.electionDayOwnerRoles} replace />;
+    return <Navigate to={ROUTES.electionDayOwnerAdmin} replace />;
   }
 
   if (!owner && !provisioning) {

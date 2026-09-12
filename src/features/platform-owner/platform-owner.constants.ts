@@ -138,6 +138,81 @@ export const PLATFORM_OWNER_TEXT = {
     logout: "התנתקות",
   },
 
+  /** The console's side navigation (one route per section). */
+  shell: {
+    brandSubtitle: "מסוף בעל הפלטפורמה",
+    nav: {
+      owners: "בעלי מערכות",
+      workspaces: "מערכות בחירות",
+      modules: "הקצאת מודולים",
+      multiEntity: "רב-מערכות",
+      audit: "יומן פעולות",
+      settings: "הגדרות",
+    },
+  },
+
+  /** Owners section - the approvals list, with approval in a dialog. */
+  owners: {
+    title: "בעלי מערכות",
+    approve: "אישור בעלים חדש",
+    search: "חיפוש לפי שם או אימייל",
+    filterLabel: "סינון לפי מצב",
+    filterAll: "כל המצבים",
+    noResults: "לא נמצאו הרשאות התואמות לחיפוש",
+    count: (shown: number, total: number) =>
+      shown === total ? `${total} הרשאות` : `${shown} מתוך ${total} הרשאות`,
+  },
+
+  /** Workspaces section - every workspace, its Owner, status and modules. */
+  workspaces: {
+    title: "מערכות בחירות",
+    description: "כל מערכות הבחירות בפלטפורמה, הבעלים שלהן והמודולים הפעילים בהן.",
+    search: "חיפוש לפי שם, בעלים או קוד מערכת",
+    empty: "אין מערכות בחירות",
+    noResults: "לא נמצאו מערכות התואמות לחיפוש",
+    count: (shown: number, total: number) =>
+      shown === total ? `${total} מערכות` : `${shown} מתוך ${total} מערכות`,
+    columns: {
+      name: "מערכת",
+      owner: "בעלים",
+      status: "מצב",
+      modules: "מודולים",
+    },
+    details: "פרטים",
+    detailsAria: (name: string) => `פרטי ${name}`,
+    ownerLabel: "בעלים",
+    ownerEmailLabel: "אימייל הבעלים",
+    noOwner: "לא משויך בעלים",
+    codeLabel: "קוד מערכת",
+    endLabel: "סיום הבחירות",
+    statusLabel: "מצב",
+    modulesLabel: "מודולים פעילים",
+    multiEntityLabel: "שיוך לבעל רב-מערכות",
+    notAvailable: "לא זמין כרגע",
+    editModules: "עריכת מודולים",
+  },
+
+  /** Module-entitlement section heading (the list itself: workspaceModules). */
+  modulesSection: {
+    title: "הקצאת מודולים",
+    search: "חיפוש לפי שם מערכת או בעלים",
+    editTitle: (name: string) => `עריכת מודולים - ${name}`,
+  },
+
+  /** Audit section. No read API for the entitlement audit exists yet, so the
+   * section says so instead of inventing one. */
+  audit: {
+    title: "יומן פעולות",
+    emptyTitle: "תצוגת היומן תתווסף בהמשך",
+    emptyHint:
+      "שינויי מודולים ופעולות ניהול רגישות כבר נרשמים ביומן מאובטח בשרת. צפייה ביומן מתוך המסוף תתווסף בשלב נפרד.",
+  },
+
+  settings: {
+    title: "הגדרות",
+    description: "פרטי החשבון המאומת של בעל הפלטפורמה.",
+  },
+
   /** Stage 3B - approving a new Election Owner. */
   approveOwner: {
     title: "אישור בעלים חדש",
@@ -149,7 +224,7 @@ export const PLATFORM_OWNER_TEXT = {
     /** Stage 9: explicit module entitlement choice. */
     modulesLabel: "מודולים למערכת",
     modulesHint:
-      "בחרו במפורש לאילו מודולים תהיה גישה למערכת החדשה. ניתן לשנות זאת בהמשך מרשימת המודולים לפי מערכת.",
+      "בחרו במפורש לאילו מודולים תהיה גישה למערכת החדשה. ניתן לשנות זאת בהמשך ממסך הקצאת המודולים.",
     modulesRequired: "יש לבחור לפחות מודול אחד",
     moduleUnavailable: "טרם זמין - יישמר ויופעל כשיהיה זמין",
     modulesLoading: "טוענים את רשימת המודולים...",
@@ -163,15 +238,16 @@ export const PLATFORM_OWNER_TEXT = {
     linkHint:
       "מסרו את הקישור לבעלים בערוץ מאובטח. הוא חד-פעמי, תקף לזמן מוגבל, ומאפשר להם לבחור סיסמה משלהם. הקישור אינו נשמר ולא יוצג שוב.",
     linkMissing:
-      "ההרשאה נוצרה, אך הפקת הקישור נכשלה. ניתן להפיק קישור חדש מרשימת ההרשאות שלמטה - לא ייווצר חשבון נוסף.",
+      "ההרשאה נוצרה, אך הפקת הקישור נכשלה. ניתן להפיק קישור חדש מרשימת בעלי המערכות - לא ייווצר חשבון נוסף.",
     expiresAt: (iso: string) => `תוקף ההרשאה עד ${new Date(iso).toLocaleString("he-IL")}`,
     copy: "העתקה",
     copied: "הועתק",
     another: "אישור בעלים נוסף",
+    done: "סיום",
     errors: {
       EMAIL_ALREADY_REGISTERED: "כתובת האימייל הזו כבר משויכת לחשבון קיים.",
       APPROVAL_EXISTS:
-        "לכתובת הזו כבר קיימת הרשאת בעלים. ניתן להפיק עבורה קישור חדש מרשימת ההרשאות שלמטה.",
+        "לכתובת הזו כבר קיימת הרשאת בעלים. ניתן להפיק עבורה קישור חדש מרשימת בעלי המערכות.",
       OWNER_ALREADY_PROVISIONED: "החשבון הזה כבר משמש כבעלים של מערכת קיימת.",
       PENDING_ACCESS_ALREADY_CONSUMED: "ההרשאה של החשבון הזה כבר נוצלה.",
       PENDING_ACCESS_EXPIRED: "תוקף ההרשאה הקודמת פג.",

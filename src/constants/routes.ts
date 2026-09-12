@@ -40,7 +40,14 @@ export const ROUTES = {
    * has no workspace yet. Reachable only while `provisioning.state` is
    * "pending"; a provisioned Owner is redirected away from it. */
   electionDayOwnerSetup: "/election-day/owner/setup",
+  /** Owner administration shell (behind `OwnerAuthGuard`). The index sends
+   * the Owner to Users; each section below is a real child route, so a
+   * reload or a direct link lands on the same section. */
+  electionDayOwnerAdmin: "/election-day/owner",
+  electionDayOwnerUsers: "/election-day/owner/users",
   electionDayOwnerRoles: "/election-day/owner/roles",
+  electionDayOwnerModules: "/election-day/owner/modules",
+  electionDayOwnerSettings: "/election-day/owner/settings",
   /** Platform Stage 2: the Platform Owner console - a FOURTH, fully
    * independent identity, separate from the campaign Supabase user
    * (`authStore.ts`), the Election Day PermissionUser session
@@ -64,6 +71,14 @@ export const ROUTES = {
    * entry - that array exists only for four pre-cutover bookmarked paths on
    * the election origin, and this path has no legacy bookmarks. */
   platformMultiEntity: "/platform/multi-entity",
+  /** Platform console sections - real child routes of `platformConsole`
+   * (whose index sends the owner to `platformOwners`), all under the same
+   * `PlatformOwnerAuthGuard`. */
+  platformOwners: "/platform/owners",
+  platformWorkspaces: "/platform/workspaces",
+  platformModules: "/platform/modules",
+  platformAudit: "/platform/audit",
+  platformSettings: "/platform/settings",
   /** Platform Stage 2 (password set/recovery): the landing page for a
    * Supabase recovery/invite link addressed to the Platform Owner account.
    * Deliberately a TOP-LEVEL SIBLING route, NOT nested under

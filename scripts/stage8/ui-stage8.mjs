@@ -227,7 +227,13 @@ async function totpInto(p, secret, successLocator) {
 }
 
 async function approveViaUi(name, addr) {
+  // Admin shell: approval is a dialog opened from the Owners section; it
+  // stays open (form or success panel) until closed.
+  if (!(await approvalForm().isVisible())) {
+    await page.getByRole("button", { name: "אישור בעלים חדש" }).click();
+  }
   const f = approvalForm();
+  await f.waitFor({ timeout: 10000 });
   await f.getByLabel("שם הבעלים").fill(name);
   await f.getByLabel("אימייל").fill(addr);
   // Stage 9: the module choice is explicit and required.
@@ -324,6 +330,9 @@ try {
     afterAdopt.length === 1 && afterAdopt[0].id === leftover[0].id,
   );
   await page.getByRole("button", { name: "אישור בעלים נוסף" }).click();
+  // Close the approval dialog before acting on the list behind it.
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
 
   section("RE-ISSUE (active) -> RENEW (expired) -> CONSUMED is read-only");
   const reissueBefore = reqs.reissue;
@@ -470,7 +479,12 @@ try {
   await ePage.close();
 
   section("MULTI-ENTITY MANAGEMENT - text, destination, form reset");
-  await page.getByRole("button", { name: "פתיחת הניהול" }).click();
+  // Admin shell at 390px: the section is reached through the navigation drawer.
+  await page.getByRole("button", { name: "פתיחת תפריט הניווט" }).click();
+  await page
+    .getByRole("dialog", { name: "ניווט ראשי" })
+    .getByRole("link", { name: "רב-מערכות" })
+    .click();
   await page
     .getByRole("heading", { name: "ניהול בעל רב-מערכות" })
     .waitFor({ timeout: 15000 });
@@ -564,7 +578,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
 
   section("LOGOUT");
-  await page.getByRole("button", { name: "חזרה למסוף" }).click();
+  // Admin shell: the console heading and logout are on every section.
   await page.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }).waitFor();
   await page.getByRole("button", { name: "התנתקות" }).click();
   await page

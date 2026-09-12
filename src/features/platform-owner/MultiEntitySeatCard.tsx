@@ -11,8 +11,8 @@ import type { MultiEntitySeat } from "./platformOwnerClient";
 const text = PLATFORM_OWNER_TEXT.multiEntity.seat;
 
 /** Label/value row. Stacks on phones and splits label-start/value-end from
- * `sm:` up - the same shape `PlatformOwnerConsolePage`'s identity rows use, so
- * the two pages read as one console. */
+ * `sm:` up - the same shape the console's Settings identity rows use, so the
+ * sections read as one console. */
 function Row({
   label,
   value,
