@@ -727,6 +727,28 @@ async function handleReissueOwnerAccess(
     ? await mintOwnerActivationLink(supabase, accountEmail)
     : null;
 
+  // Stage 8D (H-3): close the reissue-after-consume race. The reissue RPC above
+  // serializes with election_day_provision_workspace on the pending row's FOR
+  // UPDATE lock, so a provisioning that committed BEFORE the RPC already made it
+  // raise 409. But a provisioning can also commit DURING the mint just above -
+  // after the RPC returned "active" - which would otherwise leave the link we
+  // just minted live for a consumed approval. Re-check the approval now: if it
+  // is consumed, the just-minted recovery token is invalidated server-side and
+  // we answer 409 instead of returning a usable post-consumption link.
+  const { data: finalize, error: finalizeErr } = await supabase.rpc(
+    "platform_reissue_finalize",
+    { p_platform_owner_auth_user_id: platformOwnerAuthUserId, p_pending_id: pendingId },
+  );
+  if (finalizeErr) {
+    const { status, code } = mapRpcError(finalizeErr.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  if (rpcRow<{ consumed?: unknown }>(finalize)?.consumed === true) {
+    sendError(res, 409, "PENDING_ACCESS_ALREADY_CONSUMED");
+    return;
+  }
+
   res.status(200).json({
     pendingId,
     expiresAt: typeof row.expires_at === "string" ? row.expires_at : null,
