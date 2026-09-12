@@ -113,7 +113,7 @@ check("SETUP Platform Owner aal2 ready", !!PO);
 // approve an owner, redeem L1, set password, return { addr, pendingId, ownerPw, ownerToken }
 async function freshOwner(label) {
   const addr = uniq(label);
-  const appr = await pPost({ op: "create_owner_access", name: `EO ${label}`, email: addr }, PO);
+  const appr = await pPost({ op: "create_owner_access", name: `EO ${label}`, email: addr, modules: ["election_day"] }, PO);
   const pendingId = appr.body?.pendingId;
   const L1 = appr.body?.activationLink;
   const c = anon();
@@ -211,7 +211,7 @@ section("LEGITIMATE FLOW NON-REGRESSION");
 {
   // L1 pre-provision reissue works end to end (owner can still set password + provision)
   const addr = uniq("legit");
-  const appr = await pPost({ op: "create_owner_access", name: "EO legit", email: addr }, PO);
+  const appr = await pPost({ op: "create_owner_access", name: "EO legit", email: addr, modules: ["election_day"] }, PO);
   const re = await pPost({ op: "reissue_owner_access", pendingId: appr.body?.pendingId }, PO);
   const L2 = re.body?.activationLink;
   const c = anon();
@@ -226,7 +226,7 @@ section("LEGITIMATE FLOW NON-REGRESSION");
 {
   // L2 expired approval renewal still works
   const addr = uniq("exp");
-  const appr = await pPost({ op: "create_owner_access", name: "EO exp", email: addr }, PO);
+  const appr = await pPost({ op: "create_owner_access", name: "EO exp", email: addr, modules: ["election_day"] }, PO);
   psql(`update public.election_workspace_pending_owner_access set expires_at = now() - interval '1 day' where id='${appr.body?.pendingId}'`);
   const re = await pPost({ op: "reissue_owner_access", pendingId: appr.body?.pendingId }, PO);
   check("L2 expired approval -> renewed=true, fresh window, usable link", re.statusCode === 200 && re.body?.renewed === true && !!re.body?.activationLink && (await linkRedeems(re.body.activationLink)).ok, `st=${re.statusCode} renewed=${re.body?.renewed}`);

@@ -167,7 +167,7 @@ section("PLATFORM PATH REGRESSION (shared endpoint)");
   check("PL7 stranger aal2 -> 401 (GET)", (await pGet("/api/platform/session", STRANGER)).statusCode === 401);
   check("PL7 stranger aal2 -> 401 (POST)", (await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, STRANGER)).statusCode === 401);
   const pendingEmail = email("pending-eo");
-  const co = await pPost({ op: "create_owner_access", name: "Pending EO", email: pendingEmail }, PO);
+  const co = await pPost({ op: "create_owner_access", name: "Pending EO", email: pendingEmail, modules: ["election_day"] }, PO);
   const coLink = typeof co.body?.activationLink === "string" ? co.body.activationLink : "";
   check("PL8 create_owner_access -> 201 and its link STILL targets the Election Owner screen", co.statusCode === 201 && coLink.startsWith(`${ORIGIN}/election-day/owner-set-password?`), `status=${co.statusCode}`);
   check("PL9 assign before a seat exists -> 409 MULTI_ENTITY_OWNER_NOT_PROVISIONED", (await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, PO)).body?.error === "MULTI_ENTITY_OWNER_NOT_PROVISIONED");

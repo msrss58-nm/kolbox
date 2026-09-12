@@ -60,7 +60,13 @@ const pPost = (body, token, origin = ORIGIN) =>
   });
 const approve = (local, token, extra = {}) =>
   pPost(
-    { op: "create_owner_access", name: `EO ${local}`, email: email(local), ...extra },
+    {
+      op: "create_owner_access",
+      name: `EO ${local}`,
+      email: email(local),
+      modules: ["election_day"], // Stage 9: explicit module choice is required
+      ...extra,
+    },
     token,
   );
 const reissue = (pendingId, token) =>
@@ -164,7 +170,12 @@ let firstPendingId = "";
     String(dup.statusCode),
   );
   const dupCase = await pPost(
-    { op: "create_owner_access", name: "x", email: `  FRESH@${DOMAIN.toUpperCase()} ` },
+    {
+      op: "create_owner_access",
+      name: "x",
+      email: `  FRESH@${DOMAIN.toUpperCase()} `,
+      modules: ["election_day"],
+    },
     PO,
   );
   check(
@@ -413,7 +424,8 @@ let approvals = [];
     mine.every(
       (x) =>
         Object.keys(x).sort().join(",") ===
-        "consumed_at,created_at,email,expires_at,name,pending_id,phone,state,workspace_name",
+        // Stage 9 added requested_modules (the approval's module choice).
+        "consumed_at,created_at,email,expires_at,name,pending_id,phone,requested_modules,state,workspace_name",
     ),
   );
   check("G2 no token -> 401", (await listOp(null)).statusCode === 401);

@@ -14,6 +14,8 @@ export interface RawRoleRow {
   permissions: unknown;
   scope_type: unknown;
   scope_value: unknown;
+  /** Platform Stage 9: present only on the Owner role read. */
+  is_manager?: unknown;
 }
 
 const VALID_SCOPE_TYPES: readonly RoleScopeType[] = ["all", "assigned_to_me"];
@@ -60,5 +62,7 @@ export function normalizeRoleRecord(row: RawRoleRow): RoleRecord {
     permissions,
     scopeType: isValidScopeType(row.scope_type) ? row.scope_type : null,
     scopeValue: (row.scope_value ?? null) as Json | null,
+    // Only a literal `true` marks a Manager role - anything else is false.
+    isManager: row.is_manager === true,
   };
 }

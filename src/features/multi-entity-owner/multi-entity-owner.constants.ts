@@ -140,10 +140,11 @@ export const MULTI_ENTITY_OWNER_TEXT = {
     title: "סיכום המערכות המדווחות",
     basis: (reported: number, total: number) =>
       `מבוסס על ${reported} מתוך ${total} מערכות משויכות`,
-    excluded: (suppressed: number, ended: number) =>
+    excluded: (suppressed: number, ended: number, unavailable: number) =>
       [
         suppressed > 0 ? `${suppressed} עם נתונים מוסתרים` : null,
         ended > 0 ? `${ended} שהבחירות בהן הסתיימו` : null,
+        unavailable > 0 ? `${unavailable} ללא מודול יום הבחירות` : null,
       ]
         .filter(Boolean)
         .join(" · ") + " - אינן נכללות בסיכום",
@@ -155,9 +156,13 @@ export const MULTI_ENTITY_OWNER_TEXT = {
     reported: "פעילה",
     suppressed: "פעילה · נתונים מוסתרים",
     ended: "הבחירות הסתיימו",
+    unavailable: "מודול יום הבחירות אינו פעיל",
   },
 
   withheld: {
+    /** Stage 9: the workspace is not entitled to Election Day. */
+    unavailable:
+      "מודול יום הבחירות אינו פעיל במערכת זו, ולכן לא מוצגים עבורה נתוני יום הבחירות.",
     suppressed:
       "במערכת זו פחות מ-10 אנשי קשר, ולכן הנתונים אינם מוצגים כדי להגן על הפרטיות.",
     ended:

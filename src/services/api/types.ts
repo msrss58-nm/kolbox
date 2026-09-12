@@ -104,6 +104,8 @@ export interface NewRole {
   description: string;
   permissions: Permission[];
   scopeType: RoleScopeType;
+  /** Platform Stage 9: explicit Manager-role flag (Owner surface only). */
+  isManager?: boolean;
 }
 
 export interface RoleUpdate extends NewRole {

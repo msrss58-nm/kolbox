@@ -230,6 +230,8 @@ async function approveViaUi(name, addr) {
   const f = approvalForm();
   await f.getByLabel("שם הבעלים").fill(name);
   await f.getByLabel("אימייל").fill(addr);
+  // Stage 9: the module choice is explicit and required.
+  await f.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
   await f.getByRole("button", { name: "אישור ויצירת קישור" }).click();
 }
 
@@ -377,6 +379,7 @@ try {
     op: "create_owner_access",
     name: "בעלים שהשלים",
     email: email("eo-done"),
+    modules: ["election_day"],
   });
   const doneUser = (await usersWith(email("eo-done")))[0];
   psql(`

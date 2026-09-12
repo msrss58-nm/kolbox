@@ -9,15 +9,16 @@ import type { RoleRecord } from "../../permissions/types";
 import type { NewPermissionUser } from "../../services/api";
 import type { PermissionUser } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
-import { useElectionDaySession } from "./electionDaySession";
 import { ResetPasswordDialog } from "./ResetPasswordDialog";
 import { roleDisplayName } from "./roleDisplayName";
 
 const text = ELECTION_DAY_TEXT.permissionsManager;
 
-/** Navigation Refactor: extracted from the old `PermissionUsersModal` - same
- * content, no `Modal` wrapper, now rendered as a tab on `/election-day/permissions`
- * instead of a dialog. `ResetPasswordDialog` still renders as an actual modal. */
+/** Navigation Refactor: extracted from the old `PermissionUsersModal`.
+ * Platform Stage 9: rendered ONLY on the Election Owner administration page
+ * (`OwnerRolesPage.tsx`, fed by `useOwnerUserManagement`) - user management
+ * is Owner authority, so there is no worker-side consumer any more.
+ * `ResetPasswordDialog` still renders as an actual modal. */
 export function PermissionUsersPanel({
   users,
   roles,
@@ -25,6 +26,8 @@ export function PermissionUsersPanel({
   onDelete,
   onReset,
   canManageUsers,
+  currentUserId = null,
+  canResetPassword = () => true,
 }: {
   users: PermissionUser[];
   /** Dynamic Roles & Permissions: the live catalog - the 3 built-in roles
@@ -40,14 +43,18 @@ export function PermissionUsersPanel({
    * (Phase 3C) has no `useAsyncAction`-style busy of its own to read. */
   onDelete: (id: string) => Promise<unknown>;
   onReset: (id: string, newPassword: string) => Promise<unknown>;
-  /** `electionDay.manageUsers` (widened by the same bootstrap exception
-   * `addPermissionUser` itself applies) - Add/Reset/Delete are all gated by
-   * this one permission in `useElectionDay.ts`, so one flag controls all
-   * three here. A denied session doesn't just get disabled controls, it
-   * never sees the Add form or the actions column at all - `guardedAction`
-   * still blocks the mutation underneath regardless, this is purely an
-   * additional UI-visibility layer on top of it. */
+  /** Whether the Add form and the actions column render at all. Purely a
+   * UI-visibility layer - the server authorizes every mutation (Owner JWT +
+   * one-time Owner proof) regardless. */
   canManageUsers: boolean;
+  /** The signed-in account's own id when it is one of these users - its row
+   * never offers self-delete. The Owner surface passes nothing: the Election
+   * Owner is never a PermissionUser. */
+  currentUserId?: string | null;
+  /** Platform Stage 9: whether the reset action is offered for a row. The
+   * server is the authority (CANNOT_RESET_MANAGER); this only avoids
+   * offering a button that would be refused. */
+  canResetPassword?: (user: PermissionUser) => boolean;
 }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
@@ -57,10 +64,6 @@ export function PermissionUsersPanel({
   const [resetTarget, setResetTarget] = useState<PermissionUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PermissionUser | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  // The signed-in Election Day session's own id - never lets that account's
-  // row offer self-delete, see `text.selfDelete` and `useElectionDay.ts`'s
-  // matching handler-level guard.
-  const currentUserId = useElectionDaySession((s) => s.user?.id ?? null);
 
   const effectiveRoleId = selectedRoleId ?? roles[0]?.id ?? null;
 
@@ -237,9 +240,18 @@ export function PermissionUsersPanel({
                         <button
                           type="button"
                           onClick={() => setResetTarget(u)}
-                          aria-label={text.resetPassword.ariaLabel}
-                          title={text.resetPassword.ariaLabel}
-                          className="touch-target grid shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                          disabled={!canResetPassword(u)}
+                          aria-label={
+                            canResetPassword(u)
+                              ? text.resetPassword.ariaLabel
+                              : text.resetPassword.managerDisabledLabel
+                          }
+                          title={
+                            canResetPassword(u)
+                              ? text.resetPassword.ariaLabel
+                              : text.resetPassword.managerDisabledLabel
+                          }
+                          className="touch-target grid shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:pointer-events-none disabled:opacity-30"
                         >
                           <KeyRound className="size-4" />
                         </button>

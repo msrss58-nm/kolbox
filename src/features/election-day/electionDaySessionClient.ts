@@ -31,6 +31,9 @@ export type SessionClientResult =
   | { status: "authenticated"; user: ServerSessionUser }
   | { status: "unauthenticated" }
   | { status: "rate_limited" }
+  /** Platform Stage 9: valid credentials, but the workspace is not entitled
+   * to Election Day (403 MODULE_NOT_ENABLED - only ever from `login()`). */
+  | { status: "module_not_enabled" }
   | { status: "error" };
 
 function isServerSessionUser(value: unknown): value is ServerSessionUser {
@@ -58,6 +61,21 @@ async function parseSessionResponse(res: Response): Promise<SessionClientResult>
   }
   if (res.status === 401) return { status: "unauthenticated" };
   if (res.status === 429) return { status: "rate_limited" };
+  if (res.status === 403) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+    if (
+      body &&
+      typeof body === "object" &&
+      (body as { error?: unknown }).error === "MODULE_NOT_ENABLED"
+    ) {
+      return { status: "module_not_enabled" };
+    }
+  }
   // 403 FORBIDDEN_ORIGIN, 5xx, and anything else unexpected all collapse to
   // the same generic "error" category - none of these are ever the user's
   // fault, and none of them should be distinguishable from a plain network

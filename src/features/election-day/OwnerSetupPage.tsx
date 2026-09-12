@@ -1,17 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { CheckCircle2, Copy, KeyRound } from "lucide-react";
+import { Copy } from "lucide-react";
 import { Navigate, useNavigate } from "react-router";
 import { LogoMark } from "../../components/Logo";
 import { Button } from "../../components/ui/Button";
-import { Field, Input, Select } from "../../components/ui/Field";
+import { Field, Input } from "../../components/ui/Field";
 import { ROUTES } from "../../constants/routes";
-import {
-  bootstrapFirstUser,
-  fetchOwnerRoles,
-  ownerReauth,
-  provisionWorkspace,
-  type ProvisionedWorkspace,
-} from "./electionDayOwnerClient";
+import { provisionWorkspace, type ProvisionedWorkspace } from "./electionDayOwnerClient";
 import {
   OWNER_PROVISIONING_TEXT,
   ownerProvisioningError,
@@ -20,16 +14,8 @@ import { useOwnerSession } from "./ownerSession";
 
 const setupText = OWNER_PROVISIONING_TEXT.setup;
 const createdText = OWNER_PROVISIONING_TEXT.created;
-const firstUserText = OWNER_PROVISIONING_TEXT.firstUser;
 
-const MIN_USER_PASSWORD_LENGTH = 6;
-
-type Stage = "setup" | "created" | "done";
-
-interface RoleOption {
-  id: string;
-  name: string;
-}
+type Stage = "setup" | "created";
 
 /**
  * Stage 3B - first-run provisioning for an approved Election Owner.
@@ -37,8 +23,15 @@ interface RoleOption {
  * Guards itself rather than sitting behind OwnerAuthGuard: that guard requires
  * `owner`, which by definition does not exist yet here. The three outcomes
  * after bootstrap are exhaustive - an already-provisioned Owner is sent to
- * their console, a pending Owner sees this flow, and anyone else goes back to
- * the login screen.
+ * their administration page, a pending Owner sees this flow, and anyone else
+ * goes back to the login screen.
+ *
+ * Platform Stage 9: provisioning ends here. There is no mandatory "first
+ * user" step any more - the Owner is the workspace's administrator and goes
+ * straight to the administration page, where users (the first Manager
+ * included) can be created now or at any later time. A workspace with zero
+ * users is a valid state, and leaving/reloading this screen cannot strand the
+ * Owner: a provisioned Owner is always redirected to administration.
  *
  * Nothing on this screen is authority. The Owner's right to provision is
  * re-established server-side on every call from their JWT plus the locked
@@ -60,44 +53,11 @@ export function OwnerSetupPage() {
   const [electionEndAt, setElectionEndAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [roles, setRoles] = useState<RoleOption[]>([]);
-  const [userName, setUserName] = useState("");
-  const [userPassword, setUserPassword] = useState("");
-  const [roleId, setRoleId] = useState("");
-  const [ownerPassword, setOwnerPassword] = useState("");
-  const [creatingUser, setCreatingUser] = useState(false);
-  const [userError, setUserError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!bootstrapped) void bootstrap();
   }, [bootstrapped, bootstrap]);
-
-  // Roles only exist after provisioning, and are seeded by it - so this loads
-  // once the workspace is real, never before.
-  useEffect(() => {
-    if (stage !== "created") return;
-    void (async () => {
-      const token = await getAccessToken();
-      if (!token) return;
-      const result = await fetchOwnerRoles(token);
-      if (result.status !== "ok") return;
-      const options = result.rows
-        .map((row) => {
-          const r = row as unknown as Record<string, unknown>;
-          return typeof r.id === "string" && typeof r.name === "string"
-            ? { id: r.id, name: r.name }
-            : null;
-        })
-        .filter((r): r is RoleOption => r !== null);
-      setRoles(options);
-      // Default to the fullest role so the first account can actually manage
-      // the system it was just handed.
-      const manager = options.find((r) => r.name === "מנהל");
-      setRoleId(manager?.id ?? options[0]?.id ?? "");
-    })();
-  }, [stage, getAccessToken]);
 
   const expired = provisioning?.state === "expired";
 
@@ -144,74 +104,6 @@ export function OwnerSetupPage() {
     }
   };
 
-  const submitFirstUser = async (event: FormEvent) => {
-    event.preventDefault();
-    if (creatingUser) return;
-    setUserError(null);
-
-    const name = userName.trim();
-    if (!name) {
-      setUserError(firstUserText.missingName);
-      return;
-    }
-    if (!userPassword) {
-      setUserError(firstUserText.missingPassword);
-      return;
-    }
-    if (userPassword.length < MIN_USER_PASSWORD_LENGTH) {
-      setUserError(firstUserText.passwordTooShort);
-      return;
-    }
-    if (!roleId) {
-      setUserError(firstUserText.missingRole);
-      return;
-    }
-    if (!ownerPassword) {
-      setUserError(firstUserText.wrongOwnerPassword);
-      return;
-    }
-
-    setCreatingUser(true);
-    try {
-      const token = await getAccessToken();
-      if (!token) {
-        setUserError(ownerProvisioningError("UNAUTHORIZED"));
-        return;
-      }
-
-      // Fresh, one-time, action-bound proof minted inside this same async
-      // chain and never stored anywhere - matching useOwnerReauth's contract.
-      const proof = await ownerReauth(token, ownerPassword, "bootstrap_first_user");
-      if (proof.status === "wrong_password") {
-        setUserError(firstUserText.wrongOwnerPassword);
-        return;
-      }
-      if (proof.status === "rate_limited") {
-        setUserError(firstUserText.rateLimited);
-        return;
-      }
-      if (proof.status !== "ok") {
-        setUserError(ownerProvisioningError("SERVER_ERROR"));
-        return;
-      }
-
-      const created = await bootstrapFirstUser(token, proof.proof, {
-        name,
-        password: userPassword,
-        roleId,
-      });
-      if (created.status !== "ok") {
-        setUserError(ownerProvisioningError(created.code));
-        return;
-      }
-      setOwnerPassword("");
-      setUserPassword("");
-      setStage("done");
-    } finally {
-      setCreatingUser(false);
-    }
-  };
-
   const copyCode = async () => {
     if (!workspace) return;
     try {
@@ -223,11 +115,13 @@ export function OwnerSetupPage() {
     }
   };
 
-  const heading = useMemo(() => {
-    if (stage === "setup") return setupText.title;
-    if (stage === "created") return createdText.title;
-    return firstUserText.doneTitle;
-  }, [stage]);
+  const goToAdministration = () =>
+    void navigate(ROUTES.electionDayOwnerRoles, { replace: true });
+
+  const heading = useMemo(
+    () => (stage === "setup" ? setupText.title : createdText.title),
+    [stage],
+  );
 
   if (!bootstrapped) {
     return (
@@ -237,7 +131,7 @@ export function OwnerSetupPage() {
     );
   }
 
-  // Already provisioned and not mid-flow - nothing to do here.
+  // Already provisioned and not mid-flow - administration is the home page.
   if (owner && stage === "setup") {
     return <Navigate to={ROUTES.electionDayOwnerRoles} replace />;
   }
@@ -329,89 +223,9 @@ export function OwnerSetupPage() {
               <p className="mt-3 text-xs text-slate-500">{createdText.loginCodeHint}</p>
             </div>
 
-            <form onSubmit={submitFirstUser} className="space-y-4">
-              <div>
-                <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <KeyRound className="h-4 w-4" aria-hidden />
-                  {firstUserText.title}
-                </h2>
-                <p className="mt-1 text-sm text-slate-600">{firstUserText.subtitle}</p>
-              </div>
-
-              <Field label={firstUserText.nameLabel}>
-                <Input
-                  id="fu-name"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  required
-                />
-              </Field>
-
-              <Field label={firstUserText.passwordLabel}>
-                <Input
-                  id="fu-password"
-                  name="first-user-password"
-                  type="password"
-                  autoComplete="new-password"
-                  value={userPassword}
-                  onChange={(e) => setUserPassword(e.target.value)}
-                  required
-                />
-              </Field>
-
-              <Field label={firstUserText.roleLabel}>
-                <Select
-                  id="fu-role"
-                  value={roleId}
-                  onChange={(e) => setRoleId(e.target.value)}
-                >
-                  {roles.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <Field label={firstUserText.ownerPasswordLabel}>
-                <Input
-                  id="fu-owner-password"
-                  name="owner-current-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={ownerPassword}
-                  onChange={(e) => setOwnerPassword(e.target.value)}
-                  required
-                />
-                <span className="block text-xs text-slate-500">
-                  {firstUserText.ownerPasswordHint}
-                </span>
-              </Field>
-
-              {userError && (
-                <p role="alert" className="text-sm text-rose-600">
-                  {userError}
-                </p>
-              )}
-
-              <Button type="submit" disabled={creatingUser} className="w-full">
-                {creatingUser ? firstUserText.submitting : firstUserText.submit}
-              </Button>
-            </form>
-          </div>
-        )}
-
-        {stage === "done" && (
-          <div className="space-y-4 text-center">
-            <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" aria-hidden />
-            <p className="text-sm text-slate-600">{firstUserText.doneBody}</p>
-            {workspace && (
-              <p className="font-mono text-xl tracking-widest text-slate-900">
-                {workspace.loginCode}
-              </p>
-            )}
-            <Button type="button" onClick={() => void navigate(ROUTES.electionDayLogin)}>
-              {firstUserText.goToLogin}
+            <p className="text-sm text-slate-600">{createdText.nextHint}</p>
+            <Button type="button" className="w-full" onClick={goToAdministration}>
+              {createdText.continue}
             </Button>
           </div>
         )}

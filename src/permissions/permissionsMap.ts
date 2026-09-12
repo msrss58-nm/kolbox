@@ -37,3 +37,12 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   "voter.viewRideStatus",
   "voter.viewVotedStatus",
 ];
+
+/** Platform Stage 9: catalogued permissions that no longer grant anything,
+ * so the role editor does not offer them. `electionDay.manageUsers` used to
+ * gate worker-side user management, which is now Election Owner authority
+ * only. It stays in the catalog so existing role rows and seeds that still
+ * carry the string keep validating - it is simply inert. */
+export const NON_GRANTABLE_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
+  "electionDay.manageUsers",
+]);

@@ -8,8 +8,13 @@ import {
   PLATFORM_OWNER_TEXT,
   platformApproveOwnerError,
 } from "./platform-owner.constants";
+import { moduleLabel } from "../../constants/labels";
 import { OneTimeLinkBox } from "./OneTimeLinkBox";
-import { createOwnerAccess, type CreatedOwnerAccess } from "./platformOwnerClient";
+import {
+  createOwnerAccess,
+  type CreatedOwnerAccess,
+  type ModuleCatalogEntry,
+} from "./platformOwnerClient";
 
 const text = PLATFORM_OWNER_TEXT.approveOwner;
 
@@ -22,11 +27,25 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * state for exactly as long as the success panel is on screen and is never
  * persisted, cached, or sent anywhere else. `onChanged` lets the approvals list
  * refetch after every outcome that may have changed the server's state.
+ *
+ * Stage 9: the Platform Owner must choose the new workspace's modules
+ * explicitly - nothing is pre-selected, at least one is required, and the
+ * server validates the choice against its own catalog (`catalog`, loaded by
+ * the console page from the same server).
  */
-export function OwnerApprovalCard({ onChanged }: { onChanged: () => void }) {
+export function OwnerApprovalCard({
+  onChanged,
+  catalog,
+  catalogError,
+}: {
+  onChanged: () => void;
+  catalog: ModuleCatalogEntry[];
+  catalogError: boolean;
+}) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [modules, setModules] = useState<Set<string>>(() => new Set());
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedOwnerAccess | null>(null);
@@ -36,7 +55,17 @@ export function OwnerApprovalCard({ onChanged }: { onChanged: () => void }) {
     setName("");
     setEmail("");
     setPhone("");
+    setModules(new Set());
     setError(null);
+  };
+
+  const toggleModule = (key: string) => {
+    setModules((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const submit = async (event: FormEvent) => {
@@ -48,6 +77,10 @@ export function OwnerApprovalCard({ onChanged }: { onChanged: () => void }) {
     const trimmedEmail = email.trim();
     if (!trimmedName || !EMAIL_RE.test(trimmedEmail)) {
       setError(text.missingFields);
+      return;
+    }
+    if (modules.size === 0) {
+      setError(text.modulesRequired);
       return;
     }
 
@@ -63,6 +96,7 @@ export function OwnerApprovalCard({ onChanged }: { onChanged: () => void }) {
         name: trimmedName,
         email: trimmedEmail,
         phone: phone.trim() || undefined,
+        modules: [...modules],
       });
       if (result.status !== "ok") {
         const base = platformApproveOwnerError(result.code);
@@ -123,6 +157,44 @@ export function OwnerApprovalCard({ onChanged }: { onChanged: () => void }) {
               autoComplete="off"
             />
           </Field>
+
+          <fieldset className="space-y-2" data-testid="approval-modules">
+            <legend className="text-sm font-semibold text-slate-700">
+              {text.modulesLabel}
+            </legend>
+            <p className="text-xs text-slate-500">{text.modulesHint}</p>
+            {catalogError ? (
+              <p role="alert" className="text-sm text-opponent">
+                {text.modulesLoadError}
+              </p>
+            ) : catalog.length === 0 ? (
+              <p className="text-sm text-slate-500">{text.modulesLoading}</p>
+            ) : (
+              <div className="grid gap-1.5 sm:grid-cols-3">
+                {catalog.map((m) => (
+                  <label
+                    key={m.key}
+                    className="flex min-h-11 items-center gap-2 rounded-xl px-2 py-1.5 text-sm text-slate-700 ring-1 ring-slate-200"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={modules.has(m.key)}
+                      onChange={() => toggleModule(m.key)}
+                      className="size-4 shrink-0 accent-primary-600"
+                    />
+                    <span>
+                      {moduleLabel(m.key)}
+                      {!m.available && (
+                        <span className="block text-xs text-slate-400">
+                          {text.moduleUnavailable}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </fieldset>
 
           {error && (
             <p role="alert" className="text-sm text-opponent">

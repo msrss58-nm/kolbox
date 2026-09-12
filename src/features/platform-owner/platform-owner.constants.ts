@@ -146,6 +146,14 @@ export const PLATFORM_OWNER_TEXT = {
     nameLabel: "שם הבעלים",
     emailLabel: "אימייל",
     phoneLabel: "טלפון (לא חובה)",
+    /** Stage 9: explicit module entitlement choice. */
+    modulesLabel: "מודולים למערכת",
+    modulesHint:
+      "בחרו במפורש לאילו מודולים תהיה גישה למערכת החדשה. ניתן לשנות זאת בהמשך מרשימת המודולים לפי מערכת.",
+    modulesRequired: "יש לבחור לפחות מודול אחד",
+    moduleUnavailable: "טרם זמין - יישמר ויופעל כשיהיה זמין",
+    modulesLoading: "טוענים את רשימת המודולים...",
+    modulesLoadError: "לא הצלחנו לטעון את רשימת המודולים. רעננו את הדף.",
     submit: "אישור ויצירת קישור",
     submitting: "יוצרים...",
     missingFields: "יש להזין שם וכתובת אימייל תקינה",
@@ -170,6 +178,7 @@ export const PLATFORM_OWNER_TEXT = {
       FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
       UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
       INVALID_REQUEST: "הפרטים שהוזנו אינם תקינים.",
+      INVALID_MODULES: "בחירת המודולים אינה תקינה. בחרו לפחות מודול אחד מהרשימה.",
       SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
       SERVER_ERROR: "אירעה שגיאה, נסו שוב",
     } as Record<string, string>,
@@ -203,6 +212,8 @@ export const PLATFORM_OWNER_TEXT = {
     expiredAt: (d: string) => `פג תוקף ב-${d}`,
     consumedAt: (d: string) => `ההרשמה הושלמה ב-${d}`,
     workspace: (name: string) => `מערכת: ${name}`,
+    /** Stage 9: the module choice recorded with a not-yet-used approval. */
+    requestedModules: (list: string) => `מודולים שנבחרו: ${list}`,
     reissue: "הפקת קישור חדש",
     renew: "חידוש והפקת קישור",
     confirmReissueTitle: "להפיק קישור חדש?",
@@ -223,6 +234,39 @@ export const PLATFORM_OWNER_TEXT = {
         "הבעלים כבר השלים את ההרשמה - לא ניתן להפיק עבורו קישור חדש.",
       IDENTITY_ALREADY_PRINCIPAL: "החשבון משמש כבר בתפקיד אחר במערכת. לא הופק קישור.",
       PENDING_ACCESS_NOT_FOUND: "ההרשאה לא נמצאה. רעננו את הדף.",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      INVALID_REQUEST: "הבקשה אינה תקינה.",
+      SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
+  },
+
+  /** Stage 9 - per-workspace module entitlements (platform licensing). An
+   * entitlement decides whether a module is available to a workspace at all;
+   * what a user may do inside it is still decided by that workspace's roles. */
+  workspaceModules: {
+    title: "מודולים לפי מערכת",
+    subtitle:
+      "אילו מודולים פעילים בכל מערכת בחירות. ההרשאות בתוך מודול פעיל נקבעות בתפקידים שמנהלים הבעלים.",
+    empty: "אין מערכות בחירות",
+    loadError: "לא הצלחנו לטעון את המודולים.",
+    retry: "נסו שוב",
+    owner: (name: string) => `בעלים: ${name}`,
+    none: "אין מודולים פעילים",
+    edit: "עריכת מודולים",
+    save: "שמירה",
+    cancel: "ביטול",
+    unavailable: "טרם זמין",
+    required: "יש לבחור לפחות מודול אחד",
+    confirmTitle: "לעדכן את המודולים?",
+    confirmMessage: (name: string) =>
+      `המודולים של "${name}" יעודכנו מיד. הסרת "ניהול יום הבחירות" תנתק את אנשי הצוות של המערכת ותחסום את כניסתם; ניהול המשתמשים והתפקידים של הבעלים יישאר זמין.`,
+    confirm: "עדכון",
+    saved: "המודולים עודכנו",
+    errors: {
+      INVALID_MODULES: "בחירת המודולים אינה תקינה.",
+      WORKSPACE_NOT_FOUND: "מערכת הבחירות לא נמצאה. רעננו את הדף.",
       FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
       UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
       INVALID_REQUEST: "הבקשה אינה תקינה.",
@@ -428,6 +472,15 @@ export function platformOwnerAccessError(code: string): string {
   return (
     PLATFORM_OWNER_TEXT.ownerAccess.errors[code] ??
     PLATFORM_OWNER_TEXT.ownerAccess.errors.SERVER_ERROR
+  );
+}
+
+/** Stage 9 - maps a module-entitlement error code to Hebrew (same unknown-code
+ * fallback as the functions around it). */
+export function platformWorkspaceModulesError(code: string): string {
+  return (
+    PLATFORM_OWNER_TEXT.workspaceModules.errors[code] ??
+    PLATFORM_OWNER_TEXT.workspaceModules.errors.SERVER_ERROR
   );
 }
 

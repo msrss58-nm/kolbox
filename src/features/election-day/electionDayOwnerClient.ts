@@ -1,5 +1,6 @@
 import type { RawRoleRow } from "../../permissions/roleRecordMapper";
-import type { NewRole, RoleUpdate } from "../../services/api/types";
+import type { NewPermissionUser, NewRole, RoleUpdate } from "../../services/api/types";
+import type { PermissionUser } from "../../types";
 
 /**
  * Phase 3C Roles Mutations: pure fetch wrappers around the Owner-only
@@ -110,9 +111,12 @@ export type OwnerReauthAction =
   | "update_role"
   | "delete_role"
   | "clone_role"
-  // Stage 3B. Mirrors owner-reauth.ts's server-side ALLOWED_OWNER_ACTIONS,
-  // which is the authority - this union only stops a typo compiling.
-  | "bootstrap_first_user";
+  // Stage 9 Owner user management. Mirrors owner-reauth.ts's server-side
+  // ALLOWED_OWNER_ACTIONS, which is the authority - this union only stops a
+  // typo compiling.
+  | "create_permission_user"
+  | "delete_permission_user"
+  | "reset_permission_user_password";
 
 export type OwnerReauthResult =
   | { status: "ok"; proof: string }
@@ -207,6 +211,7 @@ export function createOwnerRole(
     description: input.description,
     permissions: input.permissions,
     scopeType: input.scopeType,
+    ...(input.isManager !== undefined ? { isManager: input.isManager } : {}),
   });
 }
 
@@ -223,6 +228,7 @@ export function updateOwnerRole(
     description: input.description,
     permissions: input.permissions,
     scopeType: input.scopeType,
+    ...(input.isManager !== undefined ? { isManager: input.isManager } : {}),
   });
 }
 
@@ -413,30 +419,131 @@ export async function provisionWorkspace(
   };
 }
 
-export type BootstrapFirstUserResult =
-  | { status: "ok"; name: string }
+/* ==========================================================================
+ * Stage 9 - Owner administration: workspace users and module entitlements.
+ *
+ * Same Owner-JWT action router as provisioning. Reads carry no proof; every
+ * mutation carries a fresh one-time Owner proof minted for its own action.
+ * The server re-resolves the Owner's workspace on every call - nothing here
+ * (no id, no workspace) is ever authority.
+ * ========================================================================== */
+
+export type OwnerReadResult<T> =
+  | { status: "ok"; data: T }
+  | { status: "unauthorized" }
+  | { status: "error" };
+
+async function getOwnerAction(
+  accessToken: string,
+  op: string,
+): Promise<{ ok: true; data: unknown } | { ok: false; unauthorized: boolean }> {
+  try {
+    const res = await fetch(`${OWNER_ACTIONS_ENDPOINT}?op=${encodeURIComponent(op)}`, {
+      method: "GET",
+      headers: bearer(accessToken),
+    });
+    if (res.status === 401) return { ok: false, unauthorized: true };
+    if (res.status !== 200) return { ok: false, unauthorized: false };
+    try {
+      return { ok: true, data: await res.json() };
+    } catch {
+      return { ok: false, unauthorized: false };
+    }
+  } catch {
+    return { ok: false, unauthorized: false };
+  }
+}
+
+export async function fetchOwnerPermissionUsers(
+  accessToken: string,
+): Promise<OwnerReadResult<PermissionUser[]>> {
+  const r = await getOwnerAction(accessToken, "list_permission_users");
+  if (!r.ok) return { status: r.unauthorized ? "unauthorized" : "error" };
+  if (!Array.isArray(r.data)) return { status: "error" };
+  const users: PermissionUser[] = [];
+  for (const raw of r.data) {
+    const v = raw as Record<string, unknown> | null;
+    if (!v || typeof v.id !== "string" || typeof v.name !== "string") continue;
+    if (typeof v.role_id !== "string") continue;
+    users.push({ id: v.id, name: v.name, roleId: v.role_id });
+  }
+  return { status: "ok", data: users };
+}
+
+export interface OwnerWorkspaceModule {
+  key: string;
+  /** False = catalogued but not yet a live module (not enforced anywhere). */
+  available: boolean;
+  enabled: boolean;
+}
+
+export async function fetchOwnerWorkspaceModules(
+  accessToken: string,
+): Promise<OwnerReadResult<OwnerWorkspaceModule[]>> {
+  const r = await getOwnerAction(accessToken, "workspace_modules");
+  if (!r.ok) return { status: r.unauthorized ? "unauthorized" : "error" };
+  if (!Array.isArray(r.data)) return { status: "error" };
+  const modules: OwnerWorkspaceModule[] = [];
+  for (const raw of r.data) {
+    const v = raw as Record<string, unknown> | null;
+    if (!v || typeof v.module_key !== "string") continue;
+    modules.push({
+      key: v.module_key,
+      available: v.available === true,
+      enabled: v.enabled === true,
+    });
+  }
+  return { status: "ok", data: modules };
+}
+
+export type OwnerUserMutationResult =
+  | { status: "ok" }
   | { status: "error"; code: string };
 
-export async function bootstrapFirstUser(
+async function postOwnerUserMutation(
+  accessToken: string,
+  body: Record<string, unknown>,
+): Promise<OwnerUserMutationResult> {
+  const result = await postOwnerAction(accessToken, body);
+  return result.ok ? { status: "ok" } : { status: "error", code: result.code };
+}
+
+export function createOwnerPermissionUser(
   accessToken: string,
   proof: string,
-  input: { name: string; password: string; roleId: string },
-): Promise<BootstrapFirstUserResult> {
-  const result = await postOwnerAction(accessToken, {
-    op: "bootstrap_first_user",
+  input: NewPermissionUser,
+): Promise<OwnerUserMutationResult> {
+  return postOwnerUserMutation(accessToken, {
+    op: "create_permission_user",
     reauthProof: proof,
     name: input.name,
     password: input.password,
     roleId: input.roleId,
   });
-  if (!result.ok) return { status: "error", code: result.code };
+}
 
-  // The RPC returns a single-row table, so the router forwards an array.
-  const row = (Array.isArray(result.data) ? result.data[0] : result.data) as Record<
-    string,
-    unknown
-  > | null;
-  return row && typeof row.name === "string"
-    ? { status: "ok", name: row.name }
-    : { status: "error", code: "SERVER_ERROR" };
+export function deleteOwnerPermissionUser(
+  accessToken: string,
+  proof: string,
+  targetUserId: string,
+): Promise<OwnerUserMutationResult> {
+  return postOwnerUserMutation(accessToken, {
+    op: "delete_permission_user",
+    reauthProof: proof,
+    targetUserId,
+  });
+}
+
+export function resetOwnerPermissionUserPassword(
+  accessToken: string,
+  proof: string,
+  targetUserId: string,
+  newPassword: string,
+): Promise<OwnerUserMutationResult> {
+  return postOwnerUserMutation(accessToken, {
+    op: "reset_permission_user_password",
+    reauthProof: proof,
+    targetUserId,
+    newPassword,
+  });
 }

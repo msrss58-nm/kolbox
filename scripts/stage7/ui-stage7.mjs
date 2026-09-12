@@ -98,14 +98,23 @@ const pPost = (body) =>
     body,
   });
 
+// Stage 9: raw-SQL fixture workspaces carry no module entitlement; these are
+// Election Day workspaces, so they are granted election_day explicitly (as
+// provisioning and the Stage 9 backfill do for real ones).
 const wsRows = psql(`
-  insert into public.election_workspaces (name, election_end_at, login_code) values
-    ('S7UI Alpha', now() + interval '10 days', public.election_day_generate_workspace_login_code()),
-    ('S7UI Beta',  now() + interval '10 days', public.election_day_generate_workspace_login_code()),
-    ('S7UI Gamma', now() + interval '10 days', public.election_day_generate_workspace_login_code()),
-    ('S7UI Delta', now() - interval '1 day',   public.election_day_generate_workspace_login_code()),
-    ('S7UI Eta',   now() + interval '10 days', public.election_day_generate_workspace_login_code())
-  returning name || '|' || id || '|' || login_code;
+  with w as (
+    insert into public.election_workspaces (name, election_end_at, login_code) values
+      ('S7UI Alpha', now() + interval '10 days', public.election_day_generate_workspace_login_code()),
+      ('S7UI Beta',  now() + interval '10 days', public.election_day_generate_workspace_login_code()),
+      ('S7UI Gamma', now() + interval '10 days', public.election_day_generate_workspace_login_code()),
+      ('S7UI Delta', now() - interval '1 day',   public.election_day_generate_workspace_login_code()),
+      ('S7UI Eta',   now() + interval '10 days', public.election_day_generate_workspace_login_code())
+    returning id, name, login_code
+  ), m as (
+    insert into public.election_workspace_modules (workspace_id, module_key)
+    select id, 'election_day' from w
+  )
+  select name || '|' || id || '|' || login_code from w;
 `).split("\n");
 const WS = Object.fromEntries(wsRows.map((r) => { const [n, id, code] = r.split("|"); return [n.replace("S7UI ", ""), { id, code, name: n }]; }));
 const LOGIN_CODES = Object.values(WS).map((w) => w.code);
@@ -322,6 +331,42 @@ try {
   await page.getByTestId("back-to-dashboard").click();
   await waitCards(4);
   check("DT6 back link returns to the dashboard", page.url().endsWith("/multi-entity"));
+
+  // -------------------------------------------------------------------------
+  // Stage 9: an assigned workspace WITHOUT the Election Day entitlement stays
+  // on the dashboard, marked unavailable, with no number anywhere. Self-
+  // contained: the workspace is unassigned again so later checks see 4 cards.
+  section("STAGE 9: ASSIGNED WORKSPACE WITHOUT ELECTION DAY");
+  const theta = psql(`insert into public.election_workspaces (name, election_end_at, login_code) values ('S7UI Theta', now() + interval '10 days', public.election_day_generate_workspace_login_code()) returning id;`);
+  bulk(theta, 12, 12, true);
+  await pPost({ op: "assign_workspace", workspaceId: theta });
+  await refreshBtn().click();
+  await waitCards(5);
+  const thetaCard = cardBy("S7UI Theta");
+  check("EN1 the unentitled workspace stays on the dashboard, marked unavailable in words",
+    (await thetaCard.getAttribute("data-status")) === "unavailable" &&
+      (await thetaCard.locator('[data-testid="workspace-status"]').innerText()) === "מודול יום הבחירות אינו פעיל");
+  check("EN2 it renders NO metric, shows a notice, and has no detail link",
+    (await thetaCard.locator("[data-metric]").count()) === 0 &&
+      (await thetaCard.locator('[data-testid="withheld-notice"]').count()) === 1 &&
+      (await thetaCard.getByRole("link").count()) === 0);
+  await sleep(500); // let the captured response body land in aggBodies
+  const lastAgg = aggBodies.at(-1);
+  const thetaRow = lastAgg?.workspaces?.find((w) => w.workspaceId === theta);
+  check("EN3 the server row is status unavailable with metrics null; totals exclude its 12 contacts",
+    thetaRow?.status === "unavailable" && thetaRow?.metrics === null &&
+      lastAgg?.totals?.unavailableWorkspaceCount === 1 && lastAgg?.totals?.metrics?.contactsTotal === 22,
+    JSON.stringify(lastAgg?.totals));
+  check("EN4 the summary names the excluded workspace",
+    (await page.locator('[data-testid="summary-excluded"]').innerText()).includes("1 ללא מודול יום הבחירות"));
+  await shot("05b-dashboard-unavailable-390");
+  await page.goto(`${BASE}/multi-entity/workspaces/${theta}`);
+  await page.locator('[data-testid="workspace-detail"][data-status="unavailable"]').waitFor({ timeout: 15000 });
+  check("EN5 detail view: unavailable notice, no metric", (await page.locator("[data-metric]").count()) === 0 && (await page.locator('[data-testid="withheld-notice"]').count()) === 1);
+  await pPost({ op: "unassign_workspace", workspaceId: theta });
+  await page.getByTestId("back-to-dashboard").click();
+  await waitCards(4);
+  check("EN6 unassigning restores the four-card dashboard", page.url().endsWith("/multi-entity"));
 
   // -------------------------------------------------------------------------
   section("FRESHNESS");

@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   EyeOff,
   Flag,
+  Lock,
 } from "lucide-react";
 import { Link } from "react-router";
 import { Card } from "../../components/ui/Card";
@@ -30,7 +31,10 @@ const STATUS_STYLE: Record<
   },
   suppressed: { icon: EyeOff, className: "bg-amber-50 text-amber-800 ring-amber-200" },
   ended: { icon: Flag, className: "bg-slate-100 text-slate-700 ring-slate-200" },
+  unavailable: { icon: Lock, className: "bg-slate-100 text-slate-700 ring-slate-200" },
 };
+
+type WithheldStatus = Exclude<MultiEntityReportStatus, "reported">;
 
 /** Status in WORDS plus an icon - never color alone. */
 export function MultiEntityStatusBadge({ status }: { status: MultiEntityReportStatus }) {
@@ -50,12 +54,8 @@ export function MultiEntityStatusBadge({ status }: { status: MultiEntityReportSt
 }
 
 /** Why a workspace shows no numbers. Deliberately contains no number at all. */
-export function MultiEntityWithheldNotice({
-  status,
-}: {
-  status: "suppressed" | "ended";
-}) {
-  const Icon = status === "suppressed" ? EyeOff : Flag;
+export function MultiEntityWithheldNotice({ status }: { status: WithheldStatus }) {
+  const Icon = STATUS_STYLE[status].icon;
   return (
     <p
       data-testid="withheld-notice"
@@ -69,8 +69,8 @@ export function MultiEntityWithheldNotice({
 
 /**
  * Platform Stage 7: one assigned workspace on the dashboard. Numbers render
- * ONLY for a `reported` row; `suppressed` and `ended` rows show a notice and
- * nothing derived from any count.
+ * ONLY for a `reported` row; `suppressed`, `ended` and (Stage 9) `unavailable`
+ * rows show a notice and nothing derived from any count.
  */
 export function MultiEntityWorkspaceCard({
   workspace,

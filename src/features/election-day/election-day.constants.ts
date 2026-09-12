@@ -733,6 +733,8 @@ export const ELECTION_DAY_TEXT = {
     },
     resetPassword: {
       ariaLabel: "איפוס סיסמה",
+      /** Platform Stage 9: the Owner cannot reset a Manager-role user. */
+      managerDisabledLabel: "לא ניתן לאפס סיסמה של משתמש בתפקיד מנהל",
       dialogTitle: "איפוס סיסמה",
       dialogBody: (userName: string) =>
         `אתה עומד לאפס את הסיסמה עבור המשתמש:\n${userName}`,
@@ -777,6 +779,11 @@ export const ELECTION_DAY_TEXT = {
     confirmDeleteMessage:
       "פעולה זו אינה הפיכה. תפקידים עם משתמשים משויכים לא ניתנים למחיקה.",
     confirmDeleteButton: "מחיקת התפקיד",
+    /** Platform Stage 9: the explicit Manager-role flag. */
+    managerLabel: "תפקיד מנהל",
+    managerHint:
+      "סמנו לתפקידי ניהול. לא ניתן לאפס את הסיסמה של משתמש בתפקיד מנהל מתוך ניהול המשתמשים - ניתן למחוק וליצור אותו מחדש.",
+    managerBadge: "מנהל",
     toast: {
       created: "התפקיד נוצר",
       updated: "התפקיד עודכן",
@@ -1084,6 +1091,10 @@ export const ELECTION_DAY_TEXT = {
     submit: "התחברות",
     signOut: "התנתקות",
     errors: {
+      /** Platform Stage 9: valid credentials, but the workspace is not
+       * entitled to Election Day (the server says so only after the password
+       * verified, so this is not an enumeration oracle). */
+      moduleNotEnabled: "מודול יום הבחירות אינו פעיל למערכת זו. פנו לבעלי המערכת.",
       /** Deliberately ONE message for every failure mode - wrong workspace
        * code, unknown username and wrong password alike. Adding a distinct
        * "workspace not found" would turn this screen into an enumeration
@@ -1119,9 +1130,27 @@ export const ELECTION_DAY_TEXT = {
     },
     entryLinkLabel: "כניסת בעלים",
     rolesPage: {
-      title: "ניהול תפקידים - בעלים",
+      /** Platform Stage 9: the page is now the Owner's whole administration
+       * area (workspace, modules, users, roles), not roles only. */
+      title: "ניהול המערכת - בעלים",
       signedInAs: (email: string) => `מחובר כ-${email}`,
       logout: "התנתקות",
+      workspaceTitle: "המערכת שלכם",
+      workspaceCodeLabel: "קוד מערכת",
+      workspaceCodeHint:
+        "אנשי הצוות מתחברים ליום הבחירות עם קוד המערכת ועם שם המשתמש והסיסמה שיצרתם עבורם.",
+      modulesTitle: "מודולים",
+      moduleEnabled: "פעיל",
+      moduleDisabled: "לא פעיל",
+      moduleUnavailable: "טרם זמין",
+      electionDayDisabledNote:
+        "מודול יום הבחירות אינו פעיל למערכת זו. ניתן להכין משתמשים ותפקידים, אך אנשי הצוות לא יוכלו להתחבר עד שבעל הפלטפורמה יפעיל אותו.",
+      usersTitle: "משתמשים",
+      usersSubtitle:
+        "יצירה, מחיקה ואיפוס סיסמה של משתמשי המערכת. ניהול המשתמשים זמין לבעלים בלבד.",
+      rolesTitle: "תפקידים והרשאות",
+      loadError: "לא הצלחנו לטעון את הנתונים.",
+      retry: "נסו שוב",
     },
     /** Maps a fixed error code from `api/election-day/owner-roles.ts`'s own
      * `mapRpcError`/body-validation responses to Hebrew copy - see
@@ -1134,6 +1163,14 @@ export const ELECTION_DAY_TEXT = {
       INVALID_SCOPE_TYPE: "תחום עבודה לא תקין",
       INVALID_PERMISSION: "הרשאה לא תקינה",
       INVALID_REQUEST: "בקשה לא תקינה",
+      // Platform Stage 9 - Owner user management.
+      USER_NOT_FOUND: "המשתמש אינו קיים",
+      CANNOT_RESET_MANAGER: "לא ניתן לאפס סיסמה של משתמש בתפקיד מנהל",
+      INVALID_PASSWORD: "יש להזין סיסמה חדשה",
+      DUPLICATE_NAME: "שם המשתמש כבר קיים במערכת. בחרו שם אחר.",
+      NAME_REQUIRED: "יש להזין שם משתמש",
+      PASSWORD_REQUIRED: "יש להזין סיסמה",
+      MODULE_NOT_ENABLED: "מודול יום הבחירות אינו פעיל למערכת זו",
       SERVER_ERROR: "אירעה שגיאה, נסו שוב",
     },
   },

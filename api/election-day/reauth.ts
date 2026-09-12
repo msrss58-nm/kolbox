@@ -61,10 +61,10 @@ import { createHash, randomBytes } from "node:crypto";
 // (delete_permission_user/reset_permission_user_password above), not the
 // reusable-within-TTL coordinator_allocation precedent. No frontend code
 // calls this endpoint with either action yet.
+// Stage 9: create/delete/reset_permission_user were removed - user
+// management is Election Owner authority only (owner-reauth.ts), and the
+// worker-side RPCs they gated no longer have any grant.
 const ALLOWED_REAUTH_ACTIONS = new Set<string>([
-  "create_permission_user",
-  "delete_permission_user",
-  "reset_permission_user_password",
   "manage_coordinators",
   "apply_initial_allocation",
   "rebalance_assignments",

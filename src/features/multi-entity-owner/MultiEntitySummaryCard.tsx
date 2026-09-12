@@ -17,7 +17,10 @@ export function MultiEntitySummaryCard({
 }: {
   totals: MultiEntityAggregateTotals;
 }) {
-  const excluded = totals.suppressedWorkspaceCount + totals.endedWorkspaceCount;
+  const excluded =
+    totals.suppressedWorkspaceCount +
+    totals.endedWorkspaceCount +
+    totals.unavailableWorkspaceCount;
   return (
     <Card className="space-y-3" data-testid="summary">
       <div className="space-y-1">
@@ -27,7 +30,11 @@ export function MultiEntitySummaryCard({
         </p>
         {excluded > 0 && (
           <p className="text-xs text-slate-500" data-testid="summary-excluded">
-            {text.excluded(totals.suppressedWorkspaceCount, totals.endedWorkspaceCount)}
+            {text.excluded(
+              totals.suppressedWorkspaceCount,
+              totals.endedWorkspaceCount,
+              totals.unavailableWorkspaceCount,
+            )}
           </p>
         )}
       </div>

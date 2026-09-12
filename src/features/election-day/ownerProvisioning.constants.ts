@@ -51,37 +51,20 @@ export const OWNER_PROVISIONING_TEXT = {
       "הקוד אינו סיסמה. הוא מזהה את המערכת שאליה מתחברים, ואפשר למסור אותו בחופשיות לאנשי הצוות.",
     copy: "העתקה",
     copied: "הועתק",
-  },
-
-  firstUser: {
-    title: "יצירת המשתמש הראשון",
-    subtitle:
-      "צרו את חשבון הניהול הראשון במערכת. מכאן ואילך אפשר להוסיף משתמשים מתוך המערכת עצמה.",
-    nameLabel: "שם המשתמש",
-    passwordLabel: "סיסמה",
-    roleLabel: "תפקיד",
-    submit: "יצירת המשתמש",
-    submitting: "יוצרים...",
-    ownerPasswordLabel: "הסיסמה שלכם (אימות)",
-    ownerPasswordHint: "לאישור הפעולה נדרשת הסיסמה של חשבון הבעלים שלכם.",
-    missingName: "יש להזין שם משתמש",
-    missingPassword: "יש להזין סיסמה",
-    passwordTooShort: "הסיסמה חייבת להכיל לפחות 6 תווים",
-    missingRole: "יש לבחור תפקיד",
-    wrongOwnerPassword: "הסיסמה שגויה",
-    rateLimited: "יותר מדי ניסיונות. המתינו רגע ונסו שוב.",
-    alreadyCompleted: "כבר קיים משתמש במערכת. אפשר להמשיך מסך הניהול.",
-    doneTitle: "הכול מוכן",
-    doneBody: "המשתמש נוצר. אפשר להתחבר למערכת עם קוד המערכת ופרטי המשתמש.",
-    goToLogin: "מעבר למסך ההתחברות",
+    /** Platform Stage 9: no mandatory first-user step - the Owner goes
+     * straight to administration. */
+    nextHint:
+      "בשלב הבא תגיעו לניהול המערכת. שם תוכלו ליצור מנהלים ומשתמשים - עכשיו או בכל זמן אחר.",
+    continue: "המשך לניהול המערכת",
   },
 
   errors: {
     PENDING_ACCESS_NOT_FOUND: "לא נמצאה הרשאה פעילה עבור החשבון הזה.",
     PENDING_ACCESS_EXPIRED: "תוקף ההרשאה פג. פנו למנהל הפלטפורמה.",
     PENDING_ACCESS_ALREADY_CONSUMED: "ההרשאה כבר נוצלה.",
-    BOOTSTRAP_ALREADY_COMPLETED: "כבר קיים משתמש במערכת.",
-    ROLE_NOT_FOUND: "התפקיד שנבחר אינו קיים.",
+    /** Platform Stage 9: an approval without a recorded module choice. */
+    APPROVAL_MODULES_MISSING:
+      "ההרשאה שקיבלתם אינה כוללת בחירת מודולים, ולכן לא ניתן להקים את המערכת. פנו לבעל הפלטפורמה.",
     MISSING_WORKSPACE_NAME: "יש להזין שם למערכת הבחירות.",
     MISSING_ELECTION_END_AT: "יש לבחור מועד סיום.",
     WORKSPACE_NAME_TOO_LONG: "שם המערכת ארוך מדי.",

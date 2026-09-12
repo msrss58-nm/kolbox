@@ -37,6 +37,8 @@ const ALLOWED_BODY_KEYS = new Set<string>([
   "permissions",
   "scopeType",
   "newName",
+  // Stage 9: explicit Manager-role flag (create/update only).
+  "isManager",
 ]);
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -267,6 +269,12 @@ export default async function handler(
   const proofHashBytea = toPgBytea(sha256Hex(reauthProof));
   const rpcName = OP_TO_RPC[op];
 
+  // Stage 9: when the client states the Manager flag explicitly, the request
+  // is routed (by named arguments) to the p_is_manager overload; without it,
+  // to the original overload, which leaves the flag untouched.
+  const isManagerParam =
+    typeof body.isManager === "boolean" ? { p_is_manager: body.isManager } : {};
+
   let rpcResult: { data: unknown; error: { message?: string } | null };
 
   if (op === "create") {
@@ -277,6 +285,7 @@ export default async function handler(
       p_description: description,
       p_permissions: permissions,
       p_scope_type: scopeType,
+      ...isManagerParam,
     });
   } else if (op === "update") {
     rpcResult = await supabase.rpc(rpcName, {
@@ -287,6 +296,7 @@ export default async function handler(
       p_description: description,
       p_permissions: permissions,
       p_scope_type: scopeType,
+      ...isManagerParam,
     });
   } else if (op === "delete") {
     rpcResult = await supabase.rpc(rpcName, {

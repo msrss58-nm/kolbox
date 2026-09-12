@@ -5,6 +5,7 @@ import { Card, CardTitle } from "../../components/ui/Card";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { moduleLabel } from "../../constants/labels";
 import { cn } from "../../lib/utils";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { formatDateTime } from "./multiEntityFormat";
@@ -146,6 +147,13 @@ export function OwnerAccessListCard({
                       {a.workspaceName && (
                         <p className="text-xs font-semibold text-slate-600">
                           {text.workspace(a.workspaceName)}
+                        </p>
+                      )}
+                      {a.state !== "consumed" && a.requestedModules && (
+                        <p className="text-xs text-slate-500">
+                          {text.requestedModules(
+                            a.requestedModules.map(moduleLabel).join(", "),
+                          )}
                         </p>
                       )}
                     </div>

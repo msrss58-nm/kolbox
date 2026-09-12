@@ -107,7 +107,9 @@ const MULTI_ENTITY_SET_PASSWORD_PATH = "/multi-entity/set-password";
 // create_owner_access's list is byte-for-byte the keys the single-op version
 // accepted, so its request contract is unchanged.
 const POST_OP_KEYS: Record<string, readonly string[]> = {
-  create_owner_access: ["name", "email", "phone", "expiresInDays"],
+  // Stage 9: `modules` (the explicit module entitlement choice) is required.
+  create_owner_access: ["name", "email", "phone", "expiresInDays", "modules"],
+  set_workspace_modules: ["workspaceId", "modules"],
   provision_multi_entity_owner: ["name", "email", "phone"],
   assign_workspace: ["workspaceId"],
   unassign_workspace: ["workspaceId"],
@@ -116,7 +118,31 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   reissue_owner_access: ["pendingId"],
 };
 
-const GET_OPS = new Set<string>(["multi_entity_state", "owner_access"]);
+const GET_OPS = new Set<string>([
+  "multi_entity_state",
+  "owner_access",
+  "workspace_modules",
+]);
+
+// Stage 9: syntactic shape of a module key. The database is the authority on
+// which keys exist (platform_modules); this only keeps junk out of the RPC.
+const MODULE_KEY_PATTERN = /^[a-z][a-z0-9_]{1,62}$/;
+const MAX_MODULES_PER_REQUEST = 20;
+
+/** A non-empty, de-duplicated list of syntactically valid module keys, or
+ * null. Never trusts the client's list as authoritative - the RPC validates
+ * every key against the catalog. */
+function parseModules(v: unknown): string[] | null {
+  if (!Array.isArray(v) || v.length === 0 || v.length > MAX_MODULES_PER_REQUEST) {
+    return null;
+  }
+  const out = new Set<string>();
+  for (const m of v) {
+    if (typeof m !== "string" || !MODULE_KEY_PATTERN.test(m)) return null;
+    out.add(m);
+  }
+  return [...out];
+}
 
 // Stage 8B: set in app_metadata on every Auth user create_owner_access creates.
 // app_metadata is writable only through the service-role Admin API, so an
@@ -211,6 +237,10 @@ function mapRpcError(message: string): { status: number; code: string } {
   }
   if (m.includes("INVALID_EXPIRY_WINDOW")) {
     return { status: 400, code: "INVALID_REQUEST" };
+  }
+  // Stage 9 - a module key the catalog does not know, or an empty choice.
+  if (m.includes("INVALID_MODULES")) {
+    return { status: 400, code: "INVALID_MODULES" };
   }
   // --- Stage 4A codes -----------------------------------------------------
   // IDENTITY_PENDING_ELECTION_OWNER is checked BEFORE IDENTITY_ALREADY_PRINCIPAL
@@ -441,6 +471,14 @@ async function handleCreateOwnerAccess(
     return;
   }
 
+  // Stage 9: the Platform Owner must choose the workspace's modules
+  // explicitly. Checked before any Auth user is created.
+  const modules = parseModules(body.modules);
+  if (!modules) {
+    sendError(res, 400, "INVALID_MODULES");
+    return;
+  }
+
   let expiresInDays = 7;
   if (expiresInDaysRaw !== undefined && expiresInDaysRaw !== null) {
     if (
@@ -460,6 +498,26 @@ async function handleCreateOwnerAccess(
     supabase = getServiceClient();
   } catch {
     sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  // Stage 9: every requested module must exist in the catalog - checked
+  // BEFORE any Auth user is created, so a bad choice never mints an account.
+  // The approval RPC re-validates the same set inside its own transaction.
+  const { data: catalogRows, error: catalogErr } = await supabase
+    .from("platform_modules")
+    .select("key");
+  if (catalogErr) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  const knownModules = new Set(
+    (Array.isArray(catalogRows) ? catalogRows : []).map((r) =>
+      String((r as { key?: unknown }).key),
+    ),
+  );
+  if (!modules.every((m) => knownModules.has(m))) {
+    sendError(res, 400, "INVALID_MODULES");
     return;
   }
 
@@ -551,6 +609,7 @@ async function handleCreateOwnerAccess(
       p_email: email,
       p_phone: phone || null,
       p_expires_in_days: expiresInDays,
+      p_modules: modules,
     },
   );
 
@@ -1304,6 +1363,61 @@ async function handlePurgeProvisioningOrphan(
   });
 }
 
+/**
+ * Stage 9: module catalog + every workspace with its current entitlements.
+ * Read-only; the RPC re-resolves the Platform Owner singleton itself.
+ */
+async function handleWorkspaceModulesList(
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const supabase = getServiceClient();
+  const { data, error } = await supabase.rpc("platform_list_workspace_modules", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  res.status(200).json(data ?? { catalog: [], workspaces: [] });
+}
+
+/**
+ * Stage 9: replaces one workspace's module entitlements with an explicit,
+ * non-empty set. The RPC validates every key against the catalog, locks the
+ * workspace row, and the change applies to the very next worker request.
+ */
+async function handleSetWorkspaceModules(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const workspaceId = str(body.workspaceId);
+  if (!UUID_PATTERN.test(workspaceId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  const modules = parseModules(body.modules);
+  if (!modules) {
+    sendError(res, 400, "INVALID_MODULES");
+    return;
+  }
+  const supabase = getServiceClient();
+  const { data, error } = await supabase.rpc("platform_set_workspace_modules", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_workspace_id: workspaceId,
+    p_modules: modules,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  res.status(200).json(data ?? { workspace_id: workspaceId, modules });
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
@@ -1390,6 +1504,10 @@ export default async function handler(
       await handleOwnerAccessList(res, verified.authUserId);
       return;
     }
+    if (getOp === "workspace_modules") {
+      await handleWorkspaceModulesList(res, verified.authUserId);
+      return;
+    }
     // Default GET payload is deliberately unchanged - the Platform Owner client
     // shape-guards on exactly these two keys.
     res
@@ -1404,6 +1522,9 @@ export default async function handler(
       return;
     case "reissue_owner_access":
       await handleReissueOwnerAccess(req, res, verified.authUserId);
+      return;
+    case "set_workspace_modules":
+      await handleSetWorkspaceModules(req, res, verified.authUserId);
       return;
     case "provision_multi_entity_owner":
       await handleProvisionMultiEntityOwner(req, res, verified.authUserId);

@@ -62,9 +62,28 @@ const OPS: Record<string, OpDescriptor> = {
       return { p_workspace_name: name, p_election_end_at: endAt };
     },
   },
-  bootstrap_first_user: {
+  // --- Stage 9: Owner administration (user management + entitlements) ---
+  // Replaces Stage 3B's one-shot bootstrap_first_user: the Owner manages
+  // workspace users directly, at any time, including a workspace with zero
+  // users. Each mutation RPC binds its own action literal to a one-time Owner
+  // proof and re-resolves the Owner's workspace live.
+  list_permission_users: {
+    method: "GET",
+    rpc: "election_day_list_permission_users_owner_v3",
+    requiresProof: false,
+    requiredKeys: [],
+    buildParams: () => ({}),
+  },
+  workspace_modules: {
+    method: "GET",
+    rpc: "election_day_list_workspace_modules_owner_v3",
+    requiresProof: false,
+    requiredKeys: [],
+    buildParams: () => ({}),
+  },
+  create_permission_user: {
     method: "POST",
-    rpc: "election_day_bootstrap_first_permission_user",
+    rpc: "election_day_create_permission_user_owner_v3",
     requiresProof: true,
     requiredKeys: ["name", "password", "roleId"],
     buildParams: (b) => {
@@ -73,6 +92,28 @@ const OPS: Record<string, OpDescriptor> = {
       const roleId = str(b.roleId);
       if (!name || !password || !UUID_PATTERN.test(roleId)) return null;
       return { p_name: name, p_password: password, p_role_id: roleId };
+    },
+  },
+  delete_permission_user: {
+    method: "POST",
+    rpc: "election_day_delete_permission_user_owner_v3",
+    requiresProof: true,
+    requiredKeys: ["targetUserId"],
+    buildParams: (b) => {
+      const targetUserId = str(b.targetUserId);
+      return UUID_PATTERN.test(targetUserId) ? { p_target_user_id: targetUserId } : null;
+    },
+  },
+  reset_permission_user_password: {
+    method: "POST",
+    rpc: "election_day_reset_permission_user_password_owner_v3",
+    requiresProof: true,
+    requiredKeys: ["targetUserId", "newPassword"],
+    buildParams: (b) => {
+      const targetUserId = str(b.targetUserId);
+      const newPassword = str(b.newPassword);
+      if (!UUID_PATTERN.test(targetUserId) || !newPassword) return null;
+      return { p_target_user_id: targetUserId, p_new_password: newPassword };
     },
   },
   manage_coordinators: {
@@ -393,14 +434,66 @@ function sendError(res: MinimalResponse, status: number, code: string): void {
   res.status(status).json({ error: code });
 }
 
-function mapRpcError(error: { message?: string } | undefined): {
+// Stage 9: ops that belong to Owner ADMINISTRATION (or to provisioning), not
+// to the Election Day module. Every other op is an Election Day data op and
+// is refused while the workspace is not entitled to Election Day - checked
+// here, server-side, before its RPC runs. Those RPCs are service_role-only,
+// so this handler is the only way any caller can reach them.
+const NON_MODULE_OPS = new Set<string>([
+  "provision_workspace",
+  "list_permission_users",
+  "workspace_modules",
+  "create_permission_user",
+  "delete_permission_user",
+  "reset_permission_user_password",
+]);
+
+type ModuleGate = "enabled" | "disabled" | "unauthorized" | "error";
+
+async function electionDayModuleGate(
+  supabase: ReturnType<typeof getServiceClient>,
+  authUserId: string,
+): Promise<ModuleGate> {
+  const { data, error } = await supabase.rpc("election_day_owner_has_module", {
+    p_auth_user_id: authUserId,
+    p_module_key: "election_day",
+  });
+  if (error) return error.message === "UNAUTHORIZED" ? "unauthorized" : "error";
+  return data === true ? "enabled" : "disabled";
+}
+
+/** Sends the refusal for a non-"enabled" gate. Returns true when it did. */
+function refuseUnlessEnabled(res: MinimalResponse, gate: ModuleGate): boolean {
+  if (gate === "enabled") return false;
+  if (gate === "unauthorized") sendError(res, 401, "UNAUTHORIZED");
+  else if (gate === "disabled") sendError(res, 403, "MODULE_NOT_ENABLED");
+  else sendError(res, 500, "SERVER_ERROR");
+  return true;
+}
+
+function mapRpcError(error: { message?: string; code?: string } | undefined): {
   status: number;
   code: string;
 } {
   const message = error?.message ?? "";
+  // Stage 9: the Owner create path hits UNIQUE(workspace_id, name) as a real
+  // Postgres unique_violation (never P0001) - matched narrowly on SQLSTATE +
+  // constraint, exactly like permission-users.ts did for the worker path.
+  if (
+    error?.code === "23505" &&
+    message.includes("election_day_permission_users_workspace_id_name_key")
+  ) {
+    return { status: 409, code: "DUPLICATE_NAME" };
+  }
   switch (message) {
     case "UNAUTHORIZED":
       return { status: 401, code: "UNAUTHORIZED" };
+    case "USER_NOT_FOUND":
+      return { status: 404, code: "USER_NOT_FOUND" };
+    case "CANNOT_RESET_MANAGER":
+      return { status: 409, code: "CANNOT_RESET_MANAGER" };
+    case "INVALID_PASSWORD":
+      return { status: 400, code: "INVALID_PASSWORD" };
     case "VOTER_NOT_FOUND":
     case "REASON_NOT_FOUND":
     case "COORDINATOR_NOT_FOUND":
@@ -449,6 +542,7 @@ function mapRpcError(error: { message?: string } | undefined): {
     case "PENDING_ACCESS_EXPIRED":
     case "PENDING_ACCESS_ALREADY_CONSUMED":
     case "BOOTSTRAP_ALREADY_COMPLETED":
+    case "APPROVAL_MODULES_MISSING": // Stage 9: module-less approval fails closed
       return { status: 409, code: message };
     default:
       return { status: 500, code: "SERVER_ERROR" };
@@ -546,6 +640,11 @@ async function handleGet(req: MinimalRequest, res: MinimalResponse): Promise<voi
       hasPermissionUsers: row.has_permission_users === true,
     });
     return;
+  }
+
+  if (!NON_MODULE_OPS.has(opName)) {
+    const gate = await electionDayModuleGate(supabase, verified.authUserId);
+    if (refuseUnlessEnabled(res, gate)) return;
   }
 
   if (opName === "list_coordinators") {
@@ -693,6 +792,11 @@ export default async function handler(
   } catch {
     sendError(res, 500, "SERVER_CONFIG_MISSING");
     return;
+  }
+
+  if (!NON_MODULE_OPS.has(opName)) {
+    const gate = await electionDayModuleGate(supabase, verified.authUserId);
+    if (refuseUnlessEnabled(res, gate)) return;
   }
 
   const rpcParams: Record<string, unknown> = {

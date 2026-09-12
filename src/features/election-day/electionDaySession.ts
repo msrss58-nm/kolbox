@@ -126,6 +126,8 @@ function mapLoginFailureMessage(result: SessionClientResult): string {
       return ELECTION_DAY_TEXT.session.errors.invalidCredentials;
     case "rate_limited":
       return ELECTION_DAY_TEXT.session.errors.rateLimited;
+    case "module_not_enabled":
+      return ELECTION_DAY_TEXT.session.errors.moduleNotEnabled;
     default:
       return COMMON_TEXT.networkError;
   }

@@ -5,7 +5,10 @@ import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Input } from "../../components/ui/Field";
 import { toast } from "../../components/ui/Toast";
-import { ALL_PERMISSIONS } from "../../permissions/permissionsMap";
+import {
+  ALL_PERMISSIONS,
+  NON_GRANTABLE_PERMISSIONS,
+} from "../../permissions/permissionsMap";
 import type { Permission, RoleRecord, RoleScopeType } from "../../permissions/types";
 import type { NewRole, RoleUpdate } from "../../services/api";
 import type { PermissionUser } from "../../types";
@@ -19,11 +22,18 @@ import type { OwnerRoleManagementHook } from "./useOwnerRoleManagement";
 
 const text = ELECTION_DAY_TEXT.rolesManager;
 
+// Platform Stage 9: inert permissions are not offered. A role that still
+// carries one keeps it untouched in `form.permissions` on save.
+const GRANTABLE_PERMISSIONS = ALL_PERMISSIONS.filter(
+  (p) => !NON_GRANTABLE_PERMISSIONS.has(p),
+);
+
 interface RoleFormState {
   name: string;
   description: string;
   scopeType: RoleScopeType;
   permissions: Set<Permission>;
+  isManager: boolean;
 }
 
 function emptyForm(): RoleFormState {
@@ -32,6 +42,7 @@ function emptyForm(): RoleFormState {
     description: "",
     scopeType: "assigned_to_me",
     permissions: new Set(),
+    isManager: false,
   };
 }
 
@@ -41,6 +52,7 @@ function formFromRole(role: RoleRecord): RoleFormState {
     description: role.description,
     scopeType: role.scopeType ?? "assigned_to_me",
     permissions: new Set(role.permissions),
+    isManager: role.isManager === true,
   };
 }
 
@@ -121,6 +133,7 @@ export function RoleManagementPanel({
       description: form.description.trim(),
       permissions: [...form.permissions],
       scopeType: form.scopeType,
+      isManager: form.isManager,
     };
     const result =
       editing !== "new" && editing !== null
@@ -155,8 +168,13 @@ export function RoleManagementPanel({
                     className="flex items-center justify-between gap-2 px-3 py-2.5"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-slate-800">
-                        {role.name}
+                      <p className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-800">
+                        <span className="truncate">{role.name}</span>
+                        {role.isManager && (
+                          <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-700">
+                            {text.managerBadge}
+                          </span>
+                        )}
                       </p>
                       {role.description && (
                         <p className="truncate text-xs text-slate-500">
@@ -242,12 +260,29 @@ export function RoleManagementPanel({
             </div>
           </div>
 
+          <label className="flex items-start gap-2 rounded-xl p-2 ring-1 ring-slate-100">
+            <input
+              type="checkbox"
+              checked={form.isManager}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, isManager: e.target.checked }))
+              }
+              className="mt-0.5 size-4 shrink-0 accent-primary-600"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-700">
+                {text.managerLabel}
+              </span>
+              <span className="block text-xs text-slate-500">{text.managerHint}</span>
+            </span>
+          </label>
+
           <div>
             <span className="mb-1.5 block text-sm font-semibold text-slate-700">
               {text.permissionsLabel}
             </span>
             <div className="grid max-h-64 grid-cols-1 gap-1.5 overflow-y-auto rounded-xl p-1 ring-1 ring-slate-100 sm:grid-cols-2">
-              {ALL_PERMISSIONS.map((permission) => (
+              {GRANTABLE_PERMISSIONS.map((permission) => (
                 <label
                   key={permission}
                   className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"

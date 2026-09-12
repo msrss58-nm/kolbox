@@ -39,12 +39,12 @@ const ALLOWED_OWNER_ACTIONS = new Set<string>([
   "apply_initial_allocation",
   "rebalance_assignments",
   "end_coordinator_activity",
-  // Stage 3B: gates creation of a freshly provisioned workspace's FIRST
-  // PermissionUser. Bound one-to-one to
-  // election_day_bootstrap_first_permission_user, which hardcodes this same
-  // literal - a proof minted for any other action cannot be used there, and
-  // a proof minted for this one cannot be used anywhere else.
-  "bootstrap_first_user",
+  // Stage 9: Owner user management (replaces Stage 3B's one-shot
+  // "bootstrap_first_user"). Each is bound one-to-one to the matching
+  // election_day_*_owner_v3 RPC, which hardcodes the same literal.
+  "create_permission_user",
+  "delete_permission_user",
+  "reset_permission_user_password",
 ]);
 
 const ALLOWED_BODY_KEYS = new Set<string>(["password", "action"]);

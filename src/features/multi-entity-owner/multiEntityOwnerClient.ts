@@ -86,7 +86,9 @@ const MULTI_ENTITY_AGGREGATES_ENDPOINT = "/api/multi-entity/aggregates";
 const MULTI_ENTITY_WORKSPACE_AGGREGATES_ENDPOINT =
   "/api/multi-entity/workspace-aggregates";
 
-export type MultiEntityReportStatus = "reported" | "suppressed" | "ended";
+// Stage 9: "unavailable" - the workspace is not entitled to Election Day; the
+// server releases no Election Day number for it.
+export type MultiEntityReportStatus = "reported" | "suppressed" | "ended" | "unavailable";
 
 export interface MultiEntityAggregateMetrics {
   contactsTotal: number;
@@ -119,6 +121,7 @@ export interface MultiEntityAggregateTotals {
   reportedWorkspaceCount: number;
   suppressedWorkspaceCount: number;
   endedWorkspaceCount: number;
+  unavailableWorkspaceCount: number;
   /** Summed by the server from `reported` rows only. */
   metrics: MultiEntityAggregateMetrics;
 }
@@ -169,7 +172,14 @@ function toWorkspaceAggregate(value: unknown): MultiEntityWorkspaceAggregate | n
   if (!isWorkspace(value)) return null;
   const v = value as unknown as Record<string, unknown>;
   const status = v.status;
-  if (status !== "reported" && status !== "suppressed" && status !== "ended") return null;
+  if (
+    status !== "reported" &&
+    status !== "suppressed" &&
+    status !== "ended" &&
+    status !== "unavailable"
+  ) {
+    return null;
+  }
   let metrics: MultiEntityAggregateMetrics | null = null;
   if (status === "reported") {
     metrics = toMetrics(v.metrics);
@@ -203,7 +213,8 @@ function toAggregates(value: unknown): MultiEntityAggregates | null {
     !isCount(t.workspaceCount) ||
     !isCount(t.reportedWorkspaceCount) ||
     !isCount(t.suppressedWorkspaceCount) ||
-    !isCount(t.endedWorkspaceCount)
+    !isCount(t.endedWorkspaceCount) ||
+    !isCount(t.unavailableWorkspaceCount)
   ) {
     return null;
   }
@@ -214,7 +225,8 @@ function toAggregates(value: unknown): MultiEntityAggregates | null {
     t.workspaceCount !== rows.length ||
     t.reportedWorkspaceCount !== countOf("reported") ||
     t.suppressedWorkspaceCount !== countOf("suppressed") ||
-    t.endedWorkspaceCount !== countOf("ended")
+    t.endedWorkspaceCount !== countOf("ended") ||
+    t.unavailableWorkspaceCount !== countOf("unavailable")
   ) {
     return null;
   }
@@ -225,6 +237,7 @@ function toAggregates(value: unknown): MultiEntityAggregates | null {
       reportedWorkspaceCount: t.reportedWorkspaceCount,
       suppressedWorkspaceCount: t.suppressedWorkspaceCount,
       endedWorkspaceCount: t.endedWorkspaceCount,
+      unavailableWorkspaceCount: t.unavailableWorkspaceCount,
       metrics,
     },
   };

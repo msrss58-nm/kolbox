@@ -144,7 +144,7 @@ begin
     and (select e -> 'workspace_name' from jsonb_array_elements(j) e where e ->> 'email' = 'active@s8.invalid') = 'null'::jsonb, 'ws');
   perform pg_temp.chk('L4 exact row keys (no auth_user_id, no credential field)',
     (select bool_and((select array_agg(x order by x) from jsonb_object_keys(e) x)
-        = array['consumed_at','created_at','email','expires_at','name','pending_id','phone','state','workspace_name'])
+        = array['consumed_at','created_at','email','expires_at','name','pending_id','phone','requested_modules','state','workspace_name'])
       from jsonb_array_elements(j) e), 'keys');
   perform pg_temp.chk('L5 newest first', j -> 0 ->> 'email' = 'active@s8.invalid', j -> 0 ->> 'email');
   perform pg_temp.chk('L6 non-Platform-Owner caller refused',

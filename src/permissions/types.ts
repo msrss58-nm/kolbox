@@ -102,4 +102,9 @@ export interface RoleRecord {
    * treated as "all" or any other implicit default. */
   scopeType: RoleScopeType | null;
   scopeValue: Json | null;
+  /** Platform Stage 9: the explicit Manager-role flag, set by the Election
+   * Owner. Grants no permission. The Owner cannot reset the password of a
+   * user holding a Manager role (enforced server-side). Only the Owner role
+   * read carries it; absent/false elsewhere. */
+  isManager?: boolean;
 }

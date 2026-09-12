@@ -102,14 +102,23 @@ const poId = await mkUser("po");
 psql(`insert into public.platform_owners (auth_user_id, name, email) values ('${poId}', 'S6 PO', '${email("po")}');`);
 const PO = (await enrollTotp((await signIn(email("po"), pw.po)).client, "s6-po")).token;
 
+// Stage 9: a workspace created outside provisioning has no module
+// entitlement, so these fixtures also grant Election Day (as provisioning and
+// the Stage 9 backfill do) - otherwise worker login is correctly refused.
 const wsRows = psql(`
-  insert into public.election_workspaces (name, election_end_at, login_code) values
-    ('S6API Alpha', now() + interval '10 days', public.election_day_generate_workspace_login_code()),
-    ('S6API Beta',  now() + interval '10 days', public.election_day_generate_workspace_login_code()),
-    ('S6API Gamma', now() + interval '10 days', public.election_day_generate_workspace_login_code()),
-    ('S6API Delta', now() - interval '1 day',   public.election_day_generate_workspace_login_code()),
-    ('S6API Eta',   now() + interval '10 days', public.election_day_generate_workspace_login_code())
-  returning name || '|' || id || '|' || login_code;
+  with w as (
+    insert into public.election_workspaces (name, election_end_at, login_code) values
+      ('S6API Alpha', now() + interval '10 days', public.election_day_generate_workspace_login_code()),
+      ('S6API Beta',  now() + interval '10 days', public.election_day_generate_workspace_login_code()),
+      ('S6API Gamma', now() + interval '10 days', public.election_day_generate_workspace_login_code()),
+      ('S6API Delta', now() - interval '1 day',   public.election_day_generate_workspace_login_code()),
+      ('S6API Eta',   now() + interval '10 days', public.election_day_generate_workspace_login_code())
+    returning id, name, login_code
+  ), m as (
+    insert into public.election_workspace_modules (workspace_id, module_key)
+    select id, 'election_day' from w
+  )
+  select name || '|' || id || '|' || login_code from w;
 `).split("\n");
 const WS = Object.fromEntries(
   wsRows.map((r) => {
@@ -226,7 +235,8 @@ const EXPECT = {
 };
 const METRIC_KEYS = "contactsTotal,followUpClosed,followUpRemaining,rideArranged,rideCompleted,rideNeeded,voted";
 const ROW_KEYS = "assignedAt,electionEndAt,metrics,name,status,workspaceId";
-const TOTALS_KEYS = "endedWorkspaceCount,metrics,reportedWorkspaceCount,suppressedWorkspaceCount,workspaceCount";
+// Stage 9 added unavailableWorkspaceCount (workspaces without Election Day).
+const TOTALS_KEYS = "endedWorkspaceCount,metrics,reportedWorkspaceCount,suppressedWorkspaceCount,unavailableWorkspaceCount,workspaceCount";
 const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
 
 // ---------------------------------------------------------------------------
@@ -238,7 +248,7 @@ section("ZERO ASSIGNMENTS");
   check("Z1 exact top-level keys {workspaces,totals}", keys(r.body) === "totals,workspaces", keys(r.body));
   check("Z1 empty list and all-zero totals",
     Array.isArray(r.body?.workspaces) && r.body.workspaces.length === 0 &&
-      same(r.body?.totals, { workspaceCount: 0, reportedWorkspaceCount: 0, suppressedWorkspaceCount: 0, endedWorkspaceCount: 0,
+      same(r.body?.totals, { workspaceCount: 0, reportedWorkspaceCount: 0, suppressedWorkspaceCount: 0, endedWorkspaceCount: 0, unavailableWorkspaceCount: 0,
         metrics: { contactsTotal: 0, voted: 0, followUpClosed: 0, followUpRemaining: 0, rideNeeded: 0, rideArranged: 0, rideCompleted: 0 } }),
     JSON.stringify(r.body?.totals));
   check("Z1 Cache-Control: no-store", r.headers["cache-control"] === "no-store");
@@ -296,7 +306,7 @@ let listBody;
   check("AC6 metadata carried per row (id, name, end, assignedAt)", by.Alpha?.workspaceId === WS.Alpha.id && typeof by.Alpha?.electionEndAt === "string" && typeof by.Alpha?.assignedAt === "string");
   check("AC7 totals keys exact", keys(r.body?.totals) === TOTALS_KEYS && keys(r.body?.totals?.metrics) === METRIC_KEYS);
   check("AC7 totals = sum over REPORTED rows only (suppressed/ended contribute nothing)",
-    same(r.body?.totals, { workspaceCount: 4, reportedWorkspaceCount: 2, suppressedWorkspaceCount: 1, endedWorkspaceCount: 1,
+    same(r.body?.totals, { workspaceCount: 4, reportedWorkspaceCount: 2, suppressedWorkspaceCount: 1, endedWorkspaceCount: 1, unavailableWorkspaceCount: 0,
       metrics: { contactsTotal: 22, voted: 7, followUpClosed: 2, followUpRemaining: 13, rideNeeded: 1, rideArranged: 1, rideCompleted: 3 } }),
     JSON.stringify(r.body?.totals));
   const r2 = await aggList(ME);

@@ -41,7 +41,6 @@ import { ElectionDayDashboardPage } from "../features/election-day/ElectionDayDa
 import { ElectionDayFilesPage } from "../features/election-day/ElectionDayFilesPage";
 import { ElectionDayGuard } from "../features/election-day/ElectionDayGuard";
 import { ElectionDayLoginScreen } from "../features/election-day/ElectionDayLoginScreen";
-import { ElectionDayPermissionsPage } from "../features/election-day/ElectionDayPermissionsPage";
 import { ElectionDayReasonsPage } from "../features/election-day/ElectionDayReasonsPage";
 import { ElectionDayReportsPage } from "../features/election-day/ElectionDayReportsPage";
 import { ElectionDayRidesPage } from "../features/election-day/ElectionDayRidesPage";
@@ -303,7 +302,6 @@ const electionRoutes: RouteObject[] = [
           { path: "dashboard", element: <ElectionDayDashboardPage /> },
           { path: "voters", element: <ElectionDayVotersPage /> },
           { path: "files", element: <ElectionDayFilesPage /> },
-          { path: "permissions", element: <ElectionDayPermissionsPage /> },
           { path: "rides", element: <ElectionDayRidesPage /> },
           { path: "reasons", element: <ElectionDayReasonsPage /> },
           { path: "reports", element: <ElectionDayReportsPage /> },

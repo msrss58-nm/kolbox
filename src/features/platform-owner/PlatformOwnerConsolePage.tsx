@@ -11,6 +11,8 @@ import { OwnerApprovalCard } from "./OwnerApprovalCard";
 import { usePlatformOwnerSession } from "./platformOwnerSession";
 import { useMultiEntityManagement } from "./useMultiEntityManagement";
 import { useOwnerAccess } from "./useOwnerAccess";
+import { useWorkspaceModules } from "./useWorkspaceModules";
+import { WorkspaceModulesCard } from "./WorkspaceModulesCard";
 
 const text = PLATFORM_OWNER_TEXT.console;
 const multiEntityText = PLATFORM_OWNER_TEXT.multiEntity.entry;
@@ -89,6 +91,7 @@ export function PlatformOwnerConsolePage() {
   const loggingOut = usePlatformOwnerSession((s) => s.loggingOut);
   const navigate = useNavigate();
   const access = useOwnerAccess();
+  const workspaceModules = useWorkspaceModules();
 
   const handleLogout = async () => {
     await logout();
@@ -134,9 +137,15 @@ export function PlatformOwnerConsolePage() {
 
       <MultiEntityEntryCard />
 
-      <OwnerApprovalCard onChanged={() => void access.reload()} />
+      <OwnerApprovalCard
+        onChanged={() => void access.reload()}
+        catalog={workspaceModules.catalog}
+        catalogError={workspaceModules.readError !== null}
+      />
 
       <OwnerAccessListCard access={access} />
+
+      <WorkspaceModulesCard modules={workspaceModules} />
 
       <p className="text-center text-xs text-slate-500">{text.stageNote}</p>
     </div>

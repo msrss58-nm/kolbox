@@ -73,6 +73,13 @@ insert into public.election_workspaces (id, name, election_end_at, login_code) v
   ('62000000-0000-4000-8000-0000000000f2', 'S6 Soon',       now() + interval '1 second', public.election_day_generate_workspace_login_code()),
   ('62000000-0000-4000-8000-000000000099', 'S6 Unassigned', now() + interval '10 days', public.election_day_generate_workspace_login_code());
 
+-- Stage 9: raw-SQL fixture workspaces carry no module entitlement; these
+-- aggregate tests are about Election Day workspaces, so grant it explicitly
+-- (provisioning and the Stage 9 backfill do the same for real workspaces).
+insert into public.election_workspace_modules (workspace_id, module_key)
+  select id, 'election_day' from public.election_workspaces
+  where id::text like '62000000-0000-4000-8000-%';
+
 insert into public.election_day_not_voting_reasons (id, workspace_id, name, description, is_active, sort_order, requires_follow_up) values
   ('63000000-0000-4000-8000-000000000001', '62000000-0000-4000-8000-0000000000a1', 'S6 closed active',   '', true,  1, false),
   ('63000000-0000-4000-8000-000000000002', '62000000-0000-4000-8000-0000000000a1', 'S6 closed inactive', '', false, 2, false),

@@ -93,7 +93,9 @@ export type CreateOwnerAccessResult =
 
 export async function createOwnerAccess(
   accessToken: string,
-  input: { name: string; email: string; phone?: string },
+  /** Stage 9: `modules` is the Platform Owner's explicit, non-empty module
+   * entitlement choice for the workspace this Owner will create. */
+  input: { name: string; email: string; phone?: string; modules: string[] },
 ): Promise<CreateOwnerAccessResult> {
   try {
     const res = await fetch(PLATFORM_SESSION_ENDPOINT, {
@@ -107,6 +109,7 @@ export async function createOwnerAccess(
         name: input.name,
         email: input.email,
         ...(input.phone ? { phone: input.phone } : {}),
+        modules: input.modules,
       }),
     });
 
@@ -531,6 +534,9 @@ export interface OwnerAccessApproval {
   state: OwnerAccessState;
   /** Present only once the Owner has provisioned their workspace. */
   workspaceName: string | null;
+  /** Stage 9: the module choice recorded with the approval. Null for an
+   * approval created before Stage 9 (it provisions Election Day only). */
+  requestedModules: string[] | null;
 }
 
 export interface ReissuedOwnerAccess {
@@ -566,6 +572,9 @@ function mapApprovals(v: unknown): OwnerAccessApproval[] {
       consumedAt: str(o.consumed_at),
       state: state as OwnerAccessState,
       workspaceName: str(o.workspace_name),
+      requestedModules: Array.isArray(o.requested_modules)
+        ? o.requested_modules.filter((m): m is string => typeof m === "string")
+        : null,
     });
   }
   return out;
@@ -586,6 +595,94 @@ export async function fetchOwnerAccess(
   } catch {
     return { status: "error", code: "SERVER_ERROR" };
   }
+}
+
+/* ==========================================================================
+ * Stage 9 - workspace module entitlements (platform licensing).
+ *
+ * `?op=workspace_modules` returns the catalog and every workspace's current
+ * entitlements; `set_workspace_modules` replaces one workspace's set with an
+ * explicit, non-empty list. The server validates every key against its
+ * catalog and enforces the result - nothing here is authority.
+ * ========================================================================== */
+
+export interface ModuleCatalogEntry {
+  key: string;
+  /** False = recorded and assignable, but not yet a live module. */
+  available: boolean;
+}
+
+export interface WorkspaceEntitlements {
+  workspaceId: string;
+  name: string;
+  electionEndAt: string | null;
+  ownerName: string | null;
+  ownerEmail: string | null;
+  modules: string[];
+}
+
+export interface WorkspaceModulesState {
+  catalog: ModuleCatalogEntry[];
+  workspaces: WorkspaceEntitlements[];
+}
+
+function strList(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((m): m is string => typeof m === "string") : [];
+}
+
+export async function fetchWorkspaceModules(
+  accessToken: string,
+): Promise<MultiEntityResult<WorkspaceModulesState>> {
+  try {
+    const res = await fetch(`${PLATFORM_SESSION_ENDPOINT}?op=workspace_modules`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    const parsed = await parseJson(res);
+    if (res.status !== 200) return failure<WorkspaceModulesState>(res.status, parsed);
+    const o = rec(parsed);
+    if (!o) return { status: "error", code: "SERVER_ERROR" };
+    const catalog: ModuleCatalogEntry[] = [];
+    for (const raw of Array.isArray(o.catalog) ? o.catalog : []) {
+      const c = rec(raw);
+      const key = c && str(c.key);
+      if (c && key) catalog.push({ key, available: c.available === true });
+    }
+    const workspaces: WorkspaceEntitlements[] = [];
+    for (const raw of Array.isArray(o.workspaces) ? o.workspaces : []) {
+      const w = rec(raw);
+      const id = w && str(w.workspace_id);
+      if (!w || !id) continue;
+      workspaces.push({
+        workspaceId: id,
+        name: str(w.name) ?? "",
+        electionEndAt: str(w.election_end_at),
+        ownerName: str(w.owner_name),
+        ownerEmail: str(w.owner_email),
+        modules: strList(w.modules),
+      });
+    }
+    return { status: "ok", data: { catalog, workspaces } };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
+  }
+}
+
+/** Body keys are exactly `workspaceId` + `modules`. */
+export async function setWorkspaceModules(
+  accessToken: string,
+  workspaceId: string,
+  modules: string[],
+): Promise<MultiEntityResult<{ workspaceId: string; modules: string[] }>> {
+  return postOp(
+    accessToken,
+    { op: "set_workspace_modules", workspaceId, modules },
+    (parsed) => {
+      const o = rec(parsed);
+      const id = o && str(o.workspace_id);
+      return o && id ? { workspaceId: id, modules: strList(o.modules) } : null;
+    },
+  );
 }
 
 /** Body key is exactly `pendingId` - the server rejects any other key. */

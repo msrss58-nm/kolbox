@@ -113,8 +113,15 @@ function toWorkspace(row: unknown): WorkspaceMetadata | null {
 
 // ---- Stage 6 aggregates -----------------------------------------------------
 
-type ReportStatus = "reported" | "suppressed" | "ended";
-const REPORT_STATUSES = new Set<string>(["reported", "suppressed", "ended"]);
+// Stage 9: "unavailable" - the workspace is not entitled to Election Day, so
+// the database released no Election Day number for it (like ended/suppressed).
+type ReportStatus = "reported" | "suppressed" | "ended" | "unavailable";
+const REPORT_STATUSES = new Set<string>([
+  "reported",
+  "suppressed",
+  "ended",
+  "unavailable",
+]);
 
 interface AggregateMetrics {
   contactsTotal: number;
@@ -197,12 +204,15 @@ function summarize(workspaces: readonly WorkspaceAggregate[]) {
   let reported = 0;
   let suppressed = 0;
   let ended = 0;
+  let unavailable = 0;
   for (const w of workspaces) {
     if (w.status === "reported" && w.metrics) {
       reported++;
       for (const [, key] of METRIC_COLUMNS) metrics[key] += w.metrics[key];
     } else if (w.status === "suppressed") {
       suppressed++;
+    } else if (w.status === "unavailable") {
+      unavailable++;
     } else {
       ended++;
     }
@@ -212,6 +222,7 @@ function summarize(workspaces: readonly WorkspaceAggregate[]) {
     reportedWorkspaceCount: reported,
     suppressedWorkspaceCount: suppressed,
     endedWorkspaceCount: ended,
+    unavailableWorkspaceCount: unavailable,
     metrics,
   };
 }

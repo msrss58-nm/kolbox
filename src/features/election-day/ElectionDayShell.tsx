@@ -176,22 +176,8 @@ export function ElectionDayShell() {
         <AllocationPasswordDialog {...electionDay.reauthDialog} />
       )}
 
-      {/* Phase 3C: the independent trusted-v3 password prompts for
-          create/delete/reset-password - each a SEPARATE dialog instance
-          from the legacy one above and from one another, never sharing
-          pending/proof state. */}
-      {electionDay.createUserReauthDialog && (
-        <AllocationPasswordDialog {...electionDay.createUserReauthDialog} />
-      )}
-      {electionDay.deleteUserReauthDialog && (
-        <AllocationPasswordDialog {...electionDay.deleteUserReauthDialog} />
-      )}
-      {electionDay.resetPasswordReauthDialog && (
-        <AllocationPasswordDialog {...electionDay.resetPasswordReauthDialog} />
-      )}
-
-      {/* Phase 3 Import/Clear frontend cutover: same independent-dialog
-          pattern as the 3 PermissionUser flows above. */}
+      {/* Phase 3 Import/Clear frontend cutover: independent password
+          prompts, each a SEPARATE dialog instance from the legacy one above. */}
       {electionDay.importVotersReauthDialog && (
         <AllocationPasswordDialog {...electionDay.importVotersReauthDialog} />
       )}

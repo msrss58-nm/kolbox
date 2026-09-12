@@ -9,19 +9,15 @@ import { reportPermissionDenied } from "../../permissions/permissionAudit";
 import type { Permission } from "../../permissions/types";
 import { usePermissions } from "../../permissions/usePermissions";
 import { api } from "../../services/api";
-import type { NewPermissionUser, NewRideCoordinator } from "../../services/api";
+import type { NewRideCoordinator } from "../../services/api";
 import { trustedElectionDayActionsApi } from "../../services/api/electionDayTrustedActionsApi";
 import { exportElectionDayVotersToExcel } from "../../services/excel/excel";
 import type { ElectionDayVoter } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDaySession } from "./electionDaySession";
 import { useElectionDayReauth } from "./useElectionDayReauth";
-import { useCreatePermissionUserTrusted } from "./useCreatePermissionUserTrusted";
-import { useDeletePermissionUserTrusted } from "./useDeletePermissionUserTrusted";
-import { useResetPermissionUserPasswordTrusted } from "./useResetPermissionUserPasswordTrusted";
 import { useImportVotersTrusted } from "./useImportVotersTrusted";
 import { useClearVotersTrusted } from "./useClearVotersTrusted";
-import { fetchTrustedPermissionUsersRoster } from "./electionDayTrustedUsersClient";
 import { resolveVisibleContacts } from "./electionDayScope";
 import { matchesElectionDaySearch } from "./electionDaySearch";
 import {
@@ -127,18 +123,12 @@ export function useElectionDay() {
   // coordinator-allocation) - see useElectionDayReauth.ts's own doc comment
   // for the full flow. `reauthDialog` is rendered once, by
   // ElectionDayShell.tsx (which already renders this hook's other shared
-  // dialog, ElectionDayContactModal). `addPermissionUser`/`deletePermissionUser`/
-  // `resetPermissionUserPassword` were all cut over to the trusted v3 path
-  // (Phase 3C) - see `trustedCreateUser`/`trustedDeleteUser`/
-  // `trustedResetPassword` below, each of which owns its own independent
-  // dialog/proof flow, never this one.
+  // dialog, ElectionDayContactModal). Platform Stage 9: user management is
+  // no longer part of this (worker) hook at all - it is Election Owner
+  // authority only (OwnerRolesPage / useOwnerUserManagement).
   const reauth = useElectionDayReauth();
-  const trustedCreateUser = useCreatePermissionUserTrusted();
-  const trustedDeleteUser = useDeletePermissionUserTrusted();
-  const trustedResetPassword = useResetPermissionUserPasswordTrusted();
-  // Phase 3 Import/Clear frontend cutover: same independent-hook pattern as
-  // the 3 PermissionUser flows above - own dialog/proof, never touching
-  // `reauth`/`useElectionDayReauthProof`.
+  // Phase 3 Import/Clear frontend cutover: independent-hook pattern - own
+  // dialog/proof, never touching `reauth`/`useElectionDayReauthProof`.
   const trustedImportVoters = useImportVotersTrusted();
   const trustedClearVoters = useClearVotersTrusted();
 
@@ -170,27 +160,6 @@ export function useElectionDay() {
   const fetchRideCoordinators = useCallback(() => api.listRideCoordinators(), []);
   const { data: rideCoordinators, reload: reloadRideCoordinators } =
     useAsyncData(fetchRideCoordinators);
-
-  // Phase 3C Users: roster READ cut over to the trusted, session-derived v3
-  // path - this hook only runs inside the already-authenticated shell (past
-  // ElectionDayGuard), so the HttpOnly session cookie the trusted GET
-  // requires always exists here. Throws on a non-"ok" result so this
-  // fetcher's error contract matches the legacy `api.listPermissionUsers()`
-  // call it replaces (which threw via `unwrapArray` on an RPC error) -
-  // `useAsyncData`'s existing loading/error handling is unchanged.
-  // `ElectionDayGuard.tsx` intentionally still calls the legacy, unscoped
-  // `election_day_list_permission_users()` RPC - it runs BEFORE any session
-  // exists (deciding whether the roster-empty bootstrap exception applies),
-  // so the session-cookie-gated trusted endpoint cannot serve that check.
-  const fetchPermissionUsers = useCallback(async () => {
-    const result = await fetchTrustedPermissionUsersRoster();
-    if (result.status !== "ok") {
-      throw new Error(result.status);
-    }
-    return result.users;
-  }, []);
-  const { data: permissionUsers, reload: reloadPermissionUsers } =
-    useAsyncData(fetchPermissionUsers);
 
   // Dynamic Non-Voting Reasons: not security-critical (unlike `roles`) so
   // just a plain `useAsyncData` fetch, no dedicated catalog-status state
@@ -595,9 +564,8 @@ export function useElectionDay() {
     useState<ElectionDayImportResult | null>(null);
 
   // Phase 3 Import/Clear frontend cutover: dedicated trusted flows
-  // (useImportVotersTrusted.ts/useClearVotersTrusted.ts), same independent-
-  // dialog pattern as `trustedCreateUser`/`trustedDeleteUser`/
-  // `trustedResetPassword` above - own proof, never entering
+  // (useImportVotersTrusted.ts/useClearVotersTrusted.ts), each with an
+  // independent dialog - own proof, never entering
   // `useElectionDayReauthProof`'s legacy cache, no `_v2` fallback on
   // failure. File parsing and the rejected-row/summary shape are completely
   // unchanged (see useImportVotersTrusted.ts's own doc comment); Clear now
@@ -1143,78 +1111,6 @@ export function useElectionDay() {
     "deleteRideCoordinator",
   );
 
-  // Phase 3C: create/delete/reset-password-user are all cut over to the
-  // trusted, session-derived v3 path (useCreatePermissionUserTrusted.ts/
-  // useDeletePermissionUserTrusted.ts/useResetPermissionUserPasswordTrusted.ts)
-  // - each its own dedicated dialog/proof flow, completely independent of
-  // `reauth`/`useElectionDayReauthProof` above. None of the v3 proofs they
-  // mint ever enter that legacy cache. `importFile` above and the 8
-  // role-management/coordinator-allocation actions in useRoleManagement.ts/
-  // useCoordinatorAllocation.ts are untouched and still go through
-  // `reauth.gate` exactly as before (9 legacy `_v2` reauth-gated actions
-  // remain in total).
-  const addPermissionUser = guardedAction(
-    "electionDay.manageUsers",
-    async (input: NewPermissionUser) => {
-      const result = await trustedCreateUser.createUser(input);
-      if (result) reloadPermissionUsers();
-      return result;
-    },
-    "addPermissionUser",
-  );
-
-  // Phase 3C Users (DELETE cutover): dedicated trusted delete flow
-  // (useDeletePermissionUserTrusted.ts) - its own independent dialog/proof,
-  // same pattern as `trustedCreateUser` above. Self-delete protection stays
-  // as a client-side first layer (defense in depth, UX only - the trusted
-  // server RPC independently rejects self-delete too, see
-  // `deleteErrorMessage` in useDeletePermissionUserTrusted.ts).
-  const deletePermissionUserRaw = useCallback(
-    async (id: string) => {
-      if (sessionUser && id === sessionUser.id) {
-        toast.error(ELECTION_DAY_TEXT.permissionsManager.selfDelete.blockedError);
-        return undefined;
-      }
-      const targetName = (permissionUsers ?? []).find((u) => u.id === id)?.name ?? "";
-      const result = await trustedDeleteUser.deleteUser(id, targetName);
-      if (result === undefined) return undefined;
-      reloadPermissionUsers();
-      return true;
-    },
-    [trustedDeleteUser, reloadPermissionUsers, sessionUser, permissionUsers],
-  );
-  const deletePermissionUser = guardedAction(
-    "electionDay.manageUsers",
-    deletePermissionUserRaw,
-    "deletePermissionUser",
-  );
-
-  // Phase 3C Users (RESET cutover): dedicated trusted reset-password flow
-  // (useResetPermissionUserPasswordTrusted.ts) - its own independent
-  // dialog/proof, same pattern as `trustedCreateUser`/`trustedDeleteUser`
-  // above. No `successMessage` here - `ResetPasswordDialog.tsx` shows its
-  // own success toast (needs the target user's name), same division of
-  // responsibility as before this cutover.
-  const resetPermissionUserPasswordRaw = useCallback(
-    async (targetId: string, newPassword: string) => {
-      const targetName =
-        (permissionUsers ?? []).find((u) => u.id === targetId)?.name ?? "";
-      const result = await trustedResetPassword.resetPassword(
-        targetId,
-        targetName,
-        newPassword,
-      );
-      if (result) reloadPermissionUsers();
-      return result;
-    },
-    [trustedResetPassword, reloadPermissionUsers, permissionUsers],
-  );
-  const resetPermissionUserPassword = guardedAction(
-    "electionDay.manageUsers",
-    resetPermissionUserPasswordRaw,
-    "resetPermissionUserPassword",
-  );
-
   /** Opens WhatsApp with the voter's pickup details pre-filled but no target
    * contact - the activist picks the driver by name inside WhatsApp itself
    * and sends it manually. Then marks the ride as arranged and tags the
@@ -1391,10 +1287,6 @@ export function useElectionDay() {
     addRideCoordinator,
     deleteRideCoordinator,
     sendRideRequestToDriver,
-    permissionUsers: permissionUsers ?? [],
-    addPermissionUser,
-    deletePermissionUser,
-    resetPermissionUserPassword,
     roles,
     // Security Hardening (Reauth): the shared password-reauth dialog for
     // Legacy shared gate - no remaining caller inside this hook since the
@@ -1404,15 +1296,9 @@ export function useElectionDay() {
     // wired/rendered as-is rather than removed, out of scope for this
     // cutover. Rendered once by `ElectionDayShell.tsx`.
     reauthDialog: reauth.reauthDialog,
-    // Phase 3C: the independent trusted-v3 dialogs for
-    // create/delete/reset-password - each a SEPARATE instance from
-    // `reauthDialog` above and from one another, never sharing pending/proof
-    // state. All rendered by `ElectionDayShell.tsx`.
-    createUserReauthDialog: trustedCreateUser.reauthDialog,
-    deleteUserReauthDialog: trustedDeleteUser.reauthDialog,
-    resetPasswordReauthDialog: trustedResetPassword.reauthDialog,
-    // Phase 3 Import/Clear frontend cutover: same independent-dialog
-    // pattern as the 3 PermissionUser flows above.
+    // Phase 3 Import/Clear frontend cutover: independent dialogs, each a
+    // SEPARATE instance from `reauthDialog` above. Rendered by
+    // `ElectionDayShell.tsx`.
     importVotersReauthDialog: trustedImportVoters.reauthDialog,
     clearVotersReauthDialog: trustedClearVoters.reauthDialog,
   };

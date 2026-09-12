@@ -277,6 +277,14 @@ export default async function handler(
       p_session_hash: tokenHashBytea,
     });
 
+    // Stage 9: the credentials were valid but the workspace is not entitled
+    // to Election Day. The RPC raises this only AFTER the password verified,
+    // so it tells nothing to someone without valid credentials.
+    if (error?.message === "MODULE_NOT_ENABLED") {
+      sendError(res, 403, "MODULE_NOT_ENABLED");
+      return;
+    }
+
     if (error || !data || (Array.isArray(data) && data.length === 0)) {
       sendError(res, 401, "UNAUTHORIZED");
       return;

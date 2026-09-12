@@ -40,6 +40,18 @@ function applyRewrite(pathname, search) {
   return `${pathname}${search}`;
 }
 
+/** Vercel hands handlers a parsed `req.cookies`; emulate it from the Cookie
+ * header. (Stage 9: the first UI suite to drive a PermissionUser session in
+ * the browser - before this, every handler here received `{}`.) */
+function parseCookies(header) {
+  const out = {};
+  for (const part of String(header ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  }
+  return out;
+}
+
 /** handlers: { "/api/platform/session": fn, "/api/health": fn } */
 export function startLocalServer({ distDir, handlers, port }) {
   const server = http.createServer(async (req, res) => {
@@ -81,7 +93,10 @@ export function startLocalServer({ distDir, handlers, port }) {
         },
       };
       try {
-        await target({ method: req.method, url: rewritten, headers: req.headers, body, cookies: {} }, vres);
+        await target(
+          { method: req.method, url: rewritten, headers: req.headers, body, cookies: parseCookies(req.headers.cookie) },
+          vres,
+        );
       } catch {
         if (!res.headersSent) {
           res.writeHead(500, { "content-type": "application/json" });

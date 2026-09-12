@@ -21,9 +21,9 @@ import type { Permission } from "../../permissions/types";
 export function getVisibleElectionDayNavItems(
   can: (permission: Permission) => boolean,
 ): NavItem[] {
+  // Platform Stage 9: there is no users/permissions screen for workers any
+  // more - user and role management is Election Owner authority only.
   const showFiles = can("electionDay.import") || can("electionDay.clearData");
-  const showPermissions =
-    can("electionDay.manageUsers") || can("electionDay.manageRolesAndPermissions");
   const showRides = can("electionDay.manageRideCoordinators");
   const showReasons =
     can("electionDay.manageNonVotingReasons") || can("voter.viewVotedStatus");
@@ -31,7 +31,6 @@ export function getVisibleElectionDayNavItems(
 
   return ELECTION_DAY_NAV_ITEMS.filter((item) => {
     if (item.to === ELECTION_DAY_ROUTES.files) return showFiles;
-    if (item.to === ELECTION_DAY_ROUTES.permissions) return showPermissions;
     if (item.to === ELECTION_DAY_ROUTES.rides) return showRides;
     if (item.to === ELECTION_DAY_ROUTES.reasons) return showReasons;
     if (item.to === ELECTION_DAY_ROUTES.reports) return showReports;

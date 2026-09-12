@@ -24,6 +24,12 @@ const ENTRIES = {
   ownerRoles: "api/election-day/owner-roles.ts",
   ownerReauth: "api/election-day/owner-reauth.ts",
   electionSession: "api/election-day/session.ts",
+  // Stage 9: the worker-side endpoints whose user-management paths are now
+  // closed, so the Stage 9 suites can prove the refusals through real code.
+  permissionUsers: "api/election-day/permission-users.ts",
+  reauth: "api/election-day/reauth.ts",
+  actions: "api/election-day/actions.ts",
+  roles: "api/election-day/roles.ts",
 };
 
 const faultPlugin = {
