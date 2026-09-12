@@ -23,7 +23,7 @@ const T = PLATFORM_OWNER_TEXT;
 
 function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 p-4">
       <p role="alert" className="text-sm font-medium text-opponent">
         {message}
       </p>
@@ -36,9 +36,18 @@ function LoadError({ message, onRetry }: { message: string; onRetry: () => void 
 
 function ListSkeleton() {
   return (
-    <div className="space-y-2" aria-hidden>
+    <div className="space-y-2 p-4" aria-hidden>
       <Skeleton className="h-16 w-full" />
       <Skeleton className="h-16 w-full" />
+    </div>
+  );
+}
+
+/** An empty / no-results state, centered inside a section's data panel. */
+function PanelCentered({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-500">
+      {children}
     </div>
   );
 }
@@ -125,15 +134,18 @@ export function PlatformOwnersSection() {
             </>
           ) : undefined
         }
+        panel
       >
         {access.readError ? (
           <LoadError message={access.readError} onRetry={() => void access.reload()} />
         ) : access.loading && !hasRows ? (
           <ListSkeleton />
         ) : !hasRows ? (
-          <EmptyState dense icon={ListChecks} title={T.ownerAccess.empty} />
+          <PanelCentered>
+            <EmptyState dense icon={ListChecks} title={T.ownerAccess.empty} />
+          </PanelCentered>
         ) : visible.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-500">{T.owners.noResults}</p>
+          <PanelCentered>{T.owners.noResults}</PanelCentered>
         ) : (
           <OwnerAccessList access={access} approvals={visible} />
         )}
@@ -230,68 +242,70 @@ export function PlatformModulesSection() {
             </>
           ) : undefined
         }
+        panel
       >
         {modules.readError ? (
           <LoadError message={modules.readError} onRetry={() => void modules.reload()} />
         ) : modules.loading && !hasRows ? (
           <ListSkeleton />
         ) : !hasRows ? (
-          <EmptyState dense icon={Blocks} title={T.workspaceModules.empty} />
+          <PanelCentered>
+            <EmptyState dense icon={Blocks} title={T.workspaceModules.empty} />
+          </PanelCentered>
         ) : visible.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-500">
-            {T.workspaces.noResults}
-          </p>
+          <PanelCentered>{T.workspaces.noResults}</PanelCentered>
         ) : (
-          <AdminListFrame>
-            <ul
-              className="divide-y divide-slate-100"
-              data-testid="workspace-modules-list"
-            >
-              {visible.map((w) => {
-                const error = modules.errorFor(w.workspaceId);
-                return (
-                  <li key={w.workspaceId} className="space-y-1.5 px-4 py-3">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                      <div className="min-w-0 space-y-1">
-                        <p className="font-bold break-words text-slate-800" dir="auto">
-                          {w.name}
+          <ul
+            className="divide-y divide-slate-100 border-b border-slate-100"
+            data-testid="workspace-modules-list"
+          >
+            {visible.map((w) => {
+              const error = modules.errorFor(w.workspaceId);
+              return (
+                <li
+                  key={w.workspaceId}
+                  className="space-y-1.5 px-4 py-3 transition-colors hover:bg-slate-50"
+                >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="min-w-0 space-y-1">
+                      <p className="font-bold break-words text-slate-800" dir="auto">
+                        {w.name}
+                      </p>
+                      {w.ownerName && (
+                        <p className="text-xs text-slate-500">
+                          {T.workspaceModules.owner(w.ownerName)}
                         </p>
-                        {w.ownerName && (
-                          <p className="text-xs text-slate-500">
-                            {T.workspaceModules.owner(w.ownerName)}
-                          </p>
-                        )}
-                        <p className="text-sm text-slate-700">
-                          {w.modules.length > 0
-                            ? w.modules.map(moduleLabel).join(" · ")
-                            : T.workspaceModules.none}
-                        </p>
-                      </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={modules.savingId !== null}
-                        onClick={() => editor.open(w)}
-                        className="w-full shrink-0 sm:w-auto"
-                      >
-                        {T.workspaceModules.edit}
-                      </Button>
+                      )}
+                      <p className="text-sm text-slate-700">
+                        {w.modules.length > 0
+                          ? w.modules.map(moduleLabel).join(" · ")
+                          : T.workspaceModules.none}
+                      </p>
                     </div>
-                    {error && (
-                      <p role="alert" className="text-sm font-medium text-opponent">
-                        {error}
-                      </p>
-                    )}
-                    {editor.savedId === w.workspaceId && (
-                      <p role="status" className="text-sm font-medium text-emerald-700">
-                        {T.workspaceModules.saved}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </AdminListFrame>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={modules.savingId !== null}
+                      onClick={() => editor.open(w)}
+                      className="w-full shrink-0 sm:w-auto"
+                    >
+                      {T.workspaceModules.edit}
+                    </Button>
+                  </div>
+                  {error && (
+                    <p role="alert" className="text-sm font-medium text-opponent">
+                      {error}
+                    </p>
+                  )}
+                  {editor.savedId === w.workspaceId && (
+                    <p role="status" className="text-sm font-medium text-emerald-700">
+                      {T.workspaceModules.saved}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </AdminSection>
       {editor.dialog}
@@ -378,31 +392,38 @@ export function PlatformWorkspacesSection() {
             </>
           ) : undefined
         }
+        panel
       >
         {modules.readError ? (
           <LoadError message={modules.readError} onRetry={() => void modules.reload()} />
         ) : modules.loading && !hasRows ? (
           <ListSkeleton />
         ) : !hasRows ? (
-          <EmptyState dense icon={Building2} title={W.empty} />
+          <PanelCentered>
+            <EmptyState dense icon={Building2} title={W.empty} />
+          </PanelCentered>
         ) : visible.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-500">{W.noResults}</p>
+          <PanelCentered>{W.noResults}</PanelCentered>
         ) : (
-          <AdminListFrame>
-            <div className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_auto] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500 lg:grid">
+          <>
+            {/* Sticky: the data panel itself is the scroll region. */}
+            <div className="sticky top-0 z-10 hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_auto] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-500 lg:grid">
               <span>{W.columns.name}</span>
               <span>{W.columns.owner}</span>
               <span>{W.columns.status}</span>
               <span>{W.columns.modules}</span>
               <span className="w-16" />
             </div>
-            <ul className="divide-y divide-slate-100" data-testid="workspaces-list">
+            <ul
+              className="divide-y divide-slate-100 border-b border-slate-100"
+              data-testid="workspaces-list"
+            >
               {visible.map((w) => {
                 const m = meById.get(w.workspaceId);
                 return (
                   <li
                     key={w.workspaceId}
-                    className="grid gap-2 px-4 py-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_auto] lg:items-center lg:gap-3"
+                    className="grid gap-2 px-4 py-3 transition-colors hover:bg-slate-50 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_auto] lg:items-center lg:gap-3"
                   >
                     <div className="min-w-0">
                       <p className="truncate font-bold text-slate-800" dir="auto">
@@ -415,8 +436,10 @@ export function PlatformWorkspacesSection() {
                         />
                       )}
                     </div>
-                    <p className="min-w-0 truncate text-sm text-slate-600" dir="auto">
-                      {w.ownerName ?? W.noOwner}
+                    {/* `bdi`: a Latin name keeps its own direction (isolated,
+                        like dir="auto") while the cell aligns with the RTL row. */}
+                    <p className="min-w-0 truncate text-sm text-slate-600">
+                      <bdi>{w.ownerName ?? W.noOwner}</bdi>
                     </p>
                     <div>
                       {m ? (
@@ -439,7 +462,7 @@ export function PlatformWorkspacesSection() {
                 );
               })}
             </ul>
-          </AdminListFrame>
+          </>
         )}
       </AdminSection>
 
@@ -509,8 +532,15 @@ export function PlatformWorkspacesSection() {
  * rather than inventing one (a backend read is a separate, future task). */
 export function PlatformAuditSection() {
   return (
-    <AdminSection testId="platform-audit-section" title={T.audit.title}>
-      <EmptyState icon={ScrollText} title={T.audit.emptyTitle} hint={T.audit.emptyHint} />
+    <AdminSection testId="platform-audit-section" title={T.audit.title} panel>
+      <PanelCentered>
+        <EmptyState
+          dense
+          icon={ScrollText}
+          title={T.audit.emptyTitle}
+          hint={T.audit.emptyHint}
+        />
+      </PanelCentered>
     </AdminSection>
   );
 }

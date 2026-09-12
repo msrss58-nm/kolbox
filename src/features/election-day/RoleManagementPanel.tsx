@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
-import { AdminListFrame, AdminSection } from "../../components/admin/AdminSection";
+import { AdminSection } from "../../components/admin/AdminSection";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -163,84 +163,87 @@ export function RoleManagementPanel({
             </span>
           ) : undefined
         }
+        panel
       >
         {!rolesLoaded ? (
-          <div className="space-y-2" aria-hidden>
+          <div className="space-y-2 p-4" aria-hidden>
             <Skeleton className="h-14 w-full" />
             <Skeleton className="h-14 w-full" />
           </div>
         ) : roles.length === 0 ? (
-          <EmptyState icon={ShieldCheck} title={text.empty} />
+          <div className="flex h-full items-center justify-center p-6">
+            <EmptyState dense icon={ShieldCheck} title={text.empty} />
+          </div>
         ) : (
-          <AdminListFrame>
-            <ul className="divide-y divide-slate-100" data-testid="owner-roles-list">
-              {roles.map((role) => {
-                const count = assignedCount(role.id);
-                return (
-                  <li
-                    key={role.id}
-                    data-manager={role.isManager === true ? "true" : "false"}
-                    className="flex items-center justify-between gap-3 px-4 py-2.5"
-                  >
-                    <div className="min-w-0">
-                      <p className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-800">
-                        <span className="truncate" dir="auto">
-                          {role.name}
+          // Rows sit flush inside the full-height data panel.
+          <ul
+            className="divide-y divide-slate-100 border-b border-slate-100"
+            data-testid="owner-roles-list"
+          >
+            {roles.map((role) => {
+              const count = assignedCount(role.id);
+              return (
+                <li
+                  key={role.id}
+                  data-manager={role.isManager === true ? "true" : "false"}
+                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-slate-50"
+                >
+                  <div className="min-w-0">
+                    <p className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-800">
+                      <span className="truncate" dir="auto">
+                        {role.name}
+                      </span>
+                      {role.isManager && (
+                        <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-700">
+                          {text.managerBadge}
                         </span>
-                        {role.isManager && (
-                          <span className="shrink-0 rounded-full bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-700">
-                            {text.managerBadge}
-                          </span>
-                        )}
-                      </p>
-                      {role.description && (
-                        <p className="truncate text-xs text-slate-500">
-                          {role.description}
-                        </p>
                       )}
-                      <p className="text-xs text-slate-400">
-                        {ROLE_SCOPE_LABELS[role.scopeType ?? "assigned_to_me"]} ·{" "}
-                        {text.usersCount(count)} ·{" "}
-                        {rolesText.permissionsCount(role.permissions.length)}
+                    </p>
+                    {role.description && (
+                      <p className="truncate text-xs text-slate-500">
+                        {role.description}
                       </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(role)}
-                        aria-label={text.editAriaLabel}
-                        title={text.editAriaLabel}
-                        className={ICON_BUTTON}
-                      >
-                        <Pencil className="size-4" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void cloneRole(role.id, text.cloneSuffix(role.name))
-                        }
-                        aria-label={text.cloneButton}
-                        title={text.cloneButton}
-                        className={ICON_BUTTON}
-                      >
-                        <Copy className="size-4" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={count > 0}
-                        onClick={() => setPendingDeleteId(role.id)}
-                        aria-label={text.deleteAriaLabel}
-                        title={text.deleteAriaLabel}
-                        className={`${ICON_BUTTON} hover:bg-opponent-soft hover:text-opponent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400`}
-                      >
-                        <Trash2 className="size-4" aria-hidden />
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </AdminListFrame>
+                    )}
+                    <p className="text-xs text-slate-400">
+                      {ROLE_SCOPE_LABELS[role.scopeType ?? "assigned_to_me"]} ·{" "}
+                      {text.usersCount(count)} ·{" "}
+                      {rolesText.permissionsCount(role.permissions.length)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(role)}
+                      aria-label={text.editAriaLabel}
+                      title={text.editAriaLabel}
+                      className={ICON_BUTTON}
+                    >
+                      <Pencil className="size-4" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void cloneRole(role.id, text.cloneSuffix(role.name))}
+                      aria-label={text.cloneButton}
+                      title={text.cloneButton}
+                      className={ICON_BUTTON}
+                    >
+                      <Copy className="size-4" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={count > 0}
+                      onClick={() => setPendingDeleteId(role.id)}
+                      aria-label={text.deleteAriaLabel}
+                      title={text.deleteAriaLabel}
+                      className={`${ICON_BUTTON} hover:bg-opponent-soft hover:text-opponent disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400`}
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </AdminSection>
 

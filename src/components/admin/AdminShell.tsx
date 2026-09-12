@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { NavLink } from "react-router";
 import { Loader2, LogOut, Menu, X, type LucideIcon } from "lucide-react";
 import { Logo } from "../Logo";
-import { Button } from "../ui/Button";
 import { ToastContainer } from "../ui/Toast";
 import { cn } from "../../lib/utils";
 import { ADMIN_SHELL_TEXT } from "./adminShell.constants";
@@ -81,12 +80,15 @@ function AccountBlock({ account }: { account: AdminShellAccount }) {
  * button opens the same links in a start-edge drawer (Escape, the backdrop
  * and every link close it; focus moves into it and back to the button).
  *
+ * Header: one compact row - the page title (h1, at every width) and the
+ * caller's context beside it from `lg`, under it below `lg`. The side menu's
+ * brand row shares the header's height so their bottom edges line up.
+ *
  * UX only: hiding a link authorizes nothing - every section's data and
  * mutations stay authorized by the server.
  */
 export function AdminShell({
   title,
-  brandSubtitle,
   navItems,
   account,
   context,
@@ -95,11 +97,9 @@ export function AdminShell({
 }: {
   /** The page heading (h1) - always visible, at every width. */
   title: string;
-  /** Small label under the logo in the side menu. */
-  brandSubtitle: string;
   navItems: AdminNavItem[];
   account: AdminShellAccount;
-  /** Compact context line(s) under the title (e.g. workspace + code). */
+  /** Compact context beside the title (e.g. workspace + code + modules). */
   context?: ReactNode;
   /** Full-width notice under the header (e.g. a disabled-module warning). */
   banner?: ReactNode;
@@ -130,16 +130,19 @@ export function AdminShell({
   return (
     <div className="flex h-dvh overflow-hidden bg-surface">
       {/* Fixed side menu (start side = right in RTL), desktop only. */}
-      <aside className="hidden w-64 shrink-0 flex-col bg-sidebar p-4 lg:flex">
-        <Logo light className="px-2 pt-1" />
-        <p className="mt-2 px-2 text-xs font-semibold text-slate-400">{brandSubtitle}</p>
+      <aside className="hidden w-64 shrink-0 flex-col bg-sidebar lg:flex">
+        {/* `box-content`: 56px + the 1px border = the header row's height, so
+            the two bottom edges form one line. */}
+        <div className="box-content flex h-14 shrink-0 items-center border-b border-white/10 px-5">
+          <Logo light />
+        </div>
         <nav
           aria-label={ADMIN_SHELL_TEXT.navLabel}
-          className="mt-6 min-h-0 flex-1 overflow-y-auto"
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
         >
           <AdminNavLinks items={navItems} />
         </nav>
-        <div className="mt-4 space-y-3 rounded-xl bg-sidebar-hover p-3">
+        <div className="m-3 mt-0 space-y-2 rounded-xl bg-sidebar-hover p-3">
           <AccountBlock account={account} />
           {/* A plain button, not `Button`: `cn` is plain clsx (no Tailwind
               conflict merging), so a variant's text colour would win over a
@@ -162,7 +165,7 @@ export function AdminShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="shrink-0 border-b border-slate-200 bg-white">
-          <div className="flex items-start gap-3 px-4 py-2.5 lg:px-6 lg:py-3">
+          <div className="flex min-h-14 items-center gap-3 px-4 py-2 lg:px-6">
             <button
               ref={menuButtonRef}
               type="button"
@@ -174,22 +177,33 @@ export function AdminShell({
             >
               <Menu className="size-5" aria-hidden />
             </button>
-            <div className="min-w-0 flex-1 self-center">
-              <h1 className="truncate text-sm font-extrabold text-slate-800 lg:text-base">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 lg:flex-row lg:items-center lg:gap-4">
+              <h1 className="truncate text-sm font-extrabold text-slate-800 lg:shrink-0 lg:text-base">
                 {title}
               </h1>
-              {context && <div className="mt-1">{context}</div>}
+              {context && (
+                <div className="min-w-0 lg:border-s lg:border-slate-200 lg:ps-4">
+                  {context}
+                </div>
+              )}
             </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={account.loggingOut}
+            {/* Below `lg` the side menu (and its logout) is hidden - an icon
+                button keeps the header to one compact row; the accessible
+                name stays the full label. */}
+            <button
+              type="button"
               onClick={account.onLogout}
-              className="shrink-0 lg:hidden"
+              disabled={account.loggingOut}
+              aria-label={account.logoutLabel}
+              title={account.logoutLabel}
+              className="touch-target -me-1 grid shrink-0 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-primary-500 disabled:opacity-60 lg:hidden"
             >
-              <LogOut className="size-4" aria-hidden />
-              {account.logoutLabel}
-            </Button>
+              {account.loggingOut ? (
+                <Loader2 className="size-5 animate-spin" aria-hidden />
+              ) : (
+                <LogOut className="size-5" aria-hidden />
+              )}
+            </button>
           </div>
           {banner}
         </header>
@@ -223,12 +237,9 @@ export function AdminShell({
                 <X className="size-5" aria-hidden />
               </button>
             </div>
-            <p className="mt-2 px-2 text-xs font-semibold text-slate-400">
-              {brandSubtitle}
-            </p>
             <nav
               aria-label={ADMIN_SHELL_TEXT.navLabel}
-              className="mt-6 min-h-0 flex-1 overflow-y-auto"
+              className="mt-4 min-h-0 flex-1 overflow-y-auto"
             >
               <AdminNavLinks items={navItems} onNavigate={() => setMenuOpen(false)} />
             </nav>

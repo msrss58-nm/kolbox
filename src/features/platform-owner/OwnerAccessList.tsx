@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { Modal } from "../../components/ui/Modal";
-import { AdminListFrame } from "../../components/admin/AdminSection";
 import { moduleLabel } from "../../constants/labels";
 import { cn } from "../../lib/utils";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
@@ -59,68 +58,73 @@ export function OwnerAccessList({
 
   return (
     <>
-      <AdminListFrame>
-        <ul className="divide-y divide-slate-100" data-testid="owner-access-list">
-          {approvals.map((a) => {
-            const busy = access.busyId === a.pendingId;
-            const error = access.errorFor(a.pendingId);
-            return (
-              <li key={a.pendingId} className="space-y-2 px-4 py-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-bold break-words text-slate-800">{a.name}</p>
-                      <ApprovalStatePill state={a.state} />
-                    </div>
-                    <LtrValue
-                      value={a.email}
-                      mono={false}
-                      className="text-sm text-slate-600"
-                    />
+      {/* Rows sit flush inside the Owners section's full-height data panel. */}
+      <ul
+        className="divide-y divide-slate-100 border-b border-slate-100"
+        data-testid="owner-access-list"
+      >
+        {approvals.map((a) => {
+          const busy = access.busyId === a.pendingId;
+          const error = access.errorFor(a.pendingId);
+          return (
+            <li
+              key={a.pendingId}
+              className="space-y-2 px-4 py-3 transition-colors hover:bg-slate-50"
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-bold break-words text-slate-800">{a.name}</p>
+                    <ApprovalStatePill state={a.state} />
+                  </div>
+                  <LtrValue
+                    value={a.email}
+                    mono={false}
+                    className="text-sm text-slate-600"
+                  />
+                  <p className="text-xs text-slate-500">
+                    {dateLine(a)}
+                    {a.workspaceName && (
+                      <>
+                        {" · "}
+                        <span className="font-semibold text-slate-600">
+                          {text.workspace(a.workspaceName)}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                  {a.state !== "consumed" && a.requestedModules && (
                     <p className="text-xs text-slate-500">
-                      {dateLine(a)}
-                      {a.workspaceName && (
-                        <>
-                          {" · "}
-                          <span className="font-semibold text-slate-600">
-                            {text.workspace(a.workspaceName)}
-                          </span>
-                        </>
+                      {text.requestedModules(
+                        a.requestedModules.map(moduleLabel).join(", "),
                       )}
                     </p>
-                    {a.state !== "consumed" && a.requestedModules && (
-                      <p className="text-xs text-slate-500">
-                        {text.requestedModules(
-                          a.requestedModules.map(moduleLabel).join(", "),
-                        )}
-                      </p>
-                    )}
-                  </div>
-
-                  {a.state !== "consumed" && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      loading={busy}
-                      disabled={access.anyBusy && !busy}
-                      onClick={() => setConfirm(a)}
-                      className="w-full shrink-0 sm:w-auto"
-                    >
-                      {a.state === "expired" ? text.renew : text.reissue}
-                    </Button>
                   )}
                 </div>
 
-                {error && (
-                  <p role="alert" className="text-sm font-medium text-opponent">
-                    {error}
-                  </p>
+                {a.state !== "consumed" && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={busy}
+                    disabled={access.anyBusy && !busy}
+                    onClick={() => setConfirm(a)}
+                    className="w-full shrink-0 sm:w-auto"
+                  >
+                    {a.state === "expired" ? text.renew : text.reissue}
+                  </Button>
                 )}
-              </li>
-            );
-          })}
-        </ul>
-      </AdminListFrame>
+              </div>
+
+              {error && (
+                <p role="alert" className="text-sm font-medium text-opponent">
+                  {error}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
 
       <ConfirmDialog
         open={confirm !== null}

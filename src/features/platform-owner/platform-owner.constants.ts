@@ -140,7 +140,6 @@ export const PLATFORM_OWNER_TEXT = {
 
   /** The console's side navigation (one route per section). */
   shell: {
-    brandSubtitle: "מסוף בעל הפלטפורמה",
     nav: {
       owners: "בעלי מערכות",
       workspaces: "מערכות בחירות",

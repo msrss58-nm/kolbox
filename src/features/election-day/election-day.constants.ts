@@ -706,7 +706,7 @@ export const ELECTION_DAY_TEXT = {
     addButton: "הוספה",
     columns: {
       name: "שם",
-      role: "הרשאה",
+      role: "תפקיד",
       actions: "פעולות",
     },
     deleteAriaLabel: "מחיקת משתמש",
@@ -1155,7 +1155,6 @@ export const ELECTION_DAY_TEXT = {
     /** The Owner administration shell: side navigation + one route per
      * section. Section titles reuse `rolesPage` above. */
     admin: {
-      brandSubtitle: "ניהול מערכת הבחירות",
       accountRole: "בעלי המערכת",
       nav: {
         users: "משתמשים",
@@ -1171,8 +1170,7 @@ export const ELECTION_DAY_TEXT = {
         count: (shown: number, total: number) =>
           shown === total ? `${total} משתמשים` : `${shown} מתוך ${total} משתמשים`,
         noResults: "לא נמצאו משתמשים התואמים לחיפוש",
-        emptyHint:
-          "הוסיפו את המשתמש הראשון - למשל מנהל שינהל את יום הבחירות. קוד המערכת מופיע בראש המסך.",
+        emptyHint: "הוסיפו את המשתמש הראשון - למשל מנהל שינהל את יום הבחירות.",
       },
       roles: {
         description:

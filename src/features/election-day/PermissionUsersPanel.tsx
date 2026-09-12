@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Eye, EyeOff, KeyRound, Trash2, UserPlus, Users } from "lucide-react";
-import { AdminListFrame, AdminSection } from "../../components/admin/AdminSection";
+import { AdminSection } from "../../components/admin/AdminSection";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -23,8 +23,10 @@ const usersText = ELECTION_DAY_TEXT.owner.admin.users;
 const managerBadge = ELECTION_DAY_TEXT.rolesManager.managerBadge;
 
 /** Name / role / actions - the role column shares space with the name so the
- * row still fits a 360px phone without horizontal scrolling. */
-const ROW_GRID = "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] items-center gap-3";
+ * row still fits a 360px phone without horizontal scrolling; from `lg` the
+ * name column is capped so the role reads right beside it on wide screens. */
+const ROW_GRID =
+  "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto]";
 
 function CreateUserDialog({
   roles,
@@ -243,9 +245,10 @@ export function PermissionUsersPanel({
           </Button>
         }
         toolbar={toolbar}
+        panel
       >
         {loadError ? (
-          <div className="space-y-2">
+          <div className="space-y-2 p-4">
             <p role="alert" className="text-sm text-opponent">
               {pageText.loadError}
             </p>
@@ -254,30 +257,39 @@ export function PermissionUsersPanel({
             </Button>
           </div>
         ) : !loaded ? (
-          <div className="space-y-2" aria-hidden>
+          <div className="space-y-2 p-4" aria-hidden>
             <Skeleton className="h-11 w-full" />
             <Skeleton className="h-11 w-full" />
             <Skeleton className="h-11 w-full" />
           </div>
         ) : users.length === 0 ? (
-          <EmptyState icon={Users} title={text.empty} hint={usersText.emptyHint} />
+          // Centered inside the data panel; "add" stays in the toolbar.
+          <div className="flex h-full items-center justify-center p-6">
+            <EmptyState
+              dense
+              icon={Users}
+              title={text.empty}
+              hint={usersText.emptyHint}
+            />
+          </div>
         ) : visibleUsers.length === 0 ? (
-          <p className="py-10 text-center text-sm text-slate-500">
+          <p className="flex h-full items-center justify-center p-6 text-sm text-slate-500">
             {usersText.noResults}
           </p>
         ) : (
-          <AdminListFrame>
+          <>
+            {/* Sticky: the data panel itself is the scroll region. */}
             <div
               className={cn(
                 ROW_GRID,
-                "border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-bold text-slate-500",
+                "sticky top-0 z-10 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-500",
               )}
             >
               <span>{text.columns.name}</span>
               <span>{text.columns.role}</span>
               <span className="w-[5.5rem] text-end">{text.columns.actions}</span>
             </div>
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 border-b border-slate-100">
               {visibleUsers.map((u) => {
                 const role = roleById.get(u.roleId);
                 const roleName = roleDisplayName(u.roleId, roles);
@@ -286,7 +298,13 @@ export function PermissionUsersPanel({
                   ? text.resetPassword.ariaLabel
                   : text.resetPassword.managerDisabledLabel;
                 return (
-                  <li key={u.id} className={cn(ROW_GRID, "px-4 py-1.5")}>
+                  <li
+                    key={u.id}
+                    className={cn(
+                      ROW_GRID,
+                      "px-4 py-1 transition-colors hover:bg-slate-50",
+                    )}
+                  >
                     <span
                       className="min-w-0 truncate text-sm font-bold text-slate-800"
                       dir="auto"
@@ -328,7 +346,7 @@ export function PermissionUsersPanel({
                 );
               })}
             </ul>
-          </AdminListFrame>
+          </>
         )}
       </AdminSection>
 

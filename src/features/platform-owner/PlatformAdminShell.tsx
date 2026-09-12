@@ -48,7 +48,6 @@ export function PlatformAdminShell() {
   return (
     <AdminShell
       title={text.title}
-      brandSubtitle={PLATFORM_OWNER_TEXT.shell.brandSubtitle}
       navItems={NAV_ITEMS}
       account={{
         name: owner?.email ?? "",

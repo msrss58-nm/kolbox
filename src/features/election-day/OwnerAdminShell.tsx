@@ -121,7 +121,6 @@ export function OwnerAdminShell() {
   return (
     <AdminShell
       title={text.title}
-      brandSubtitle={adminText.brandSubtitle}
       navItems={NAV_ITEMS}
       account={{
         name: owner?.email ?? "",
