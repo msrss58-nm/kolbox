@@ -1,10 +1,14 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Blocks, Building2, ListChecks, ScrollText, UserPlus } from "lucide-react";
-import { AdminListFrame, AdminSection } from "../../components/admin/AdminSection";
+import {
+  AdminListFrame,
+  AdminSearch,
+  AdminSection,
+} from "../../components/admin/AdminSection";
 import { Button } from "../../components/ui/Button";
 import { Drawer } from "../../components/ui/Drawer";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { Input, Select } from "../../components/ui/Field";
+import { Select } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { moduleLabel } from "../../constants/labels";
 import { cn } from "../../lib/utils";
@@ -109,13 +113,12 @@ export function PlatformOwnersSection() {
         toolbar={
           hasRows ? (
             <>
-              <Input
-                type="search"
+              <AdminSearch
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={T.owners.search}
                 aria-label={T.owners.search}
-                className="h-10 min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
+                className="min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
               />
               <Select
                 value={stateFilter}
@@ -128,11 +131,11 @@ export function PlatformOwnersSection() {
                 <option value="expired">{T.ownerAccess.states.expired}</option>
                 <option value="consumed">{T.ownerAccess.states.consumed}</option>
               </Select>
-              <span className="text-xs font-semibold text-slate-500" role="status">
-                {T.owners.count(visible.length, access.approvals.length)}
-              </span>
             </>
           ) : undefined
+        }
+        count={
+          hasRows ? T.owners.count(visible.length, access.approvals.length) : undefined
         }
         panel
       >
@@ -227,20 +230,19 @@ export function PlatformModulesSection() {
         description={T.workspaceModules.subtitle}
         toolbar={
           hasRows ? (
-            <>
-              <Input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={T.modulesSection.search}
-                aria-label={T.modulesSection.search}
-                className="h-10 min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
-              />
-              <span className="text-xs font-semibold text-slate-500" role="status">
-                {T.workspaces.count(visible.length, modules.workspaces.length)}
-              </span>
-            </>
+            <AdminSearch
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={T.modulesSection.search}
+              aria-label={T.modulesSection.search}
+              className="min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
+            />
           ) : undefined
+        }
+        count={
+          hasRows
+            ? T.workspaces.count(visible.length, modules.workspaces.length)
+            : undefined
         }
         panel
       >
@@ -256,7 +258,7 @@ export function PlatformModulesSection() {
           <PanelCentered>{T.workspaces.noResults}</PanelCentered>
         ) : (
           <ul
-            className="divide-y divide-slate-100 border-b border-slate-100"
+            className="space-y-2.5 md:space-y-0 md:divide-y md:divide-slate-100 md:border-b md:border-slate-100"
             data-testid="workspace-modules-list"
           >
             {visible.map((w) => {
@@ -264,12 +266,16 @@ export function PlatformModulesSection() {
               return (
                 <li
                   key={w.workspaceId}
-                  className="space-y-1.5 px-4 py-3 transition-colors hover:bg-slate-50"
+                  className="space-y-1.5 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 transition-colors md:rounded-none md:bg-transparent md:px-4 md:py-3 md:shadow-none md:ring-0 md:hover:bg-slate-50 lg:px-6"
                 >
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                  {/* The action sits right after the details, not at the far
+                      edge of the working area. */}
+                  <div className="flex flex-col gap-2 sm:grid sm:grid-cols-[minmax(0,40rem)_auto] sm:items-center sm:gap-x-7">
                     <div className="min-w-0 space-y-1">
-                      <p className="font-bold break-words text-slate-800" dir="auto">
-                        {w.name}
+                      {/* `bdi`: a Latin name keeps its own direction but
+                          aligns with the RTL card. */}
+                      <p className="font-bold break-words text-slate-800">
+                        <bdi>{w.name}</bdi>
                       </p>
                       {w.ownerName && (
                         <p className="text-xs text-slate-500">
@@ -287,7 +293,7 @@ export function PlatformModulesSection() {
                       size="sm"
                       disabled={modules.savingId !== null}
                       onClick={() => editor.open(w)}
-                      className="w-full shrink-0 sm:w-auto"
+                      className="w-full shrink-0 max-sm:h-11 sm:w-auto"
                     >
                       {T.workspaceModules.edit}
                     </Button>
@@ -377,21 +383,16 @@ export function PlatformWorkspacesSection() {
         description={W.description}
         toolbar={
           hasRows ? (
-            <>
-              <Input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={W.search}
-                aria-label={W.search}
-                className="h-10 min-w-0 flex-1 basis-44 sm:w-80 sm:flex-none"
-              />
-              <span className="text-xs font-semibold text-slate-500" role="status">
-                {W.count(visible.length, modules.workspaces.length)}
-              </span>
-            </>
+            <AdminSearch
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={W.search}
+              aria-label={W.search}
+              className="min-w-0 flex-1 basis-44 sm:w-80 sm:flex-none"
+            />
           ) : undefined
         }
+        count={hasRows ? W.count(visible.length, modules.workspaces.length) : undefined}
         panel
       >
         {modules.readError ? (
@@ -407,7 +408,7 @@ export function PlatformWorkspacesSection() {
         ) : (
           <>
             {/* Sticky: the data panel itself is the scroll region. */}
-            <div className="sticky top-0 z-10 hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_auto] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-500 lg:grid">
+            <div className="sticky top-0 z-10 hidden grid-cols-[minmax(0,20rem)_minmax(0,14rem)_6rem_minmax(0,18rem)_auto] gap-3 border-b border-slate-200 bg-slate-50 px-6 py-2.5 text-xs font-bold text-slate-500 lg:grid lg:gap-x-6">
               <span>{W.columns.name}</span>
               <span>{W.columns.owner}</span>
               <span>{W.columns.status}</span>
@@ -415,7 +416,7 @@ export function PlatformWorkspacesSection() {
               <span className="w-16" />
             </div>
             <ul
-              className="divide-y divide-slate-100 border-b border-slate-100"
+              className="space-y-2.5 md:space-y-0 md:divide-y md:divide-slate-100 md:border-b md:border-slate-100"
               data-testid="workspaces-list"
             >
               {visible.map((w) => {
@@ -423,11 +424,11 @@ export function PlatformWorkspacesSection() {
                 return (
                   <li
                     key={w.workspaceId}
-                    className="grid gap-2 px-4 py-3 transition-colors hover:bg-slate-50 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_6rem_minmax(0,1.2fr)_auto] lg:items-center lg:gap-3"
+                    className="grid gap-2 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 transition-colors md:rounded-none md:bg-transparent md:px-4 md:py-3 md:shadow-none md:ring-0 md:hover:bg-slate-50 lg:grid-cols-[minmax(0,20rem)_minmax(0,14rem)_6rem_minmax(0,18rem)_auto] lg:items-center lg:gap-x-6 lg:px-6"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-bold text-slate-800" dir="auto">
-                        {w.name}
+                      <p className="truncate font-bold text-slate-800">
+                        <bdi>{w.name}</bdi>
                       </p>
                       {m && (
                         <LtrValue
@@ -454,7 +455,7 @@ export function PlatformWorkspacesSection() {
                       size="sm"
                       onClick={() => setDetailId(w.workspaceId)}
                       aria-label={W.detailsAria(w.name)}
-                      className="w-full lg:w-16"
+                      className="w-full max-sm:h-11 lg:w-16"
                     >
                       {W.details}
                     </Button>

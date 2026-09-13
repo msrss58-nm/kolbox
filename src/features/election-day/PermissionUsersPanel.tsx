@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Eye, EyeOff, KeyRound, Trash2, UserPlus, Users } from "lucide-react";
-import { AdminSection } from "../../components/admin/AdminSection";
+import { AdminSearch, AdminSection } from "../../components/admin/AdminSection";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -22,11 +22,21 @@ const pageText = ELECTION_DAY_TEXT.owner.rolesPage;
 const usersText = ELECTION_DAY_TEXT.owner.admin.users;
 const managerBadge = ELECTION_DAY_TEXT.rolesManager.managerBadge;
 
-/** Name / role / actions - the role column shares space with the name so the
- * row still fits a 360px phone without horizontal scrolling; from `lg` the
- * name column is capped so the role reads right beside it on wide screens. */
-const ROW_GRID =
-  "grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] items-center gap-3 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)_auto]";
+/** From `md`: a name / role / actions table row; from `lg` every column is
+ * capped so the three read together instead of stretching across the working
+ * area. Below `md` each user is a card instead (see the row markup). */
+const TABLE_GRID =
+  "md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] md:items-center md:gap-3 lg:grid-cols-[minmax(0,21.25rem)_minmax(0,18.75rem)_6.875rem] lg:gap-x-7 lg:px-6";
+
+/** Phones: one card per user - avatar + name, the role under it, actions on
+ * the side. The same markup becomes the table row from `md`. */
+const USER_CARD =
+  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 md:rounded-none md:bg-transparent md:px-4 md:py-1 md:shadow-none md:ring-0";
+
+/** The avatar's letter: the name's first character (display only). */
+function initialOf(name: string): string {
+  return Array.from(name.trim())[0] ?? "";
+}
 
 function CreateUserDialog({
   roles,
@@ -205,19 +215,18 @@ export function PermissionUsersPanel({
   const toolbar =
     users.length > 0 ? (
       <>
-        <Input
-          type="search"
+        <AdminSearch
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={usersText.search}
           aria-label={usersText.search}
-          className="h-10 min-w-0 flex-1 basis-44 sm:w-64 sm:flex-none"
+          className="min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
         />
         <Select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
           aria-label={usersText.roleFilterLabel}
-          className="h-10 w-36 shrink-0 sm:w-52"
+          className="h-10 w-36 shrink-0 sm:w-48"
         >
           <option value="">{usersText.roleFilterAll}</option>
           {roles.map((r) => (
@@ -226,9 +235,6 @@ export function PermissionUsersPanel({
             </option>
           ))}
         </Select>
-        <span className="text-xs font-semibold text-slate-500" role="status">
-          {usersText.count(visibleUsers.length, users.length)}
-        </span>
       </>
     ) : undefined;
 
@@ -245,6 +251,11 @@ export function PermissionUsersPanel({
           </Button>
         }
         toolbar={toolbar}
+        count={
+          users.length > 0
+            ? usersText.count(visibleUsers.length, users.length)
+            : undefined
+        }
         panel
       >
         {loadError ? (
@@ -281,15 +292,16 @@ export function PermissionUsersPanel({
             {/* Sticky: the data panel itself is the scroll region. */}
             <div
               className={cn(
-                ROW_GRID,
+                "hidden",
+                TABLE_GRID,
                 "sticky top-0 z-10 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-500",
               )}
             >
               <span>{text.columns.name}</span>
               <span>{text.columns.role}</span>
-              <span className="w-[5.5rem] text-end">{text.columns.actions}</span>
+              <span className="w-[5.5rem]">{text.columns.actions}</span>
             </div>
-            <ul className="divide-y divide-slate-100 border-b border-slate-100">
+            <ul className="space-y-2.5 md:space-y-0 md:divide-y md:divide-slate-100 md:border-b md:border-slate-100">
               {visibleUsers.map((u) => {
                 const role = roleById.get(u.roleId);
                 const roleName = roleDisplayName(u.roleId, roles);
@@ -301,17 +313,31 @@ export function PermissionUsersPanel({
                   <li
                     key={u.id}
                     className={cn(
-                      ROW_GRID,
-                      "px-4 py-1 transition-colors hover:bg-slate-50",
+                      USER_CARD,
+                      TABLE_GRID,
+                      "transition-colors md:hover:bg-slate-50",
                     )}
                   >
-                    <span
-                      className="min-w-0 truncate text-sm font-bold text-slate-800"
-                      dir="auto"
-                    >
-                      {u.name}
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "grid size-8 shrink-0 place-items-center rounded-full text-[13px] font-bold text-primary-700",
+                          role?.isManager ? "bg-primary-100" : "bg-primary-50",
+                        )}
+                      >
+                        {initialOf(u.name)}
+                      </span>
+                      <span
+                        className="min-w-0 truncate text-sm font-bold text-slate-800"
+                        dir="auto"
+                      >
+                        {u.name}
+                      </span>
                     </span>
-                    <span className="flex min-w-0 items-center gap-1.5">
+                    {/* Phones: under the name, aligned with it (past the
+                        32px avatar + gap). */}
+                    <span className="flex min-w-0 items-center gap-1.5 max-md:col-start-1 max-md:ps-[2.625rem]">
                       <span className="truncate text-sm text-slate-600" title={roleName}>
                         {roleName}
                       </span>
@@ -321,7 +347,7 @@ export function PermissionUsersPanel({
                         </span>
                       )}
                     </span>
-                    <div className="flex w-[5.5rem] items-center justify-end gap-1">
+                    <div className="flex w-[5.5rem] items-center justify-start gap-1 max-md:col-start-2 max-md:row-span-2 max-md:row-start-1 max-md:justify-end">
                       <button
                         type="button"
                         onClick={() => setResetTarget(u)}

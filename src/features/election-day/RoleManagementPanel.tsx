@@ -156,13 +156,7 @@ export function RoleManagementPanel({
             {text.newRoleButton}
           </Button>
         }
-        toolbar={
-          roles.length > 0 ? (
-            <span className="text-xs font-semibold text-slate-500">
-              {rolesText.count(roles.length)}
-            </span>
-          ) : undefined
-        }
+        count={roles.length > 0 ? rolesText.count(roles.length) : undefined}
         panel
       >
         {!rolesLoaded ? (
@@ -177,7 +171,7 @@ export function RoleManagementPanel({
         ) : (
           // Rows sit flush inside the full-height data panel.
           <ul
-            className="divide-y divide-slate-100 border-b border-slate-100"
+            className="space-y-2.5 md:space-y-0 md:divide-y md:divide-slate-100 md:border-b md:border-slate-100"
             data-testid="owner-roles-list"
           >
             {roles.map((role) => {
@@ -186,7 +180,8 @@ export function RoleManagementPanel({
                 <li
                   key={role.id}
                   data-manager={role.isManager === true ? "true" : "false"}
-                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-slate-50"
+                  // Phones: a card - details on top, actions in a footer row.
+                  className="grid grid-cols-1 gap-2 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 transition-colors md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-3 md:rounded-none md:bg-transparent md:px-4 md:py-3 md:shadow-none md:ring-0 md:hover:bg-slate-50 lg:grid-cols-[minmax(0,40rem)_auto] lg:gap-x-7 lg:px-6"
                 >
                   <div className="min-w-0">
                     <p className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-800">
@@ -210,7 +205,7 @@ export function RoleManagementPanel({
                       {rolesText.permissionsCount(role.permissions.length)}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1 max-md:justify-end max-md:border-t max-md:border-slate-100 max-md:pt-1.5">
                     <button
                       type="button"
                       onClick={() => openEdit(role)}

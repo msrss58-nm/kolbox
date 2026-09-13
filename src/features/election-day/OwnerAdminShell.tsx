@@ -79,7 +79,12 @@ export function OwnerAdminShell() {
       className="flex flex-wrap items-center gap-x-3 gap-y-1"
       data-testid="owner-workspace-card"
     >
-      <span className="text-sm font-bold text-slate-700" dir="auto">
+      {/* Phones: the name gets its own truncated line so the header stays
+          compact; code + modules share the next one. */}
+      <span
+        className="text-sm font-bold text-slate-700 max-md:w-full max-md:truncate"
+        dir="auto"
+      >
         {summary.workspaceName ?? text.workspaceTitle}
       </span>
       {summary.loginCode && (

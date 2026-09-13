@@ -29,7 +29,7 @@ function AdminNavLinks({
   onNavigate?: () => void;
 }) {
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="flex flex-col gap-1.5">
       {items.map(({ to, label, icon: Icon }) => (
         <li key={to}>
           <NavLink
@@ -37,7 +37,7 @@ function AdminNavLinks({
             onClick={onNavigate}
             className={({ isActive }) =>
               cn(
-                "flex min-h-11 items-center gap-3 rounded-xl px-3.5 text-sm font-semibold transition-colors",
+                "flex min-h-11.5 items-center gap-3 rounded-xl px-4 text-sm font-semibold transition-colors",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-400",
                 isActive
                   ? "bg-primary-600 text-white shadow-md shadow-primary-950/40"
@@ -81,8 +81,8 @@ function AccountBlock({ account }: { account: AdminShellAccount }) {
  * and every link close it; focus moves into it and back to the button).
  *
  * Header: one compact row - the page title (h1, at every width) and the
- * caller's context beside it from `lg`, under it below `lg`. The side menu's
- * brand row shares the header's height so their bottom edges line up.
+ * caller's context beside it from `lg`, under it below `lg`. The side menu
+ * gives the logo breathing room and anchors the account block at its foot.
  *
  * UX only: hiding a link authorizes nothing - every section's data and
  * mutations stay authorized by the server.
@@ -131,18 +131,17 @@ export function AdminShell({
     <div className="flex h-dvh overflow-hidden bg-surface">
       {/* Fixed side menu (start side = right in RTL), desktop only. */}
       <aside className="hidden w-64 shrink-0 flex-col bg-sidebar lg:flex">
-        {/* `box-content`: 56px + the 1px border = the header row's height, so
-            the two bottom edges form one line. */}
-        <div className="box-content flex h-14 shrink-0 items-center border-b border-white/10 px-5">
+        {/* Breathing room below the logo, then the navigation. */}
+        <div className="shrink-0 border-b border-white/[0.07] px-6 pt-7 pb-6">
           <Logo light />
         </div>
         <nav
           aria-label={ADMIN_SHELL_TEXT.navLabel}
-          className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
+          className="min-h-0 flex-1 overflow-y-auto px-3.5 py-6"
         >
           <AdminNavLinks items={navItems} />
         </nav>
-        <div className="m-3 mt-0 space-y-2 rounded-xl bg-sidebar-hover p-3">
+        <div className="m-3.5 space-y-3 rounded-2xl bg-sidebar-hover px-4 py-3.5">
           <AccountBlock account={account} />
           {/* A plain button, not `Button`: `cn` is plain clsx (no Tailwind
               conflict merging), so a variant's text colour would win over a
@@ -165,7 +164,7 @@ export function AdminShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="shrink-0 border-b border-slate-200 bg-white">
-          <div className="flex min-h-14 items-center gap-3 px-4 py-2 lg:px-6">
+          <div className="flex min-h-14 items-center gap-3 px-4 py-2 lg:px-8">
             <button
               ref={menuButtonRef}
               type="button"

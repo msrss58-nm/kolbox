@@ -60,7 +60,7 @@ export function OwnerAccessList({
     <>
       {/* Rows sit flush inside the Owners section's full-height data panel. */}
       <ul
-        className="divide-y divide-slate-100 border-b border-slate-100"
+        className="space-y-2.5 md:space-y-0 md:divide-y md:divide-slate-100 md:border-b md:border-slate-100"
         data-testid="owner-access-list"
       >
         {approvals.map((a) => {
@@ -69,9 +69,11 @@ export function OwnerAccessList({
           return (
             <li
               key={a.pendingId}
-              className="space-y-2 px-4 py-3 transition-colors hover:bg-slate-50"
+              className="space-y-2 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 transition-colors md:rounded-none md:bg-transparent md:px-4 md:py-3 md:shadow-none md:ring-0 md:hover:bg-slate-50 lg:px-6"
             >
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              {/* The action sits right after the details, not at the far edge
+                  of the working area. */}
+              <div className="flex flex-col gap-2 sm:grid sm:grid-cols-[minmax(0,40rem)_auto] sm:items-center sm:gap-x-7">
                 <div className="min-w-0 space-y-0.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-bold break-words text-slate-800">{a.name}</p>
@@ -109,7 +111,7 @@ export function OwnerAccessList({
                     loading={busy}
                     disabled={access.anyBusy && !busy}
                     onClick={() => setConfirm(a)}
-                    className="w-full shrink-0 sm:w-auto"
+                    className="w-full shrink-0 max-sm:h-11 sm:w-auto"
                   >
                     {a.state === "expired" ? text.renew : text.reissue}
                   </Button>
