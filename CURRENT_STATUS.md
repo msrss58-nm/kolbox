@@ -7,7 +7,9 @@
 ## Production
 
 - **ELECTION DAY TRUSTED VOTER IMPORT HOTFIX - LOCAL COMMIT on branch `fix/trusted-voter-import` (based on `origin/master` `a9bedd3`, 2026-09-14). NOT pushed, NOT deployed, migration NOT applied to Production.** Root cause (verified locally and in the Production schema, read-only): `election_day_sync_coordinators_from_voters_for_workspace` (20260829050000) still used `ON CONFLICT (display_name) WHERE status='active'`, whose global index Phase 4A (20260830010000) replaced with `(workspace_id, display_name) WHERE status='active'` - PostgreSQL resolves the arbiter at plan time, so EVERY trusted import failed with 42P10 -> 500 and rolled back (no data damage; availability only). Since 2026-08-30 no voter file could be loaded in any workspace. Fix: one migration, `20260916010000_election_day_fix_coordinator_sync_conflict_target.sql`, re-creates only that function with the per-workspace target (body otherwise identical; SECURITY DEFINER, empty search_path, no grant to any role). No index, data, API or client change. Verified on the isolated scratch stack: upgrade path 91 -> 92 and clean replay 92 give the same schema, differing from 91 only in that function; new retained suite `scripts/voter-import/api-voter-import.mjs` 73/0 (red 55/18 before the fix); Stage 5-9 DB/API/UI regression green; typecheck/lint/build clean. Rollout (push this branch alone, then `db push` of this one migration) needs explicit approval.
-- **RESPONSIVE OWNER / PLATFORM ADMIN REDESIGN - LOCAL COMMIT `cfcfbcd55cbacd10eadcfa2178f4a427db907681` (2026-09-13). NOT pushed, NOT deployed - Production still serves `ba75f6e`, Production DB 91/91. Frontend only - no backend, API, schema, auth, entitlement, routing or business-logic change; no migration.** Built on `6c1d92a`. Desktop (from 768px) - the approved working-width layout: the section area capped at 1280px and centered, one RTL toolbar grouped at the start (title, primary action, search / filter, count pill), compact capped columns (Users: initial avatar + Manager badge; actions right after the details), roomier sidebar. Phones (below 768px, approved by the user as good enough to proceed) - compact header, stacked search / filter, lists as stacked cards, the primary action in a fixed bottom bar, 44px card buttons. Verified on the isolated scratch stack: phone widths 430 / 390 / 375 / 360 (24 screens: no page overflow, touch targets at least 44px, the last card clears the bar, dialog and drawer fit), desktop page overflow 0/40 (Election Owner) + 0/35 (Platform), Stage 9 UI 62/62, Stage 8 UI 39/39, build + typecheck, lint 0 findings, `git diff --check` / `--cached --check` clean; protected fingerprint `a1110964097f450fe23f25148211f038` unchanged. **Next consequential step: push the local commits (`6c1d92a`, `6af395d`, `cfcfbcd` and this docs checkpoint) - it auto-deploys all three Vercel surfaces and requires explicit user approval.** Full record: the responsive redesign section at the end of this file.
+- **BUDGET MODULE ("ניהול תקציב") - STAGE 1 (PRODUCT & UX) + STAGE 2 (DATA MODEL & ARCHITECTURE) - CLOSED / PASS (2026-09-14). DESIGN ONLY - no code, no migration, no Production change. Stage 3 (Budget Core) NOT STARTED and not authorized.** Roadmap: ~~Stage 1 - Product & UX Definition~~ CLOSED / PASS; ~~Stage 2 - Data Model & Architecture~~ CLOSED / PASS; Stages 3-7 NOT STARTED. Full approved decisions: the Budget section at the end of this file.
+- **RESPONSIVE OWNER / PLATFORM ADMIN REDESIGN - LIVE IN PRODUCTION.** The local commits (`6c1d92a`, `6af395d`, `cfcfbcd`, docs `a9bedd3`) were pushed with explicit approval (`origin/master` `ba75f6e` -> `a9bedd3`); all three surfaces report `a9bedd3` on `/api/health` (checked 2026-09-13T10:42:54Z); Production DB 91/91, zero drift (read-only re-check 2026-09-14). Recorded during the Budget docs checkpoint to correct the stale "NOT pushed" entry below.
+- _(Superseded by the LIVE entry above: pushed and deployed as `a9bedd3`.)_ **RESPONSIVE OWNER / PLATFORM ADMIN REDESIGN - LOCAL COMMIT `cfcfbcd55cbacd10eadcfa2178f4a427db907681` (2026-09-13). NOT pushed, NOT deployed - Production still serves `ba75f6e`, Production DB 91/91. Frontend only - no backend, API, schema, auth, entitlement, routing or business-logic change; no migration.** Built on `6c1d92a`. Desktop (from 768px) - the approved working-width layout: the section area capped at 1280px and centered, one RTL toolbar grouped at the start (title, primary action, search / filter, count pill), compact capped columns (Users: initial avatar + Manager badge; actions right after the details), roomier sidebar. Phones (below 768px, approved by the user as good enough to proceed) - compact header, stacked search / filter, lists as stacked cards, the primary action in a fixed bottom bar, 44px card buttons. Verified on the isolated scratch stack: phone widths 430 / 390 / 375 / 360 (24 screens: no page overflow, touch targets at least 44px, the last card clears the bar, dialog and drawer fit), desktop page overflow 0/40 (Election Owner) + 0/35 (Platform), Stage 9 UI 62/62, Stage 8 UI 39/39, build + typecheck, lint 0 findings, `git diff --check` / `--cached --check` clean; protected fingerprint `a1110964097f450fe23f25148211f038` unchanged. **Next consequential step: push the local commits (`6c1d92a`, `6af395d`, `cfcfbcd` and this docs checkpoint) - it auto-deploys all three Vercel surfaces and requires explicit user approval.** Full record: the responsive redesign section at the end of this file.
 - _(Superseded by the entry above: `cfcfbcd` builds on this commit; the next step is now the push decision.)_ **OWNER / PLATFORM ADMIN FULL-HEIGHT WORKSPACE LAYOUT - LOCAL COMMIT `6c1d92a439d42f9dc1907456a20ebbb5b1ead519` (2026-09-12). NOT pushed, NOT deployed - Production still serves `ba75f6e`. Frontend only - no API, schema, migration, authorization, entitlement or routing change.** A follow-up to the live admin shell: one RTL toolbar row per section (title and primary action together at the start, search / filters / count in the remaining space), a full-height white data panel that is the section's only scroll region (Election Owner Users / Roles; Platform Owners / Workspaces / Module assignment / Audit) with empty states centered inside it, a one-row header (title | workspace context), a tighter sidebar without the duplicate subtitle, and Latin owner names aligned with the RTL rows. Local gates (isolated scratch stack): Stage 9 UI 62/62, Stage 8 UI 39/39, page overflow 0/40 (Election Owner) + 0/35 (Platform) with real scrollbars at 1920/1440/1280/1024/390, build + typecheck, lint 0 findings, `git diff --check` clean; protected fingerprint `a1110964097f450fe23f25148211f038` unchanged. Production DB still 91/91; Stage 9 backend/schema live and untouched. **Next: local preview / visual approval before any push** (unless the user explicitly changes that decision). Full record: the full-height workspace section at the end of this file.
 - **UNIFIED OWNER ADMIN UX REDESIGN (fixed side-navigation admin shell) - LIVE IN PRODUCTION (2026-09-12).** Commit `ba75f6edcf92c3305aa2293fb765f677f77eb500` pushed `4337fb5..ba75f6e` (fast-forward); Git-triggered auto-deploys - all three surfaces serve `ba75f6e` (`/api/health` 200 with the correct surface). Frontend only. Post-deploy read-only gate: Production DB 91/91 zero drift, per-workspace row counts + content hashes unchanged, trial workspace 0 PermissionUsers, 0 open approvals, Multi-Entity 0/0/0; anonymous UI smoke 5/5 (deep links redirect to the right logins, no page errors / 5xx / overflow); API refusals as expected (403 `USER_MANAGEMENT_OWNER_ONLY`, clean 401s). The signed-in Election Owner reaching the new shell was reported by the user; activation-link non-persistence is not live-verified (it would need a real link). The docs inside `ba75f6e` predate this rollout; this entry supersedes the "implemented locally" entry below.
 - _(Superseded: committed as `ba75f6e` and now live - see the entry above.)_ **UNIFIED OWNER ADMIN UX REDESIGN (fixed side-navigation admin shell) - IMPLEMENTED LOCALLY (2026-09-12). NOT committed, NOT pushed, NOT deployed. Frontend + UI tests + docs only - no API, schema, migration or authorization change.** The Election Owner administration (`/election-day/owner/*`: Users / Roles & Permissions / Modules / Settings) and the Platform Owner console (`/platform/*`: Owners / Workspaces / Module assignment / Multi-Entity / Audit / Settings) now share one fixed-viewport `AdminShell` (`src/components/admin/`): fixed RTL side menu from 1024px, a start-edge navigation drawer below it, a fixed header, real child routes per section (reload / direct links keep the section), and a section frame whose body is the ONLY scrolling region; every create / edit / approve / re-issue / module-edit flow is a dialog. Local gates: Stage 9 UI 62/62 (incl. new layout checks at 1440/1280/1024/390), Stage 8 UI 39/39, bundles 18/18/16/16, build + typecheck, targeted lint 0 findings, `git diff --check` clean; protected fingerprint `a1110964097f450fe23f25148211f038` unchanged. Production is not touched by this work. Full record: the admin-shell section at the end of this file.
@@ -3655,3 +3657,211 @@ Explicit approval to commit (then push = Git-triggered deploy of all three surfa
 **Git:** local `6c1d92a`, `6af395d`, `cfcfbcd` and this docs checkpoint on top of `origin/master` = `ba75f6e`.
 
 **Next consequential step:** push - it auto-deploys all three Vercel surfaces (no migration involved) and requires explicit user approval.
+
+_(Superseded: pushed with approval and live as `a9bedd3` - see the Production entry at the top of this file.)_
+
+## Follow-up (2026-09-14) - BUDGET MODULE ("ניהול תקציב"): STAGE 1 (PRODUCT & UX) + STAGE 2 (DATA MODEL & ARCHITECTURE) - CLOSED / PASS (design only - NOTHING implemented)
+
+This section is the canonical record of the approved Budget design. It is a **plan, not a build**: no `budget_*` table, function, migration, endpoint, storage bucket, page or `budget.*` permission exists yet, and nothing touched Production. Anything below written as "is", "has" or "runs" describes the approved target design.
+
+**Roadmap:**
+- ~~Stage 1 - Product & UX Definition~~ - CLOSED / PASS
+- ~~Stage 2 - Data Model & Architecture~~ - CLOSED / PASS
+- Stage 3 - Budget Core - NOT STARTED
+- Stage 4 - Documents & Supplier Workflow - NOT STARTED
+- Stage 5 - Party Funding Workflow - NOT STARTED
+- Stage 6 - Dashboard, Reports & Controls - NOT STARTED
+- Stage 7 - Integration, Security & Production Acceptance - NOT STARTED
+
+### Product (Stage 1)
+
+**Module**
+- The title is **"ניהול תקציב"**. It is a separate sidebar section directly below Election Day in the existing blue RTL navigation.
+- Pages: דשבורד · תקציב ותכנון · הוצאות (with the expense file) · ספקים (with the supplier file) · דוחות · הגדרות.
+- There is no התחייבויות page and no אישורים page; there is no internal approval engine in V1.
+
+**Expense**
+- One persistent record per expense. A commitment is a status of that record, never a duplicate record.
+- Main status: טיוטה, התחייבות (counted as committed), בוצע (counted as actual), סגור (counted as actual) or בוטל.
+- The category is separate from funding.
+- The primary amount is the total including VAT. Net amount, VAT amount and VAT rate are optional extra fields.
+
+**Funding**
+- Funding kinds are party-funded, donations and personal. V1 donations are an aggregate source only, with no donor CRM or donor identity.
+- One expense may have several **funding allocations**, which must sum to the expense total before close.
+- **An uncovered gap is never auto-assigned**; the user chooses the source.
+- **The party pays the supplier directly.** The campaign is never reimbursed.
+- The party may authorize only part of the expense. The resulting gap stays on the same expense until the user funds it from another source.
+- The party may pay in one or more payments.
+
+**Party workflow**
+- The flow: **prior budget approval** (order no. if any, approval code, approver, date, pre-approved amount if relevant) → final order-form PDF → supplier signature where required → documents collected → sent to the party → **payment reference** (אסמכתא, with the authorized amount) → one or more supplier payments → close.
+- Prior approval is separate from the later payment reference.
+- **The final PDF cannot be generated or sent before prior approval.** Preview and draft are allowed.
+- Submission statuses: ממתין לאישור תקציבי מוקדם, אושר תקציבית מראש, איסוף מסמכים, מוכן להגשה, נשלח למממן, הוחזר לתיקון, התקבלה אסמכתא.
+- **Payment status is separate:** לא שולם, שולם חלקית or שולם במלואו, derived from the payment ledger.
+
+**Close guard**
+- For every expense:
+  - allocations equal the total;
+  - required documents are complete;
+  - the supplier is paid in full;
+  - no required workflow is left open.
+- For a party allocation, additionally:
+  - prior approval is recorded;
+  - the order-form flow is complete where required;
+  - the payment reference is received;
+  - party payments cover the authorized amount.
+
+**Documents**
+- Every funding kind supports documents.
+- The current party rules:
+  - order form: required
+  - quotation: required
+  - bank-account management confirmation: required
+  - photo: conditional, by category or per expense
+  - invoice: required only when the total is **> 1,500 ₪** (exactly 1,500 is not required)
+  - supplier-signed order form: required only when the total is **> 1,500 ₪**
+- The threshold and all rules are configurable settings data, not code constants.
+- A closed expense keeps a snapshot of the requirements that applied when it closed.
+
+**Order form**
+- Generated as a **PDF, never Excel/XLSX**.
+- The official funder form is authoritative. Its structure was mapped from the user's screenshot:
+  - branch sections 1-3, including the "אישור תקציבי מוקדם" box
+  - "מאשרי הזמנה" signature lines (1) and (2)
+  - supplier section 4 (signature and stamp only)
+  - instructions 1-5
+- Sections 1-3 are filled by the campaign; the supplier only signs and stamps.
+- It is sent to the supplier via WhatsApp:
+  - phones use the Web Share API with files;
+  - on desktop the file is downloaded and `wa.me` opens with prepared text.
+- "Sent" is always confirmed by the user; the system never claims WhatsApp delivered it.
+- The returned file is uploaded into the same expense.
+- Generated and returned versions are never overwritten; regenerating creates the next version.
+
+**Settings and authority**
+- Settings cover categories (add, rename, reorder, deactivate; delete only if unused), funding sources, document types and rules, thresholds, order-form defaults, WhatsApp, alerts and the budget period.
+- The budget period is independent of Election Day.
+- The **Owner has primary authority**, from a "הגדרות תקציב" section in the Owner admin shell, and may delegate by granting `budget.manageSettings`.
+
+**Budget-only workspaces**
+- Budget conceptually does not depend on Election Day. A workspace may have Budget without Election Day.
+- **Budget access continues after `election_end_at`.**
+
+**Design**
+- No redesign: Budget reuses the existing KOLBOX visual language and components.
+- The Google Stitch prompt is not written yet; exact visual work comes later.
+
+### Architecture (Stage 2)
+
+**Separate concerns.** Authentication, workspace membership, entitlement, permission and election lifecycle are handled separately. Budget authorization is **server-side and mandatory**, inside Postgres SECURITY DEFINER functions, following the order session → workspace → entitlement → permission.
+- There is **no client-trusted `workspace_id`**.
+- Tables have RLS enabled with zero policies, and no privileges for anon or authenticated. The Election Day permissive-RLS pattern must not be repeated.
+- **Composite `(workspace_id, id)` foreign keys** make cross-workspace links impossible.
+
+**Worker session**
+- The design keeps the existing PermissionUser session and cookie, and adds a **module-neutral** internal resolver.
+- Login accepts a workspace entitled to `election_day` **or** `budget`.
+- `election_day_resolve_session` and every Election Day RPC stay Election-Day-gated, unchanged.
+- The session reports the effective modules, but only for navigation.
+
+**Entitlement**
+- Budget is effectively entitled when a workspace module row exists **and** `platform_modules.budget.available = true`.
+- `available` is the global kill switch and is flipped **last**.
+- **Verified gap:** the module assignment does not check `available`, so the Platform Owner can assign `budget` today, where it sits unenforced. A pre-activation Production check is therefore required.
+- Disabling blocks access and keeps the data; re-enabling restores access. Changes stay audited in `platform_entitlement_audit`.
+
+**Permissions** (new, none granted automatically):
+- `budget.view`
+- `budget.manageExpenses`
+- `budget.manageFunderSubmissions`
+- `budget.manageSuppliers`
+- `budget.managePlan`
+- `budget.viewReports`
+- `budget.manageSettings`
+
+Every manage permission requires `budget.view`, enforced in `election_day_validate_role_input`. No Election Day Manager receives financial access automatically; `is_manager` grants nothing.
+
+**Money and integrity**
+- Money is stored as **integer agorot** (`bigint`), with no floating point.
+- The database enforces:
+  - Σ allocations ≤ total at all times, and = total to close;
+  - paid ≤ allocation;
+  - the party allocation equals the authorized amount once the reference is recorded.
+- The **payment ledger** records any number of payment events. Entries are never deleted; corrections use a one-way void with a reason, and an idempotency key prevents double entry.
+- The dashboard, lists and reports all use **one SQL calculation layer**, so a drill-down count always equals its list count.
+
+**Documents**
+- Documents live in a **private Storage bucket only**: no public URLs, 60-second signed links, direct browser-to-Storage transfer, and paths of the form `<workspace_id>/<document_id>`.
+- Uploads are checked for type and size, with the file's real type (magic bytes) verified after upload.
+- Document versions and supplier-document pins are immutable.
+- HEIC photos from iPhones still need verification on a real device.
+
+**Suppliers**
+- Supplier bank details are sensitive: they sit in a separate table and appear masked.
+- **Revealing or changing full bank details requires step-up**; routine settings do not.
+
+**Step-up**
+- It reuses the existing authoritative mechanisms, with **no second password system**:
+  - workers: the PermissionUser bcrypt check from `election_day_reauth_v3`, refactored into one shared function;
+  - Owner: Supabase Auth `signInWithPassword` plus `election_day_owner_reauth`.
+- The proof lives 5 minutes, is used once (atomic consume), and is bound to user, workspace, supplier and action (e.g. `budget_bank_reveal:<supplier_id>`).
+- Only the proof's hash is persisted.
+- Attempts are rate-limited, and every reveal, change and failed attempt is audited.
+- **Verified gap:** the worker reauth functions are Election-Day-gated, so Budget adds its own mint and consume functions over the same proof table.
+
+**API and the Vercel limit**
+- The limit remains **12/12**.
+- The decision is to free one slot by folding `clear-voters.ts` into `import-voters.ts`, keeping its public contract exactly through a **server-side `vercel.json` rewrite** (no redirect).
+  - The preserved contract: POST only / 405, 403 origin, a body of exactly `{reauthProof}` / 400, 401 without a session, 200 `{ok: true}`.
+- **New import/clear regression suites must pass before and after the merge, and again on a preview deployment.**
+- The freed slot then hosts **one dedicated `api/budget/actions.ts`**. There is no Budget logic in Election Day endpoints.
+
+**Delete and export**
+- Permanent deletion of a workspace with Budget data requires a **fresh, valid export or retention record**. Any later Budget change invalidates it.
+- Exports are bounded and streamed: paged data with checksums, and documents streamed one at a time. There is no arbitrarily large in-memory browser ZIP.
+- Completeness is proven with counts and checksums.
+- No statutory retention period is invented.
+- A confirmed deletion removes the Budget records and the stored documents, and is audited.
+
+**Audit**
+- An append-only history is written by triggers, and a write with no actor context is refused.
+- It covers:
+  - expense changes and status transitions
+  - allocations
+  - plans and adjustments
+  - prior approvals
+  - submissions
+  - payment references
+  - supplier payments and voids
+  - documents
+  - settings and rules
+  - supplier banking changes
+  - sensitive reveal and change events
+
+**Order-form PDF**
+- The PDF is generated server-side with pdf-lib, a code template versioned per funder layout, Hebrew RTL bidi ordering, and an **embedded open-licence (OFL) Hebrew font**.
+- The final font choice is deferred to Stage 4.
+
+**Rollout order (planned):**
+1. schema
+2. core functions
+3. permissions
+4. session change (its own release, with full Election Day regression)
+5. storage bucket
+6. lazy per-workspace initialisation
+7. application deploy (Budget inert while `available=false`)
+8. activation
+
+Every new function gets explicit `REVOKE`s by name, and its Production `proacl` is verified.
+
+### Carried forward (non-blocking)
+- verification of the clear-voters rewrite on a preview deployment
+- HEIC/iPhone checks on a real device
+- the final open-licence Hebrew PDF font
+- the original Excel source file for exact order-form placement, plus the few screenshot details that were unreadable
+- a pre-activation Production check that no workspace already holds `budget`
+
+### Next
+**Stage 3 - Budget Core: NOT STARTED.** It needs separate, explicit approval; this documentation checkpoint authorizes no implementation. The first Stage 3 task, once approved, is the clear-voters consolidation with its regression gate.

@@ -160,6 +160,14 @@ The Platform Owner console (`/platform`) lists every Election Owner approval and
 - **Cleanup is confirmed, never fire-and-forget** (`deleteAuthUserConfirmed`); an unconfirmed delete answers `AUTH_CLEANUP_INCOMPLETE` + `orphanedAuthUserId`. An adopted account is never deleted by the compensation.
 - **Tests** in `scripts/stage8/` (scratch stack only). After a Windows reboot the default scratch ports can fall inside a WinNAT-reserved range - set `S5_PORT_OFFSET` (e.g. 1000) for both `mkScratchStack.mjs` and the suites.
 
+## Budget module ("ניהול תקציב") - Stages 1 + 2 CLOSED / PASS (design only - NOT implemented)
+
+Product and architecture are approved; nothing is built. Stage 3 (Budget Core) is NOT STARTED and needs explicit approval. The full approved record (product model, data model, invariants, security, rollout) is `CURRENT_STATUS.md`'s Budget section - do not re-derive or reopen it.
+
+- **Not in the code yet:** no `budget_*` table, function, endpoint, storage bucket, page or `budget.*` permission exists. `platform_modules.budget` stays `available = false` until the Stage 7 activation step.
+- **Binding rules for implementation:** Budget is a separate module - no Budget logic in Election Day endpoints and no permissive-RLS pattern; authorization runs in the DB (session -> workspace -> entitlement -> permission) with no client-trusted `workspace_id`; money is integer agorot; documents are private storage only; the bank-detail step-up reuses the existing reauth mechanisms (no second password system).
+- **First Stage 3 task:** free a Vercel slot by folding `clear-voters.ts` into `import-voters.ts` behind a server-side `vercel.json` rewrite that keeps its public contract exactly; import/clear regression suites must pass before and after the merge, and on a preview deployment, before the dedicated Budget endpoint uses the slot.
+
 ## Known Security Limitations (Election Day → Supabase migration)
 
 Accepted, explicit trade-offs from the approved Election Day → Supabase migration plan (see task-plan.md) - not oversights, deliberately not solved yet:
