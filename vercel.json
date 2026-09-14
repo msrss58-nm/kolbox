@@ -13,6 +13,10 @@
       "destination": "/api/election-day/actions"
     },
     {
+      "source": "/api/election-day/clear-voters",
+      "destination": "/api/election-day/import-voters?__vf_op=clear"
+    },
+    {
       "source": "/api/election-day/owner-coordinator-allocation",
       "destination": "/api/election-day/owner-actions"
     },

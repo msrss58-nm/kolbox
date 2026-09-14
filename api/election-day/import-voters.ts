@@ -18,14 +18,31 @@ import { createHash } from "node:crypto";
 // -> this endpoint). The legacy election_day_import_voters_v2 RPC and its
 // only caller (SupabaseElectionDayApi.importElectionDayVoters) were both
 // removed entirely in the Phase 3 Contract migration.
+//
+// Budget Stage 3: this file ALSO serves POST /api/election-day/clear-voters
+// (formerly its own file, api/election-day/clear-voters.ts), freeing one of
+// the 12 Vercel Hobby function slots for the dedicated Budget endpoint. The
+// public clear URL is kept by a SERVER-SIDE vercel.json rewrite (never a
+// browser-visible redirect) to this path with `__vf_op=clear`. The clear
+// branch below is the former clear-voters.ts handler, unchanged: same method,
+// origin, body-key, cookie, proof and error contract, same RPC. The marker
+// only ROUTES - it grants nothing: the clear branch runs the full clear
+// authorization (session + a proof bound to the "clear_voters" action +
+// electionDay.clearData), so a caller who sends the marker to this path
+// directly gets exactly what the public clear URL gives, and an import body
+// can never reach the clear RPC (or vice versa) because each branch keeps its
+// own exact body allowlist and its own action-bound proof.
 
 const ALLOWED_BODY_KEYS = new Set<string>(["reauthProof", "voters"]);
+const CLEAR_ALLOWED_BODY_KEYS = new Set<string>(["reauthProof"]);
+const VOTER_FILE_OP_PARAM = "__vf_op";
 
 const SESSION_COOKIE_NAME = "__Host-kb_ed_session";
 const DEFAULT_PRODUCTION_ORIGIN = "https://kolbox-gamma.vercel.app";
 
 interface MinimalRequest {
   method?: string;
+  url?: string;
   headers: Record<string, string | string[] | undefined>;
   body?: unknown;
   cookies?: Record<string, string>;
@@ -92,10 +109,102 @@ function mapRpcError(error: { message?: string } | undefined): {
   }
 }
 
+/** The former clear-voters.ts error mapper, unchanged. */
+function mapClearRpcError(error: { message?: string } | undefined): {
+  status: number;
+  code: string;
+} {
+  const message = error?.message ?? "";
+  switch (message) {
+    case "UNAUTHORIZED":
+      return { status: 401, code: "UNAUTHORIZED" };
+    case "FORBIDDEN":
+      return { status: 403, code: "FORBIDDEN" };
+    case "ACTOR_WORKSPACE_REQUIRED":
+      return { status: 409, code: message };
+    default:
+      return { status: 500, code: "SERVER_ERROR" };
+  }
+}
+
+/** True only for the rewrite of /api/election-day/clear-voters. */
+function isClearRoute(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    return new URL(url, "http://localhost").searchParams.getAll(VOTER_FILE_OP_PARAM).includes("clear");
+  } catch {
+    return false;
+  }
+}
+
+/** POST /api/election-day/clear-voters - the former clear-voters.ts handler. */
+async function handleClear(req: MinimalRequest, res: MinimalResponse): Promise<void> {
+  const method = req.method ?? "GET";
+
+  if (method !== "POST") {
+    sendError(res, 405, "METHOD_NOT_ALLOWED");
+    return;
+  }
+
+  const origin = headerValue(req.headers.origin);
+  if (!origin || !allowedOrigins().has(origin)) {
+    sendError(res, 403, "FORBIDDEN_ORIGIN");
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const unknownKey = Object.keys(body).find((k) => !CLEAR_ALLOWED_BODY_KEYS.has(k));
+  if (unknownKey) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  const reauthProof = typeof body.reauthProof === "string" ? body.reauthProof : "";
+  if (!reauthProof) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  const rawSessionToken = req.cookies?.[SESSION_COOKIE_NAME];
+  if (!rawSessionToken) {
+    sendError(res, 401, "UNAUTHORIZED");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const sessionHashBytea = toPgBytea(sha256Hex(rawSessionToken));
+  const proofHashBytea = toPgBytea(sha256Hex(reauthProof));
+
+  const { error } = await supabase.rpc("election_day_clear_voters_v3", {
+    p_session_hash: sessionHashBytea,
+    p_reauth_proof_hash: proofHashBytea,
+  });
+
+  if (error) {
+    const { status, code } = mapClearRpcError(error);
+    sendError(res, status, code);
+    return;
+  }
+
+  res.status(200).json({ ok: true });
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
 ): Promise<void> {
+  if (isClearRoute(req.url)) {
+    await handleClear(req, res);
+    return;
+  }
+
   const method = req.method ?? "GET";
 
   if (method !== "POST") {

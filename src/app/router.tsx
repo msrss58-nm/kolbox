@@ -36,6 +36,14 @@ import { createBrowserRouter, Navigate, type RouteObject } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
 import { LoginPage } from "../features/auth/LoginPage";
+import { BudgetExpensePage } from "../features/budget/BudgetExpensePage";
+import { BudgetExpensesPage } from "../features/budget/BudgetExpensesPage";
+import { BudgetGuard } from "../features/budget/BudgetGuard";
+import { BudgetPlanningPage } from "../features/budget/BudgetPlanningPage";
+import { BudgetSettingsPage } from "../features/budget/BudgetSettingsPage";
+import { BudgetShell } from "../features/budget/BudgetShell";
+import { BudgetSuppliersPage } from "../features/budget/BudgetSuppliersPage";
+import { OwnerBudgetSettingsSection } from "../features/budget/OwnerBudgetSettingsSection";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { ElectionDayDashboardPage } from "../features/election-day/ElectionDayDashboardPage";
 import { ElectionDayFilesPage } from "../features/election-day/ElectionDayFilesPage";
@@ -302,6 +310,7 @@ const electionRoutes: RouteObject[] = [
           { path: "roles", element: <OwnerRolesSection /> },
           { path: "modules", element: <OwnerModulesSection /> },
           { path: "settings", element: <OwnerSettingsSection /> },
+          { path: "budget-settings", element: <OwnerBudgetSettingsSection /> },
         ],
       },
     ],
@@ -343,6 +352,26 @@ const electionRoutes: RouteObject[] = [
           { path: "rides", element: <ElectionDayRidesPage /> },
           { path: "reasons", element: <ElectionDayReasonsPage /> },
           { path: "reports", element: <ElectionDayReportsPage /> },
+        ],
+      },
+    ],
+  },
+  {
+    // Budget Stage 3: the Budget module - its own top-level tree like Election
+    // Day, behind BudgetGuard (the same PermissionUser session; every request
+    // is re-authorized server-side). Dashboard and Reports arrive in Stage 6.
+    path: ROUTES.budget,
+    element: <BudgetGuard />,
+    children: [
+      {
+        element: <BudgetShell />,
+        children: [
+          { index: true, element: <Navigate to="expenses" replace /> },
+          { path: "planning", element: <BudgetPlanningPage /> },
+          { path: "expenses", element: <BudgetExpensesPage /> },
+          { path: "expenses/:expenseId", element: <BudgetExpensePage /> },
+          { path: "suppliers", element: <BudgetSuppliersPage /> },
+          { path: "settings", element: <BudgetSettingsPage /> },
         ],
       },
     ],

@@ -160,13 +160,17 @@ The Platform Owner console (`/platform`) lists every Election Owner approval and
 - **Cleanup is confirmed, never fire-and-forget** (`deleteAuthUserConfirmed`); an unconfirmed delete answers `AUTH_CLEANUP_INCOMPLETE` + `orphanedAuthUserId`. An adopted account is never deleted by the compensation.
 - **Tests** in `scripts/stage8/` (scratch stack only). After a Windows reboot the default scratch ports can fall inside a WinNAT-reserved range - set `S5_PORT_OFFSET` (e.g. 1000) for both `mkScratchStack.mjs` and the suites.
 
-## Budget module ("ניהול תקציב") - Stages 1 + 2 CLOSED / PASS (design only - NOT implemented)
+## Budget module ("ניהול תקציב") - Stages 1 + 2 CLOSED / PASS; Stage 3 (Budget Core) implemented LOCALLY
 
-Product and architecture are approved; nothing is built. Stage 3 (Budget Core) is NOT STARTED and needs explicit approval. The full approved record (product model, data model, invariants, security, rollout) is `CURRENT_STATUS.md`'s Budget section - do not re-derive or reopen it.
+Stage 3 is a local commit only - NOT pushed, NOT deployed, its three migrations (`20260917000000`/`010000`/`020000`) NOT applied to Production, Budget not activated anywhere. Stage 4 (Documents & Supplier Workflow) is NOT STARTED and needs explicit approval. Approved design: `CURRENT_STATUS.md`'s Budget section; the Stage 3 build record is the Stage 3 section after it - do not re-derive or reopen them.
 
-- **Not in the code yet:** no `budget_*` table, function, endpoint, storage bucket, page or `budget.*` permission exists. `platform_modules.budget` stays `available = false` until the Stage 7 activation step.
-- **Binding rules for implementation:** Budget is a separate module - no Budget logic in Election Day endpoints and no permissive-RLS pattern; authorization runs in the DB (session -> workspace -> entitlement -> permission) with no client-trusted `workspace_id`; money is integer agorot; documents are private storage only; the bank-detail step-up reuses the existing reauth mechanisms (no second password system).
-- **First Stage 3 task:** free a Vercel slot by folding `clear-voters.ts` into `import-voters.ts` behind a server-side `vercel.json` rewrite that keeps its public contract exactly; import/clear regression suites must pass before and after the merge, and on a preview deployment, before the dedicated Budget endpoint uses the slot.
+- **Shape:** 19 `budget_*` tables (RLS on, zero policies, no table privileges for anon/authenticated/service_role); every call goes `api/budget/actions.ts` -> `budget_dispatch_worker` / `budget_dispatch_owner` (the only service_role grants, plus `budget_stepup_mint_worker`) -> session/owner -> workspace `FOR SHARE` -> effective entitlement (module row AND `platform_modules.available`) -> permission -> actor context -> `budget_op_<op>`. Every other `budget_*` function is granted to no role. A new op needs an entry in `budget_op_permissions` and its own `budget_op_*` function - never a direct grant.
+- **Invariants are in the DB:** integer agorot (cap 10^12), composite `(workspace_id, id)` FKs, sum allocations <= total, paid <= allocation, payer = source kind, append-only audit/ledger/adjustments/events, and an audit trigger that refuses any write without the actor context. The deferred integrity triggers are SECURITY DEFINER on purpose (they fire at COMMIT outside the dispatcher).
+- **Module-neutral worker session:** `election_day_login_v3` admits a workspace entitled to `election_day` OR `budget`; `election_day_resolve_session` still requires `election_day`, so Election Day RPCs stay closed to a Budget-only workspace. Budget never reads `election_end_at`.
+- **Bank step-up** reuses the existing proof tables (`election_day_reauth_proofs` / `election_owner_reauth_proofs`) with the action `budget_bank_<reveal|change>:<supplier_id>` - no second password system.
+- **`clear-voters`** now lives inside `import-voters.ts` behind the `vercel.json` rewrite (`__vf_op=clear`); keep that public contract - `scripts/budget/api-voterfile.mjs` is its retained suite. Preview-deployment check of the rewrite is still pending.
+- **Tests:** `scripts/budget/api-budget.mjs`, `ui-budget.mjs`, `api-voterfile.mjs` - scratch stack only (`S5_PORT_OFFSET`, `S5_STACK_DIR`).
+- **Pre-existing, not fixed:** trusted Election Day voter import returns 500 (`ON CONFLICT (display_name)` vs the Phase 4A workspace-scoped index) - needs its own approved fix.
 
 ## Known Security Limitations (Election Day → Supabase migration)
 

@@ -297,6 +297,24 @@ export default async function handler(
       workspace_id: string;
     };
 
+    // Budget Stage 3: the workspace's effective worker modules, so the client
+    // can route a Budget-only user. Navigation metadata only - it grants
+    // nothing; every module re-checks its own entitlement on every request.
+    // Additive and non-fatal: if it cannot be read, the login still succeeds
+    // and the field is simply omitted (the pre-Budget response shape).
+    let modules: string[] | undefined;
+    try {
+      const modulesResult = await supabase.rpc("workspace_session_modules", {
+        p_session_hash: tokenHashBytea,
+      });
+      modules =
+        !modulesResult.error && Array.isArray(modulesResult.data)
+          ? (modulesResult.data as unknown[]).filter((m): m is string => typeof m === "string")
+          : undefined;
+    } catch {
+      modules = undefined;
+    }
+
     res.setHeader(
       "Set-Cookie",
       `${SESSION_COOKIE_NAME}=${rawToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}`,
@@ -314,6 +332,7 @@ export default async function handler(
       name: row.actor_name,
       roleId: row.role_id,
       workspaceId: row.workspace_id,
+      ...(modules ? { modules } : {}),
     });
     return;
   }

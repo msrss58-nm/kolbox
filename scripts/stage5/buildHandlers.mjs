@@ -6,6 +6,7 @@
 // of `_ownerAuth.js` resolves to scripts/stage5/faultableOwnerAuth.mjs, which
 // re-exports the real module and wraps its service client so a test can inject
 // a single deterministic failure. Handler code itself is bundled byte-for-byte.
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -30,7 +31,21 @@ const ENTRIES = {
   reauth: "api/election-day/reauth.ts",
   actions: "api/election-day/actions.ts",
   roles: "api/election-day/roles.ts",
+  // Budget Stage 3: the voter-file endpoints (the clear-voters -> import-voters
+  // consolidation gate) and the dedicated Budget endpoint.
+  importVoters: "api/election-day/import-voters.ts",
 };
+
+// Bundled only while the file exists: clear-voters.ts is folded into
+// import-voters.ts by Budget Stage 3, and api/budget/actions.ts is added by it,
+// so the same suites run unchanged before and after.
+const OPTIONAL_ENTRIES = {
+  clearVoters: "api/election-day/clear-voters.ts",
+  budget: "api/budget/actions.ts",
+};
+for (const [key, entry] of Object.entries(OPTIONAL_ENTRIES)) {
+  if (fs.existsSync(path.join(repoRoot, entry))) ENTRIES[key] = entry;
+}
 
 const faultPlugin = {
   name: "s5-fault-shim",

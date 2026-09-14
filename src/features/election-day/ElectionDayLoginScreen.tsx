@@ -66,7 +66,13 @@ export function ElectionDayLoginScreen() {
       setError(result.message);
       return;
     }
-    void navigate(ROUTES.electionDay, { replace: true });
+    // Budget Stage 3: a workspace entitled to Budget but not Election Day
+    // lands in the Budget module (navigation only; both re-check server-side).
+    const budgetOnly =
+      result.modules !== undefined &&
+      !result.modules.includes("election_day") &&
+      result.modules.includes("budget");
+    void navigate(budgetOnly ? ROUTES.budget : ROUTES.electionDay, { replace: true });
   };
 
   return (

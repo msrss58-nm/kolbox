@@ -62,7 +62,19 @@ export type Permission =
   // status without being trusted with the full history, or vice versa.
   | "voter.viewReminderHistory"
   | "voter.viewRideStatus"
-  | "voter.viewVotedStatus";
+  | "voter.viewVotedStatus"
+  // Budget Stage 3: the Budget module (ניהול תקציב). Independent of every
+  // Election Day permission - no role receives them automatically and
+  // `is_manager` grants none. Every other budget.* requires budget.view
+  // (enforced by election_day_validate_role_input and on every request by
+  // the Budget dispatchers).
+  | "budget.view"
+  | "budget.manageExpenses"
+  | "budget.manageFunderSubmissions"
+  | "budget.manageSuppliers"
+  | "budget.managePlan"
+  | "budget.viewReports"
+  | "budget.manageSettings";
 
 /** JSON-compatible value - mirrors what a Postgres `jsonb` column can hold
  * over the wire. Used only for `RoleRecord.scopeValue`, which Phase 1 never

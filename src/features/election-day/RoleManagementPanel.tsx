@@ -115,8 +115,17 @@ export function RoleManagementPanel({
   const togglePermission = (permission: Permission) => {
     setForm((prev) => {
       const next = new Set(prev.permissions);
-      if (next.has(permission)) next.delete(permission);
-      else next.add(permission);
+      if (next.has(permission)) {
+        next.delete(permission);
+        // Budget Stage 3: every Budget capability requires budget.view (the
+        // server refuses the role otherwise), so removing view removes them.
+        if (permission === "budget.view") {
+          for (const p of next) if (p.startsWith("budget.")) next.delete(p);
+        }
+      } else {
+        next.add(permission);
+        if (permission.startsWith("budget.")) next.add("budget.view");
+      }
       return { ...prev, permissions: next };
     });
   };

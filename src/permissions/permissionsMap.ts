@@ -36,6 +36,13 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   "voter.viewReminderHistory",
   "voter.viewRideStatus",
   "voter.viewVotedStatus",
+  "budget.view",
+  "budget.manageExpenses",
+  "budget.manageFunderSubmissions",
+  "budget.manageSuppliers",
+  "budget.managePlan",
+  "budget.viewReports",
+  "budget.manageSettings",
 ];
 
 /** Platform Stage 9: catalogued permissions that no longer grant anything,

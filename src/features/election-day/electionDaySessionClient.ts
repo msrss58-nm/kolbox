@@ -18,6 +18,9 @@ export interface ServerSessionUser {
   /** Server-derived metadata only - never an authorization authority on the
    * frontend (see CLAUDE.md's Phase 3B notes). */
   workspaceId: string;
+  /** Budget Stage 3: the workspace's effective worker modules, sent by login
+   * only. Navigation metadata - never an authorization input. */
+  modules?: string[];
 }
 
 /**
@@ -43,7 +46,9 @@ function isServerSessionUser(value: unknown): value is ServerSessionUser {
     typeof v.id === "string" &&
     typeof v.name === "string" &&
     typeof v.roleId === "string" &&
-    typeof v.workspaceId === "string"
+    typeof v.workspaceId === "string" &&
+    (v.modules === undefined ||
+      (Array.isArray(v.modules) && v.modules.every((m) => typeof m === "string")))
   );
 }
 

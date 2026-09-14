@@ -5,9 +5,13 @@ import {
   Folder,
   LayoutDashboard,
   Megaphone,
+  Receipt,
+  Settings,
   ShieldCheck,
+  Truck,
   Upload,
   Users,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -48,6 +52,9 @@ export const ROUTES = {
   electionDayOwnerRoles: "/election-day/owner/roles",
   electionDayOwnerModules: "/election-day/owner/modules",
   electionDayOwnerSettings: "/election-day/owner/settings",
+  /** Budget Stage 3: the Owner's Budget settings (the same single settings
+   * store the in-module Settings page edits for budget.manageSettings holders). */
+  electionDayOwnerBudgetSettings: "/election-day/owner/budget-settings",
   /** Platform Stage 2: the Platform Owner console - a FOURTH, fully
    * independent identity, separate from the campaign Supabase user
    * (`authStore.ts`), the Election Day PermissionUser session
@@ -109,6 +116,10 @@ export const ROUTES = {
   /** Platform Stage 7: one assigned workspace's aggregates (under the guard).
    * The id in the URL is untrusted - the server authorizes it. */
   multiEntityWorkspace: "/multi-entity/workspaces/:workspaceId",
+  /** Budget Stage 3: the Budget module (ניהול תקציב) - its own top-level route
+   * tree behind BudgetGuard, reached with the same PermissionUser session as
+   * Election Day (a Budget-only workspace logs in there too). */
+  budget: "/budget",
 } as const;
 
 /** Election Day's own sub-navigation (UX v3 - "shell" architecture, see
@@ -168,4 +179,22 @@ export const ELECTION_DAY_NAV_ITEMS: NavItem[] = [
   { to: ELECTION_DAY_ROUTES.rides, label: "ניהול הסעות", icon: Car },
   { to: ELECTION_DAY_ROUTES.reasons, label: "סיבות אי-הצבעה", icon: ClipboardList },
   { to: ELECTION_DAY_ROUTES.reports, label: "דוחות", icon: FileBarChart2 },
+];
+
+/** Budget Stage 3: the Budget module's sub-navigation. Dashboard and Reports
+ * arrive with Stage 6. */
+export const BUDGET_ROUTES = {
+  planning: `${ROUTES.budget}/planning`,
+  expenses: `${ROUTES.budget}/expenses`,
+  suppliers: `${ROUTES.budget}/suppliers`,
+  settings: `${ROUTES.budget}/settings`,
+} as const;
+
+export const BUDGET_NAV_SECTION_LABEL = "ניהול תקציב";
+
+export const BUDGET_NAV_ITEMS: NavItem[] = [
+  { to: BUDGET_ROUTES.planning, label: "תקציב ותכנון", icon: Wallet },
+  { to: BUDGET_ROUTES.expenses, label: "הוצאות", icon: Receipt },
+  { to: BUDGET_ROUTES.suppliers, label: "ספקים", icon: Truck },
+  { to: BUDGET_ROUTES.settings, label: "הגדרות", icon: Settings },
 ];

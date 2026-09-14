@@ -117,6 +117,9 @@ function mapRpcError(error: { message?: string } | undefined): {
       return { status: 400, code: "ROLE_NAME_REQUIRED" };
     case "INVALID_SCOPE_TYPE":
       return { status: 400, code: "INVALID_SCOPE_TYPE" };
+    // Budget Stage 3: a budget.* permission without budget.view.
+    case "BUDGET_VIEW_REQUIRED":
+      return { status: 400, code: "BUDGET_VIEW_REQUIRED" };
     default:
       return { status: 500, code: "SERVER_ERROR" };
   }

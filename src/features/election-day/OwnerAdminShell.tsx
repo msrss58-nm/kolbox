@@ -1,4 +1,4 @@
-import { Blocks, Settings, ShieldCheck, Users } from "lucide-react";
+import { Blocks, Settings, ShieldCheck, Users, Wallet } from "lucide-react";
 import { Outlet, useNavigate } from "react-router";
 import { AdminShell, type AdminNavItem } from "../../components/admin/AdminShell";
 import { Button } from "../../components/ui/Button";
@@ -6,6 +6,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { moduleLabel } from "../../constants/labels";
 import { ROUTES } from "../../constants/routes";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
+import { BUDGET_TEXT } from "../budget/budget.constants";
 import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import type { OwnerAdminContext } from "./ownerAdminContext";
@@ -22,6 +23,7 @@ const NAV_ITEMS: AdminNavItem[] = [
   { to: ROUTES.electionDayOwnerRoles, label: adminText.nav.roles, icon: ShieldCheck },
   { to: ROUTES.electionDayOwnerModules, label: adminText.nav.modules, icon: Blocks },
   { to: ROUTES.electionDayOwnerSettings, label: adminText.nav.settings, icon: Settings },
+  { to: ROUTES.electionDayOwnerBudgetSettings, label: BUDGET_TEXT.settings.title, icon: Wallet },
 ];
 
 /**

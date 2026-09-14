@@ -1,13 +1,18 @@
-import { useMemo, useState } from "react";
-import { Outlet, useNavigate, useOutletContext } from "react-router";
+import { useCallback, useMemo, useState } from "react";
+import { Link, Outlet, useNavigate, useOutletContext } from "react-router";
+import { ArrowLeftRight } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
 import { toast } from "../../components/ui/Toast";
 import { COMMON_TEXT } from "../../constants/common-text";
 import {
+  BUDGET_NAV_SECTION_LABEL,
   ELECTION_DAY_NAV_SECTION_LABEL,
   NAV_ITEMS,
   ROUTES,
 } from "../../constants/routes";
+import { useAsyncData } from "../../hooks/useAsyncData";
+import { BUDGET_TEXT } from "../budget/budget.constants";
+import { budgetNavItemsFor, useBudgetSession } from "../budget/budgetSession";
 import { useAuth } from "../auth/authStore";
 import { usePermissions } from "../../permissions/usePermissions";
 import { AppShell } from "../../app/AppShell";
@@ -88,9 +93,24 @@ export function ElectionDayShell() {
 
   const visibleNavItems = useMemo(() => getVisibleElectionDayNavItems(can), [can]);
 
+  // Budget Stage 3: ask the Budget endpoint once whether this session may use
+  // Budget; if so, its section sits directly below Election Day. Navigation
+  // only - the Budget module re-authorizes every request server-side.
+  const loadBudget = useBudgetSession((s) => s.load);
+  const fetchBudgetStatus = useCallback(() => loadBudget(), [loadBudget]);
+  const { data: budgetStatus } = useAsyncData(fetchBudgetStatus);
+  const budgetSession = useBudgetSession((s) => s.session);
+  const budgetItems = useMemo(
+    () => (budgetStatus === "ready" ? budgetNavItemsFor(budgetSession) : []),
+    [budgetStatus, budgetSession],
+  );
+
   const electionDaySections = useMemo(
-    () => [{ label: ELECTION_DAY_NAV_SECTION_LABEL, items: visibleNavItems }],
-    [visibleNavItems],
+    () => [
+      { label: ELECTION_DAY_NAV_SECTION_LABEL, items: visibleNavItems },
+      ...(budgetItems.length > 0 ? [{ label: BUDGET_NAV_SECTION_LABEL, items: budgetItems }] : []),
+    ],
+    [visibleNavItems, budgetItems],
   );
 
   // Looks up against `allContacts` (unfiltered/unpaginated), not the Voters
@@ -120,6 +140,17 @@ export function ElectionDayShell() {
       }
     >
       <div className="mx-auto max-w-[1400px]">
+        {budgetItems.length > 0 && (
+          <div className="mb-3 flex justify-end md:hidden">
+            <Link
+              to={ROUTES.budget}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-primary-700 ring-1 ring-slate-200"
+            >
+              <ArrowLeftRight className="size-4" />
+              {BUDGET_TEXT.nav.switchToBudget}
+            </Link>
+          </div>
+        )}
         <PageHeader
           title={ELECTION_DAY_TEXT.title}
           subtitle={ELECTION_DAY_TEXT.subtitle}

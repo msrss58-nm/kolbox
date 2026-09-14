@@ -29,7 +29,7 @@ const LEGACY_SESSION_KEY = "election-day-session-v1";
  * fail.)
  */
 export type LoginActionResult =
-  | { status: "success" }
+  | { status: "success"; modules?: string[] }
   | { status: "error"; message: string }
   /** A duplicate/overlapping call was suppressed while a real attempt was
    * already in flight - no network request was made, `user` is untouched,
@@ -183,7 +183,7 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set, get) 
         // role-specific), so it can start before `ElectionDayGuard`'s own
         // GET even runs.
         void useRoleCatalogStore.getState().ensureLoaded();
-        return { status: "success" };
+        return { status: "success", modules: result.user.modules };
       }
       return { status: "error", message: mapLoginFailureMessage(result) };
     } finally {
