@@ -181,8 +181,9 @@ export function BudgetExpensePage() {
       </SectionCard>
 
       <ExpenseFundingSection expense={x} lookups={lk} canManage={canManage && open} onChange={adopt} />
-      {x.allocations.some((a) => a.kind === "party") && (
-        <ExpensePartySection expense={x} canManage={budgetCan(session, "budget.manageFunderSubmissions") && open} onChange={adopt} />
+      {x.party.length > 0 && (
+        <ExpensePartySection expense={x} open={open} canSubmit={budgetCan(session, "budget.manageFunderSubmissions")}
+          canPay={canManage} onChange={adopt} />
       )}
       {documents.data && (documents.data.requirements.partyFunded || documents.data.orderForm.versions.length > 0) && (
         <ExpenseOrderFormSection expense={x} data={documents.data} supplierPhone={supplier?.phone ?? null}

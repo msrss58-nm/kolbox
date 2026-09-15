@@ -78,10 +78,12 @@ export function ExpensePaymentsSection({ expense, lookups, canManage, onChange }
   );
 }
 
-function RecordPaymentDialog({ expense, allocLabel, onClose, onDone }: {
-  expense: Expense; allocLabel: (id: string) => string; onClose: () => void; onDone: (r: Expense | undefined) => void;
+/** `allocationIds` limits the choice (the party section records only on its
+ * own party allocation). */
+export function RecordPaymentDialog({ expense, allocationIds, allocLabel, onClose, onDone }: {
+  expense: Expense; allocationIds?: string[]; allocLabel: (id: string) => string; onClose: () => void; onDone: (r: Expense | undefined) => void;
 }) {
-  const open = expense.allocations.filter((a) => a.paid < a.amount);
+  const open = expense.allocations.filter((a) => a.paid < a.amount && (!allocationIds || allocationIds.includes(a.id)));
   const [allocationId, setAllocationId] = useState(open[0]?.id ?? "");
   const [text, setText] = useState("");
   const [amount, setAmount] = useState<number | null>(null);

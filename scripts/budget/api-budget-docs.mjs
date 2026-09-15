@@ -526,27 +526,35 @@ check("O28 worst-case data (6 max header lines, 5 approvals, max lengths/amounts
 
 // ---------------------------------------------------------------------------
 section("CLOSE GUARD + REQUIREMENT SNAPSHOT");
-// EO (2,000 ILS, party): pay it fully, then walk the documents in.
+// EO (2,000 ILS, party). Budget Stage 5 gates 'sent' behind a complete
+// package, so the documents come first; EO is then sent, authorized and paid
+// in full, and the package is made incomplete AGAIN (the quotation archived, a
+// new unsigned form version) to prove the document part of the close guard.
 eo = (await bw(U.view, "get_expense", { expenseId: EO })).data;
 eo = (await bw(U.exp, "transition_expense", { expenseId: EO, expectedVersion: eo.version, toStatus: "committed" })).data;
 const alloc = eo.allocations[0].id;
+const g5 = await bw(U.sub, "order_form_generate", { expenseId: EO });
+await upload(U.sub, { purpose: "order_form_return", orderFormVersionId: g5.data.orderForm.versions[0].id }, FILES.pdf(), { name: "signed.pdf" });
+const quo = await upload(U.exp, { purpose: "expense", expenseId: EO, documentTypeId: TYPE.quotation }, FILES.pdf(), { name: "quote.pdf" });
+await upload(U.exp, { purpose: "expense", expenseId: EO, documentTypeId: TYPE.invoice }, FILES.pdf(), { name: "invoice.pdf" });
+await bw(U.sub, "mark_submission_ready", { allocationId: alloc });
 await bw(U.sub, "mark_submission_sent", { allocationId: alloc });
 await bw(U.sub, "record_payment_reference", { allocationId: alloc, referenceNumber: "R-77", authorizedAmount: 200000, receivedDate: "2026-09-12" });
 await bw(U.exp, "record_payment", { allocationId: alloc, amount: 200000, paymentDate: "2026-09-13", confirmationSource: "funder_notice", idempotencyKey: uuid() });
 eo = (await bw(U.view, "get_expense", { expenseId: EO })).data;
 eo = (await bw(U.exp, "transition_expense", { expenseId: EO, expectedVersion: eo.version, toStatus: "incurred" })).data;
+const quoDoc = quo.complete.data.documents.find((x) => x.typeKey === "quotation" && x.status === "active");
+await bw(U.exp, "archive_document", { documentId: quoDoc.id, reason: "הוחלף" });
+const g6 = await bw(U.sub, "order_form_generate", { expenseId: EO });
 const blocked = await bw(U.exp, "transition_expense", { expenseId: EO, expectedVersion: eo.version, toStatus: "closed" });
 check("K01 financially complete but documents missing -> CLOSE_BLOCKED with the document blockers only",
   is(blocked, 409, "CLOSE_BLOCKED") && blocked.body.blockers.includes("REQUIRED_DOCUMENTS_MISSING") &&
   blocked.body.blockers.includes("ORDER_FORM_INCOMPLETE") && !blocked.body.blockers.includes("SUPPLIER_NOT_FULLY_PAID"),
   JSON.stringify(blocked.body));
-const g5 = await bw(U.sub, "order_form_generate", { expenseId: EO });
-const vLatest = g5.data.orderForm.versions[0];
-await upload(U.sub, { purpose: "order_form_return", orderFormVersionId: vLatest.id }, FILES.pdf(), { name: "signed.pdf" });
-await upload(U.exp, { purpose: "expense", expenseId: EO, documentTypeId: TYPE.quotation }, FILES.pdf(), { name: "quote.pdf" });
-const inv = await upload(U.exp, { purpose: "expense", expenseId: EO, documentTypeId: TYPE.invoice }, FILES.pdf(), { name: "invoice.pdf" });
-check("K02 all required documents present (bank confirmation from the supplier file) -> ready", inv.complete?.data?.requirements.ready === true,
-  JSON.stringify(inv.complete?.data?.requirements.missing));
+await bw(U.exp, "restore_document", { documentId: quoDoc.id });
+const sg = await upload(U.sub, { purpose: "order_form_return", orderFormVersionId: g6.data.orderForm.versions[0].id }, FILES.pdf(), { name: "signed-latest.pdf" });
+check("K02 all required documents present again (bank confirmation from the supplier file) -> ready", sg.complete?.data?.requirements.ready === true,
+  JSON.stringify(sg.complete?.data?.requirements.missing));
 eo = (await bw(U.view, "get_expense", { expenseId: EO })).data;
 const closed = await bw(U.exp, "transition_expense", { expenseId: EO, expectedVersion: eo.version, toStatus: "closed" });
 check("K03 the expense closes", ok(closed) && closed.data.status === "closed", d(closed));

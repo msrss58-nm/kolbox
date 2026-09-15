@@ -50,9 +50,7 @@ export function ExpenseFundingSection({ expense, lookups, canManage, onChange }:
         </Button>
       ) : undefined}
     >
-      <p className="mb-3 text-sm text-slate-600">
-        {t.allocated}: <Money value={expense.facts.allocated} className="font-bold" /> / <Money value={expense.total} />
-      </p>
+      <FundingSummary expense={expense} />
       <ul className="divide-y divide-slate-100" data-testid="allocations">
         {expense.allocations.map((a) => (
           <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
@@ -117,5 +115,42 @@ export function ExpenseFundingSection({ expense, lookups, canManage, onChange }:
         </form>
       )}
     </SectionCard>
+  );
+}
+
+/** Budget Stage 5: the funding picture as the server computed it (one
+ * calculation layer) - the uncovered balance is shown, never filled. */
+function FundingSummary({ expense }: { expense: Expense }) {
+  const f = expense.funding;
+  const p = BUDGET_TEXT.party;
+  const hasParty = expense.allocations.some((a) => a.kind === "party");
+  const gap = f.uncovered > 0 && expense.status !== "cancelled";
+  const tiles: { label: string; value: number | null; testId: string }[] = [
+    { label: p.expenseTotal, value: f.total, testId: "funding-total" },
+    ...(hasParty ? [{ label: p.partyPreapproved, value: f.partyPreapproved, testId: "funding-preapproved" }] : []),
+    { label: p.partyFunding, value: f.party, testId: "funding-party" },
+    { label: p.donationFunding, value: f.donation, testId: "funding-donation" },
+    { label: p.personalFunding, value: f.personal, testId: "funding-personal" },
+  ];
+  return (
+    <div className="mb-3 space-y-2" data-testid="funding-summary">
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {tiles.map((x) => (
+          <div key={x.testId} className="rounded-xl bg-slate-50 px-3 py-2" data-testid={x.testId}>
+            <dt className="text-xs text-slate-500">{x.label}</dt>
+            <dd className="font-bold text-slate-800">{x.value === null ? c.none : <Money value={x.value} />}</dd>
+          </div>
+        ))}
+        <div className={gap ? "rounded-xl bg-potential-soft px-3 py-2" : "rounded-xl bg-supporter-soft px-3 py-2"} data-testid="funding-uncovered">
+          <dt className="text-xs text-slate-600">{p.uncovered}</dt>
+          <dd className={gap ? "font-extrabold text-amber-900" : "font-bold text-emerald-800"}><Money value={f.uncovered} /></dd>
+        </div>
+      </dl>
+      {gap ? (
+        <p role="alert" className="rounded-xl bg-potential-soft px-3 py-2 text-sm font-semibold text-amber-900">{p.gapWarning}</p>
+      ) : f.total !== null && expense.status !== "cancelled" ? (
+        <p className="text-xs text-slate-500">{p.gapNone}</p>
+      ) : null}
+    </div>
   );
 }

@@ -25,6 +25,12 @@ export function useBudgetAction() {
             .map((b) => BUDGET_TEXT.expense.blockers[b] ?? b)
             .join(" · ")}`,
         );
+      } else if (e instanceof BudgetApiError && e.code === "SUBMISSION_BLOCKED" && e.details.blockers?.length) {
+        toast.error(
+          `${BUDGET_TEXT.party.submissionBlocked} ${e.details.blockers
+            .map((b) => BUDGET_TEXT.party.blockers[b] ?? b)
+            .join(" · ")}`,
+        );
       } else {
         toast.error(budgetErrorMessage(e instanceof BudgetApiError ? e.code : undefined));
       }
@@ -75,9 +81,18 @@ export function PaymentBadge({ status }: { status: PaymentStatus }) {
   return <span className={cn(PILL, PAYMENT_TONE[status])}>{BUDGET_TEXT.paymentStatus[status]}</span>;
 }
 
+const SUBMISSION_TONE: Record<SubmissionDisplayState, string> = {
+  awaiting_preapproval: "bg-slate-100 text-slate-700",
+  preapproved: "bg-primary-50 text-primary-700",
+  collecting_documents: "bg-primary-50 text-primary-700",
+  ready: "bg-supporter-soft text-emerald-800",
+  sent: "bg-purple-50 text-purple-700",
+  returned: "bg-potential-soft text-amber-800",
+  reference_received: "bg-supporter-soft text-emerald-800",
+};
 export function SubmissionBadge({ state }: { state: SubmissionDisplayState }) {
   return (
-    <span className={cn(PILL, state === "reference_received" ? "bg-supporter-soft text-emerald-800" : "bg-primary-50 text-primary-700")}>
+    <span className={cn(PILL, SUBMISSION_TONE[state])} data-testid="submission-state" data-state={state}>
       {BUDGET_TEXT.submissionState[state]}
     </span>
   );

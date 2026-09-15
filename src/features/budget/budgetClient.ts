@@ -82,9 +82,12 @@ export async function budgetCall<T>(
 export type FundingKind = "party" | "donation" | "personal";
 export type ExpenseStatus = "draft" | "committed" | "incurred" | "closed" | "cancelled";
 export type PaymentStatus = "unpaid" | "partial" | "paid";
+/** The party process state, derived server-side (one function). */
 export type SubmissionDisplayState =
   | "awaiting_preapproval"
   | "preapproved"
+  | "collecting_documents"
+  | "ready"
   | "sent"
   | "returned"
   | "reference_received";
@@ -241,12 +244,14 @@ export interface Allocation {
     approverName: string;
     approvalDate: string;
     preapprovedAmount: number | null;
+    note: string | null;
     version: number;
   } | null;
   submission: {
-    state: "not_sent" | "sent" | "returned";
+    state: "not_sent" | "ready" | "sent" | "returned";
     displayState: SubmissionDisplayState;
     requestedAmount: number | null;
+    readyAt: string | null;
     lastSentAt: string | null;
     lastReturnedAt: string | null;
   } | null;
@@ -254,8 +259,57 @@ export interface Allocation {
     referenceNumber: string;
     authorizedAmount: number;
     receivedDate: string;
+    note: string | null;
     version: number;
   } | null;
+}
+
+/** Budget Stage 5: the expense's funding picture (server-computed). */
+export interface FundingSummary {
+  total: number | null;
+  allocated: number;
+  party: number;
+  donation: number;
+  personal: number;
+  partyPreapproved: number | null;
+  partyAuthorized: number | null;
+  partyPaid: number;
+  partyRemaining: number;
+  uncovered: number;
+}
+
+export interface PartyHistoryEntry {
+  action: "insert" | "update" | "delete" | "event";
+  actorName: string;
+  occurredAt: string;
+  values: Record<string, unknown> | null;
+}
+
+/** Budget Stage 5: one party allocation's process - derived state, payment
+ * status and the live gates, all computed by the server. */
+export interface PartyWorkflow {
+  allocationId: string;
+  sourceId: string;
+  sourceName: string;
+  amount: number;
+  paid: number;
+  remaining: number;
+  paymentStatus: PaymentStatus;
+  preapprovedAmount: number | null;
+  exceedsPreapproval: boolean;
+  storedState: "not_sent" | "ready" | "sent" | "returned";
+  workflowState: SubmissionDisplayState;
+  attempts: number;
+  requestedAmount: number | null;
+  hasReference: boolean;
+  authorizedAmount: number | null;
+  readyAt: string | null;
+  lastSentAt: string | null;
+  lastReturnedAt: string | null;
+  readiness: { ready: boolean; blockers: string[]; missingDocuments: { key: string; name: string }[] };
+  readyLapsed: boolean;
+  preapprovalHistory: PartyHistoryEntry[];
+  referenceHistory: PartyHistoryEntry[];
 }
 
 export interface Payment {
@@ -270,13 +324,18 @@ export interface Payment {
   recordedByName: string;
   recordedAt: string;
   voidedAt: string | null;
+  voidedByName: string | null;
   voidReason: string | null;
 }
 
 export interface SubmissionEvent {
   id: string;
   allocationId: string;
-  event: "sent" | "returned";
+  event: "ready" | "sent" | "returned";
+  attemptNo: number | null;
+  orderFormVersionId: string | null;
+  orderFormVersionNo: number | null;
+  requestedAmount: number | null;
   recipientPhone: string | null;
   note: string | null;
   actorName: string;
@@ -315,7 +374,9 @@ export interface Expense {
     authorizedNotFullyPaid: number;
     preapprovalExceeded: number;
   };
+  funding: FundingSummary;
   allocations: Allocation[];
+  party: PartyWorkflow[];
   payments: Payment[];
   submissionEvents: SubmissionEvent[];
 }

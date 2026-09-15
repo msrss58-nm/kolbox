@@ -143,6 +143,10 @@ const ERROR_STATUS: Record<string, number> = {
   DOCUMENT_TYPE_SYSTEM: 409,
   ORDER_FORM_NOT_APPLICABLE: 409,
   ORDER_FORM_SUPERSEDED: 409,
+  // Stage 5 - party funding workflow.
+  SUBMISSION_BLOCKED: 409,
+  SUBMISSION_NOT_READY: 409,
+  PARTY_EXCEEDS_PREAPPROVAL: 409,
 };
 
 interface MinimalRequest {
@@ -217,7 +221,7 @@ function sendRpcError(res: MinimalResponse, error: RpcError): void {
   if (status) {
     const extra: Record<string, unknown> = {};
     const detail = typeof error.details === "string" ? error.details : "";
-    if (message === "CLOSE_BLOCKED" && /^[A-Z_,]+$/.test(detail)) {
+    if ((message === "CLOSE_BLOCKED" || message === "SUBMISSION_BLOCKED") && /^[A-Z_,]+$/.test(detail)) {
       extra.blockers = detail.split(",");
     } else if (message === "INVALID_INPUT" && /^[A-Za-z]{1,40}$/.test(detail)) {
       extra.field = detail;

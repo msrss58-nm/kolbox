@@ -392,12 +392,25 @@ await bw(U.sub, "record_preapproval", { allocationId: pAlloc(e5), approvalCode: 
 check("Q06 'sent' while the expense is still a draft -> 409", is(await bw(U.sub, "mark_submission_sent", { allocationId: pAlloc(e5) }), 409, "EXPENSE_NOT_SUBMITTABLE"));
 // E2 is still draft: commit it first.
 e2b = (await bw(U.exp, "transition_expense", { expenseId: E2.id, expectedVersion: e2b.version, toStatus: "committed" })).data;
+// Budget Stage 5 gates 'sent' behind 'ready' (prior approval covering the
+// party allocation + the required documents / order form). This section
+// proves the Stage 3 submission semantics, so the party document rules are
+// off from here to Q11 and the prior approval is corrected to the requested
+// 8,000; the Stage 5 gates themselves are proven in api-budget-party.mjs.
+const partyDocRulesQ = (await bo(OWNER_A, "get_settings")).data.documentRules.filter((r) => r.isActive && r.fundingKind === "party");
+for (const r of partyDocRulesQ) await bo(OWNER_A, "update_document_rule", { ruleId: r.id, isActive: false });
+await bw(U.sub, "record_preapproval", { allocationId: pa2.id, orderNumber: "77", approvalCode: "AP-1", approverName: "מינהל הכספים",
+  approvalDate: "2026-08-20", preapprovedAmount: 800000,
+  expectedVersion: (await bw(U.view, "get_expense", { expenseId: E2.id })).data.allocations.find((x) => x.kind === "party").preapproval.version });
+await bw(U.sub, "mark_submission_ready", { allocationId: pa2.id });
 e2b = (await bw(U.sub, "mark_submission_sent", { allocationId: pa2.id, recipientPhone: "0501111111" })).data;
 check("Q07 marked sent (user-confirmed), display state 'sent'", e2b.allocations.find((x) => x.kind === "party").submission.displayState === "sent");
 check("Q08 party allocation frozen while sent", is(await bw(U.exp, "set_allocation", { expenseId: E2.id, sourceId: SP1, amount: 700000 }), 409, "ALLOCATION_FROZEN"));
 check("Q09 'returned' requires a note", is(await bw(U.sub, "mark_submission_returned", { allocationId: pa2.id }), 400, "INVALID_INPUT"));
 check("Q10 returned for correction", ok(await bw(U.sub, "mark_submission_returned", { allocationId: pa2.id, note: "חסר צילום" })));
+await bw(U.sub, "mark_submission_ready", { allocationId: pa2.id });
 check("Q11 re-sent after correction", ok(await bw(U.sub, "mark_submission_sent", { allocationId: pa2.id })));
+for (const r of partyDocRulesQ) await bo(OWNER_A, "update_document_rule", { ruleId: r.id, isActive: true });
 check("Q12 authorized above the request -> 409", is(await bw(U.sub, "record_payment_reference", { allocationId: pa2.id,
   referenceNumber: "R-1", authorizedAmount: 800001, receivedDate: "2026-09-03" }), 409, "AUTHORIZED_EXCEEDS_REQUEST"));
 // Partial authorization: 8,000 requested, 6,000 authorized -> explicit gap 2,000.
