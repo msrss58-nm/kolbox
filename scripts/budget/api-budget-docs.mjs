@@ -16,7 +16,7 @@ import os from "node:os";
 import zlib from "node:zlib";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFRef } from "pdf-lib";
 import { buildHandlers } from "../stage5/buildHandlers.mjs";
 import { admin, anon, callHandler, check, installLocalnetGuard, loadStack, psql, section, signIn, tally } from "../stage5/lib.mjs";
 
@@ -523,6 +523,82 @@ const worst = {
 let worstPages = 0;
 try { worstPages = (await PDFDocument.load(await pdfMod.renderOrderFormPdf(worst, { preview: false, versionNo: 9999 }))).getPageCount(); } catch { worstPages = -1; }
 check("O28 worst-case data (6 max header lines, 5 approvals, max lengths/amounts) still renders one page", worstPages === 1, String(worstPages));
+
+// Stage 7B Gate 5 fix: the prior-approval code must print IN FULL on the
+// official form (it was cut to "G5-AP…"). The printed text is read back from
+// the PDF itself: each text-showing operator's glyphs through the embedded
+// font's ToUnicode map (visual order, as drawn).
+async function printedStrings(bytes) {
+  const doc = await PDFDocument.load(bytes);
+  const ctx = doc.context;
+  const raw = (s) => (s instanceof PDFRawStream
+    ? (s.dict.get(PDFName.of("Filter")) ? zlib.inflateSync(Buffer.from(s.contents)) : Buffer.from(s.contents)) : Buffer.alloc(0));
+  const page = doc.getPage(0);
+  const maps = {};
+  for (const [name, ref] of page.node.Resources().lookup(PDFName.of("Font"), PDFDict).entries()) {
+    const map = new Map();
+    const tu = ctx.lookup(ref, PDFDict).get(PDFName.of("ToUnicode"));
+    const cmap = tu ? raw(ctx.lookup(tu)).toString("latin1") : "";
+    for (const blk of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g))
+      for (const m of blk[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g)) map.set(m[1].toUpperCase(), Buffer.from(m[2], "hex").swap16().toString("utf16le"));
+    for (const blk of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g))
+      for (const m of blk[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g))
+        for (let g = parseInt(m[1], 16); g <= parseInt(m[2], 16); g++)
+          map.set(g.toString(16).toUpperCase().padStart(m[1].length, "0"), String.fromCodePoint(parseInt(m[3], 16) + g - parseInt(m[1], 16)));
+    maps[name.asString()] = map;
+  }
+  const contents = page.node.get(PDFName.of("Contents"));
+  const text = (contents instanceof PDFArray ? contents.asArray() : [contents])
+    .map((r) => raw(r instanceof PDFRef ? ctx.lookup(r) : r).toString("latin1")).join("\n");
+  const out = [];
+  let font = null;
+  for (const m of text.matchAll(/(\/[A-Za-z0-9_.+-]+)\s+[\d.]+\s+Tf|<([0-9A-Fa-f]*)>\s*Tj/g)) {
+    if (m[1]) { font = m[1]; continue; }
+    let s = "";
+    for (let i = 0; i < m[2].length; i += 4) s += maps[font]?.get(m[2].slice(i, i + 4).toUpperCase()) ?? "?";
+    out.push(s);
+  }
+  return out;
+}
+/** The code lines drawn after each "קוד אישור:" label (up to the next label). */
+const approvalCodes = (strings) => strings.flatMap((s, i) => {
+  if (s !== pdfMod.toVisual("קוד אישור:")) return [];
+  const parts = [];
+  for (let j = i + 1; j < strings.length && !strings[j].includes(":"); j++) parts.push(strings[j]);
+  return [parts];
+});
+const formWith = (codes) => ({
+  template: "kolbox-order-form-v1",
+  header: { lines: [], electionYearLabel: "2026" },
+  branch: { name: "סניף בדיקה", number: "B-1", orderer: "מזמין בדיקה" },
+  order: { referenceNo: 1, description: "הוצאת בדיקה", category: "פרסום", orderDate: "2026-09-15", deliveryDate: null,
+    net: null, vat: null, vatRateBp: null, total: 200000, partyAmount: 120000 },
+  supplier: { businessName: "ספק בדיקה", taxId: "000000018", address: "רחוב 1", phone: "050-0000000", contactName: "איש קשר" },
+  preapprovals: codes.map((c) => ({ orderNumber: "ORD-1", approvalCode: c, approverName: "מאשר בדיקה", approvalDate: "2026-09-15", preapprovedAmount: 120000 })),
+  supplierSignatureRequired: true,
+  rules: { supplierSignature: { condition: "amount_gt", threshold: 150000 }, invoice: { condition: "amount_gt", threshold: 150000 } },
+});
+const printedCode = async (code, preview = false) => {
+  const strings = await printedStrings(await pdfMod.renderOrderFormPdf(formWith([code]), { preview, versionNo: preview ? null : 1 }));
+  return { strings, parts: approvalCodes(strings)[0] ?? [] };
+};
+const LONG_CODE = "PARTY-BUDGET-2026/ELECTIONS/APPROVAL-000123-REV-B";
+let pc = await printedCode("A1");
+check("O29 a short approval code prints in full", pc.parts.length === 1 && pc.parts[0] === "A1", JSON.stringify(pc.parts));
+pc = await printedCode("G5-APR-001");
+const pcPreview = await printedCode("G5-APR-001", true);
+check("O30 'G5-APR-001' prints in full on the final form and the preview (no ellipsis)",
+  pc.parts.join("") === "G5-APR-001" && pcPreview.parts.join("") === "G5-APR-001" && !pc.parts.concat(pcPreview.parts).some((p) => p.includes("…")),
+  JSON.stringify([pc.parts, pcPreview.parts]));
+pc = await printedCode(LONG_CODE);
+check("O31 a long realistic approval code (49 chars) prints in full on one line", pc.parts.length === 1 && pc.parts[0] === LONG_CODE, JSON.stringify(pc.parts));
+const worstCodes = approvalCodes(await printedStrings(await pdfMod.renderOrderFormPdf(worst, { preview: false, versionNo: 9999 })));
+check("O32 maximum-length (100-char) approval codes wrap and print in full - never cut",
+  worstCodes.length === 3 && worstCodes.every((parts) => parts.length > 1 && parts.join("") === "C".repeat(100) && !parts.some((p) => p.includes("…"))),
+  JSON.stringify(worstCodes.map((p) => p.map((x) => x.length))));
+check("O33 Hebrew RTL content unchanged (title, approver label/name, amounts in visual order)",
+  [pdfMod.toVisual("טופס הזמנה"), pdfMod.toVisual("שם המאשר:"), pdfMod.toVisual("מאשר בדיקה"), pdfMod.toVisual("סכום שאושר מראש:"), "1,200.00 ₪", "2,000.00 ₪"]
+    .every((s) => pc.strings.includes(s)));
 
 // ---------------------------------------------------------------------------
 section("CLOSE GUARD + REQUIREMENT SNAPSHOT");

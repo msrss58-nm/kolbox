@@ -201,6 +201,33 @@ class Canvas {
     return out;
   }
 
+  /** Word wrap that NEVER truncates: a word wider than the line is broken
+   * between characters. For identifiers (approval codes) that must print in
+   * full on the official form. */
+  breakAll(text: string, size: number, maxWidth: number): string[] {
+    const lines: string[] = [];
+    let cur = "";
+    for (const word of text.split(" ").filter(Boolean)) {
+      const cand = cur ? `${cur} ${word}` : word;
+      if (this.width(cand, size) <= maxWidth) {
+        cur = cand;
+        continue;
+      }
+      if (cur) lines.push(cur);
+      cur = "";
+      for (const ch of Array.from(word)) {
+        if (cur && this.width(cur + ch, size) > maxWidth) {
+          lines.push(cur);
+          cur = ch;
+        } else {
+          cur += ch;
+        }
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [T.text.none];
+  }
+
   box(x: number, yTop: number, w: number, h: number, fill = false): void {
     this.page.drawRectangle({ x, y: yTop - h, width: w, height: h, borderColor: RULE, borderWidth: 0.8, color: fill ? FILL : undefined });
   }
@@ -334,32 +361,49 @@ async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): P
   const MAX_PRE_ROWS = 3;
   const pre = s.preapprovals.slice(0, MAX_PRE_ROWS);
   const hidden = s.preapprovals.length - pre.length;
-  const boxRows = Math.max(1, pre.length) + (hidden > 0 ? 1 : 0);
-  const boxH = 22 + boxRows * 18;
+  // Each approval takes two lines: the approval code on its own full-width
+  // line (wrapped, NEVER truncated - it must be readable in full on the
+  // official form), then approver / date / pre-approved amount. The box height
+  // follows the wrapped lines.
+  const codeLabel = `${T.text.approvalCode}:`;
+  const codeRoom = CW - 12 - c.width(codeLabel, T.size.label, bold) - 6;
+  let rowY = y - 33;
+  const rows = pre.map((p) => {
+    const codeLines = c.breakAll(clean(p.approvalCode), T.size.value, codeRoom);
+    const codeY = rowY;
+    const detailY = codeY - (codeLines.length - 1) * 13 - 16;
+    rowY = detailY - 18;
+    return { p, codeLines, codeY, detailY };
+  });
+  const lastY = rows.length ? rows[rows.length - 1].detailY : y - 33;
+  const moreY = lastY - 16;
+  const boxH = y - (hidden > 0 ? moreY : lastY) + 7;
   c.box(L, y, CW, boxH, true);
   // Drawn AFTER the filled box, or the fill would paint over it.
   if (hidden > 0) {
-    c.right(T.text.morePreapprovals(hidden), R - 6, y - 33 - pre.length * 18, T.size.small, regular, MUTED);
+    c.right(T.text.morePreapprovals(hidden), R - 6, moreY, T.size.small, regular, MUTED);
   }
   c.right(T.text.preapprovalBox, R - 6, y - 15, T.size.value, bold);
   if (pre.length === 0) {
     c.right(T.text.preapprovalMissing, R - 6, y - 33, T.size.value, regular, MUTED);
   }
-  // Column widths (right to left): code, approver, date, pre-approved amount -
-  // the amount column is the widest so an amount is never truncated.
-  const cols = [0.18, 0.26, 0.24, 0.32].map((f) => f * CW);
-  pre.forEach((p, i) => {
-    const rowY = y - 33 - i * 18;
+  // Detail columns (right to left): approver, date, pre-approved amount - each
+  // at least as wide as before; the amount column stays the widest after the
+  // approver so an amount is never truncated.
+  const cols = [0.44, 0.24, 0.32].map((f) => f * CW);
+  rows.forEach(({ p, codeLines, codeY, detailY }, i) => {
+    if (i > 0) c.hline(L + 8, R - 8, codeY + 11, true);
+    const lw = c.right(codeLabel, R - 6, codeY, T.size.label, bold, MUTED);
+    codeLines.forEach((line, j) => c.right(line, R - 6 - lw - 6, codeY - j * 13, T.size.value));
     const values: [string, string][] = [
-      [T.text.approvalCode, clean(p.approvalCode)],
       [T.text.approverName, clean(p.approverName)],
       [T.text.approvalDate, formatDate(p.approvalDate)],
       [T.text.preapprovedAmount, formatMoney(p.preapprovedAmount)],
     ];
     let xRight = R - 6;
     values.forEach(([label, value], j) => {
-      if (j === 3) c.moneyField(label, value, xRight, rowY, cols[j] - 12);
-      else c.field(label, value, xRight, rowY, cols[j] - 12);
+      if (j === 2) c.moneyField(label, value, xRight, detailY, cols[j] - 12);
+      else c.field(label, value, xRight, detailY, cols[j] - 12);
       xRight -= cols[j];
     });
   });
