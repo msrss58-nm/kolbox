@@ -123,6 +123,8 @@ const INK = rgb(0.1, 0.12, 0.16);
 const MUTED = rgb(0.38, 0.42, 0.48);
 const RULE = rgb(0.62, 0.66, 0.72);
 const FILL = rgb(0.95, 0.96, 0.98);
+/** Smallest size an amount may shrink to (see Canvas.moneyField). */
+const MIN_MONEY_SIZE = 7;
 
 class Canvas {
   readonly page: PDFPage;
@@ -157,6 +159,16 @@ class Canvas {
     const lw = this.right(`${label}:`, xRight, y, T.size.label, this.bold, MUTED);
     const room = cellWidth - lw - 6;
     this.right(this.fit(value, T.size.value, room), xRight - lw - 6, y, T.size.value);
+  }
+
+  /** An amount is never cut: it shrinks in half-point steps (down to
+   * MIN_MONEY_SIZE) until it fits its cell; only below that is it truncated. */
+  moneyField(label: string, value: string, xRight: number, y: number, cellWidth: number): void {
+    const lw = this.right(`${label}:`, xRight, y, T.size.label, this.bold, MUTED);
+    const room = cellWidth - lw - 6;
+    let size = T.size.value;
+    while (size > MIN_MONEY_SIZE && this.width(value, size) > room) size -= 0.5;
+    this.right(this.fit(value, size, room), xRight - lw - 6, y, size);
   }
 
   /** Truncates (with an ellipsis) to fit - a value never spills out of its cell. */
@@ -262,17 +274,19 @@ async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): P
     c.right(title, R, y, T.size.section, bold);
     y -= gap(6);
   };
-  /** A bordered grid of label:value cells, `cols` per row, right to left. */
-  const grid = (cells: [string, string][], cols: number) => {
+  /** A bordered grid of label:value cells, `cols` per row, right to left. A
+   * money cell ([label, value, true]) shrinks to fit instead of being cut. */
+  const grid = (cells: [string, string, boolean?][], cols: number) => {
     const rowH = 20;
     const rows = Math.ceil(cells.length / cols);
     c.box(L, y, CW, rows * rowH);
     const cellW = CW / cols;
-    cells.forEach(([label, value], i) => {
+    cells.forEach(([label, value, money], i) => {
       const row = Math.floor(i / cols);
       const col = i % cols;
       const xRight = R - col * cellW - 6;
-      c.field(label, value, xRight, y - row * rowH - 14, cellW - 12);
+      if (money) c.moneyField(label, value, xRight, y - row * rowH - 14, cellW - 12);
+      else c.field(label, value, xRight, y - row * rowH - 14, cellW - 12);
     });
     y -= rows * rowH;
   };
@@ -306,12 +320,12 @@ async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): P
     [T.text.category, clean(s.order.category)],
     [T.text.orderDate, formatDate(s.order.orderDate)],
     [T.text.deliveryDate, formatDate(s.order.deliveryDate)],
-    [T.text.net, formatMoney(s.order.net)],
-    [vatLabel, formatMoney(s.order.vat)],
-    [T.text.total, formatMoney(s.order.total)],
+    [T.text.net, formatMoney(s.order.net), true],
+    [vatLabel, formatMoney(s.order.vat), true],
+    [T.text.total, formatMoney(s.order.total), true],
   ], 3);
   y -= gap(4);
-  grid([[T.text.partyAmount, formatMoney(s.order.partyAmount)]], 1);
+  grid([[T.text.partyAmount, formatMoney(s.order.partyAmount), true]], 1);
 
   // The prior-budget-approval box (inside section 3).
   y -= gap(10);
@@ -344,7 +358,8 @@ async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): P
     ];
     let xRight = R - 6;
     values.forEach(([label, value], j) => {
-      c.field(label, value, xRight, rowY, cols[j] - 12);
+      if (j === 3) c.moneyField(label, value, xRight, rowY, cols[j] - 12);
+      else c.field(label, value, xRight, rowY, cols[j] - 12);
       xRight -= cols[j];
     });
   });

@@ -785,3 +785,47 @@ export interface BudgetSettings {
   documentTypes: { id: string; key: string; name: string; isSystem: boolean; isActive: boolean; sortOrder: number }[];
   documentRules: DocumentRule[];
 }
+
+// ---------------------------------------------------------------------------
+// Stage 7A - the Election Owner's deletion export.
+// ---------------------------------------------------------------------------
+export interface BudgetExportSummary {
+  id: string;
+  state: "open" | "verified";
+  createdAt: string;
+  verifiedAt: string | null;
+  createdByName: string;
+  /** The Budget data is still exactly what this export captured. */
+  fresh: boolean;
+  tables: number;
+  rows: number;
+  parts: number;
+  documents: { count: number; bytes: number };
+}
+
+export interface BudgetExportStatus {
+  hasBudgetData: boolean;
+  /** Permanent workspace deletion is not blocked by Budget data. */
+  deletionAllowed: boolean;
+  latest: BudgetExportSummary | null;
+}
+
+export interface BudgetExportManifest {
+  format: string;
+  exportId: string;
+  createdAt: string;
+  partRows: number;
+  tables: { name: string; rows: number; sha256: string; parts: { part: number; rows: number; sha256: string }[] }[];
+  totals: { tables: number; rows: number; parts: number };
+  documents: { count: number; bytes: number };
+  fingerprint: string;
+}
+
+export interface BudgetExportPart {
+  table: string;
+  part: number;
+  rows: number;
+  sha256: string;
+  /** The exact JSON text the server hashed. */
+  rowsJson: string;
+}

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   extractBearerToken,
   getAnonAuthClient,
@@ -50,6 +50,17 @@ import { renderOrderFormPdf, type OrderFormSnapshot } from "./_orderFormPdf.js";
 //                               next version (a failed record deletes the object)
 // The DB ops these use internally (lookup/finalize/reject/locate/data/record)
 // are refused from a client, exactly like the step-up internals.
+//
+// Budget Stage 7A adds:
+//   export_document -> one stored document of the Owner's DELETION EXPORT, as a
+//                      60-second signed link (the DB authorizes, logs the
+//                      issuance and records it as served by that export)
+//   GET + Authorization: Bearer <CRON_SECRET> (the Vercel Cron convention)
+//                   -> the Storage orphan cleanup: the DB lists the objects
+//                      nothing can reference any more (budget_storage_orphans),
+//                      this removes them through the Storage API in one bounded
+//                      batch and records the run. Without CRON_SECRET the GET
+//                      stays closed (405), as before.
 
 const SESSION_COOKIE_NAME = "__Host-kb_ed_session";
 const DEFAULT_PRODUCTION_ORIGIN = "https://kolbox-gamma.vercel.app";
@@ -70,15 +81,20 @@ const INTERNAL_OPS = new Set<string>([
   "document_version_locate",
   "order_form_data",
   "order_form_record",
+  "export_document_locate",
 ]);
-/** Stage 4 ops that touch Storage / render a PDF, handled in this file. */
+/** Stage 4 ops that touch Storage / render a PDF, handled in this file
+ * (+ Stage 7A: one document of a deletion export). */
 const DOCUMENT_OPS = new Set<string>([
   "document_upload_start",
   "document_upload_complete",
   "document_download",
   "order_form_preview",
   "order_form_generate",
+  "export_document",
 ]);
+/** Stage 7A Storage orphan cleanup: at most this many objects per run. */
+const CLEANUP_BATCH = 200;
 const DOCUMENTS_BUCKET = "budget-documents";
 const SIGNED_LINK_SECONDS = 60;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -147,6 +163,9 @@ const ERROR_STATUS: Record<string, number> = {
   SUBMISSION_BLOCKED: 409,
   SUBMISSION_NOT_READY: 409,
   PARTY_EXCEEDS_PREAPPROVAL: 409,
+  // Stage 7A - deletion export.
+  EXPORT_STALE: 409,
+  EXPORT_INCOMPLETE: 409,
 };
 
 interface MinimalRequest {
@@ -530,6 +549,35 @@ async function handleDocumentOp(
     return;
   }
 
+  if (op === "export_document") {
+    const exportId = typeof args.exportId === "string" ? args.exportId : "";
+    const versionId = typeof args.versionId === "string" ? args.versionId : "";
+    if (!onlyKeys(args, ["exportId", "versionId"]) || !UUID_RE.test(exportId) || !UUID_RE.test(versionId)) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    const loc = await dispatch("export_document_locate", { exportId, versionId });
+    if (loc.error) {
+      sendRpcError(res, loc.error);
+      return;
+    }
+    const l = (loc.data ?? {}) as { storagePath?: string; fileName?: string; mimeType?: string; sha256?: string; sizeBytes?: number };
+    if (typeof l.storagePath !== "string" || typeof l.fileName !== "string") {
+      sendError(res, 500, "SERVER_ERROR");
+      return;
+    }
+    const signed = await storage.createSignedUrl(l.storagePath, SIGNED_LINK_SECONDS);
+    if (signed.error || !signed.data?.signedUrl) {
+      sendError(res, 502, "STORAGE_ERROR");
+      return;
+    }
+    res.status(200).json({ data: {
+      url: signed.data.signedUrl, expiresIn: SIGNED_LINK_SECONDS, fileName: l.fileName, mimeType: l.mimeType,
+      sha256: l.sha256, sizeBytes: l.sizeBytes,
+    } });
+    return;
+  }
+
   // Order form: preview (returned, never stored) or generate (stored as the
   // next version). The client names only the expense.
   const expenseId = typeof args.expenseId === "string" ? args.expenseId : "";
@@ -583,7 +631,59 @@ async function handleDocumentOp(
   res.status(200).json({ data: rec.data });
 }
 
+/** The scheduler's credential: exactly `Bearer <CRON_SECRET>` (constant-time
+ * compare). No secret configured (or a short one) = never authorized. */
+function cronAuthorized(req: MinimalRequest): boolean {
+  const secret = process.env.CRON_SECRET ?? "";
+  if (secret.length < 16) return false;
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const actual = Buffer.from(headerValue(req.headers.authorization) ?? "");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+/** Stage 7A Storage orphan cleanup (see the header comment). The DB decides
+ * what is an orphan; nothing referenced by a document version or protected by
+ * a live upload intent is ever listed. */
+async function handleStorageCleanup(res: MinimalResponse): Promise<void> {
+  let supabase: ServiceClient;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+  const found = await supabase.rpc("budget_storage_orphans", { p_limit: CLEANUP_BATCH });
+  if (found.error) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  const names = ((found.data ?? []) as { object_name?: unknown }[])
+    .map((r) => r.object_name)
+    .filter((n): n is string => typeof n === "string");
+  let removed: string[] = [];
+  if (names.length > 0) {
+    const del = await supabase.storage.from(DOCUMENTS_BUCKET).remove(names);
+    if (!del.error) {
+      const listed = new Set(names);
+      removed = (del.data ?? []).map((o) => o.name).filter((n): n is string => typeof n === "string" && listed.has(n));
+    }
+  }
+  const failed = names.length - removed.length;
+  const rec = await supabase.rpc("budget_storage_cleanup_record", {
+    p_candidates: names.length, p_removed: removed, p_failed: failed,
+  });
+  if (rec.error) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  res.status(200).json({ data: { candidates: names.length, removed: removed.length, failed } });
+}
+
 export default async function handler(req: MinimalRequest, res: MinimalResponse): Promise<void> {
+  if ((req.method ?? "GET") === "GET" && cronAuthorized(req)) {
+    await handleStorageCleanup(res);
+    return;
+  }
   if ((req.method ?? "GET") !== "POST") {
     sendError(res, 405, "METHOD_NOT_ALLOWED");
     return;

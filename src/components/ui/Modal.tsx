@@ -59,6 +59,7 @@ export function Modal({
   // the effect too.
   const idRef = useRef<object | null>(null);
   idRef.current ??= {};
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -67,6 +68,13 @@ export function Modal({
     const id = idRef.current!;
     openModalStack.push(id);
     document.body.style.overflow = "hidden";
+    // Keyboard / screen-reader users land INSIDE the dialog (unless a field
+    // already took focus via autoFocus), and return to where they were when
+    // it closes (Budget Stage 7A accessibility review).
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (dialogRef.current && !dialogRef.current.contains(document.activeElement)) {
+      dialogRef.current.focus({ preventScroll: true });
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (!dismissible) return;
@@ -78,6 +86,7 @@ export function Modal({
       document.removeEventListener("keydown", onKey);
       openModalStack = openModalStack.filter((x) => x !== id);
       if (openModalStack.length === 0) document.body.style.overflow = "";
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, [open, dismissible]);
 
@@ -105,12 +114,14 @@ export function Modal({
       onClick={handleBackdropClick}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "flex max-h-[90dvh] w-full flex-col overflow-hidden bg-white shadow-2xl animate-fade-in-up",
+          "flex max-h-[90dvh] w-full flex-col overflow-hidden bg-white shadow-2xl animate-fade-in-up outline-none",
           "rounded-t-3xl md:rounded-2xl",
           wide ? "md:max-w-2xl" : "md:max-w-md",
         )}

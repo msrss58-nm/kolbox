@@ -595,8 +595,9 @@ check("A02 RLS on every Stage 4 table", rls === "t", rls);
 const grants = q1(`select string_agg(p.proname, ',' order by p.proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname like 'budget\\_%' and (has_function_privilege('service_role', p.oid, 'execute')
   or has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'));`);
-check("A03 still ONLY the two dispatchers + the worker step-up mint are executable (service_role)",
-  grants === "budget_dispatch_owner,budget_dispatch_worker,budget_stepup_mint_worker", grants);
+// Stage 7A added exactly the two Storage cleanup functions (service_role).
+check("A03 still ONLY the two dispatchers + the worker step-up mint (+ the Stage 7A Storage cleanup pair) are executable (service_role)",
+  grants === "budget_dispatch_owner,budget_dispatch_worker,budget_stepup_mint_worker,budget_storage_cleanup_record,budget_storage_orphans", grants);
 const docAudit = q1(`select count(distinct entity_type) from public.budget_audit_events where workspace_id = '${WA}'
   and entity_type in ('budget_documents','budget_document_versions','budget_order_form_versions','budget_document_uploads',
   'budget_expense_document_flags','budget_expense_requirement_snapshots');`);

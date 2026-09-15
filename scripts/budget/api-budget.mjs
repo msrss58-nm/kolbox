@@ -555,8 +555,9 @@ const fnGrants = q1(`select string_agg(p.proname, ',' order by p.proname) from p
   where n.nspname = 'public' and (p.proname like 'budget\\_%' or p.proname in ('workspace_resolve_session','workspace_session_modules',
     'election_day_verify_permission_user_password','election_day_workspace_worker_modules'))
     and has_function_privilege('service_role', p.oid, 'execute');`);
-check("I10 service_role executes ONLY the dispatchers, the worker step-up mint and workspace_session_modules",
-  fnGrants === "budget_dispatch_owner,budget_dispatch_worker,budget_stepup_mint_worker,workspace_session_modules", fnGrants);
+// Stage 7A added exactly the two Storage cleanup functions (service_role).
+check("I10 service_role executes ONLY the dispatchers, the worker step-up mint, workspace_session_modules (+ the Stage 7A Storage cleanup pair)",
+  fnGrants === "budget_dispatch_owner,budget_dispatch_worker,budget_stepup_mint_worker,budget_storage_cleanup_record,budget_storage_orphans,workspace_session_modules", fnGrants);
 const anonFn = q1(`select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and (p.proname like 'budget\\_%' or p.proname like 'workspace\\_%')
     and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'));`);
