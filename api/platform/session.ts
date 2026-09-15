@@ -110,6 +110,8 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   // Stage 9: `modules` (the explicit module entitlement choice) is required.
   create_owner_access: ["name", "email", "phone", "expiresInDays", "modules"],
   set_workspace_modules: ["workspaceId", "modules"],
+  // Gate 4: a module's GLOBAL availability (the platform-wide kill switch).
+  set_module_availability: ["moduleKey", "available"],
   provision_multi_entity_owner: ["name", "email", "phone"],
   assign_workspace: ["workspaceId"],
   unassign_workspace: ["workspaceId"],
@@ -258,6 +260,16 @@ function mapRpcError(message: string): { status: number; code: string } {
   }
   if (m.includes("WORKSPACE_NOT_FOUND")) {
     return { status: 404, code: "WORKSPACE_NOT_FOUND" };
+  }
+  // Gate 4 - global module availability.
+  if (m.includes("MODULE_AVAILABILITY_FIXED")) {
+    return { status: 409, code: "MODULE_AVAILABILITY_FIXED" };
+  }
+  if (m.includes("MODULE_NOT_FOUND")) {
+    return { status: 404, code: "MODULE_NOT_FOUND" };
+  }
+  if (m.includes("INVALID_MODULE_AVAILABILITY")) {
+    return { status: 400, code: "INVALID_REQUEST" };
   }
   if (
     m.includes("MISSING_AUTH_USER_ID") ||
@@ -1418,6 +1430,56 @@ async function handleSetWorkspaceModules(
   res.status(200).json(data ?? { workspace_id: workspaceId, modules });
 }
 
+/**
+ * Gate 4: switches one module's GLOBAL availability (the platform-wide kill
+ * switch) to exactly the requested state. The RPC re-resolves the Platform
+ * Owner, refuses a module whose availability is fixed, row-locks the catalog
+ * entry, audits a real change in the same transaction and never touches a
+ * workspace entitlement. An identical retry answers 200 with changed=false.
+ */
+async function handleSetModuleAvailability(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const moduleKey = typeof body.moduleKey === "string" ? body.moduleKey : "";
+  // A strict boolean: never coerce "true" / 1 into a platform-wide change.
+  if (!MODULE_KEY_PATTERN.test(moduleKey) || typeof body.available !== "boolean") {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  const supabase = getServiceClient();
+  const { data, error } = await supabase.rpc("platform_set_module_availability", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_module_key: moduleKey,
+    p_available: body.available,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  const r = rpcRow<{
+    previous_available?: unknown;
+    available?: unknown;
+    changed?: unknown;
+    entitled_workspaces?: unknown;
+  }>(data);
+  if (!r || typeof r.available !== "boolean") {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  res.status(200).json({
+    moduleKey,
+    previousAvailable: r.previous_available === true,
+    available: r.available,
+    changed: r.changed === true,
+    entitledWorkspaces:
+      typeof r.entitled_workspaces === "number" ? r.entitled_workspaces : 0,
+  });
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
@@ -1525,6 +1587,9 @@ export default async function handler(
       return;
     case "set_workspace_modules":
       await handleSetWorkspaceModules(req, res, verified.authUserId);
+      return;
+    case "set_module_availability":
+      await handleSetModuleAvailability(req, res, verified.authUserId);
       return;
     case "provision_multi_entity_owner":
       await handleProvisionMultiEntityOwner(req, res, verified.authUserId);

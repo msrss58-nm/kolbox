@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Blocks, Building2, ListChecks, ScrollText, UserPlus } from "lucide-react";
+import { Blocks, Building2, ListChecks, Power, ScrollText, UserPlus } from "lucide-react";
 import {
   AdminListFrame,
   AdminSearch,
@@ -14,6 +14,7 @@ import { moduleLabel } from "../../constants/labels";
 import { cn } from "../../lib/utils";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { formatDateTime } from "./multiEntityFormat";
+import { ModuleAvailabilityDialog } from "./ModuleAvailabilityDialog";
 import { LtrValue } from "./MultiEntityLtrValue";
 import { OwnerAccessList } from "./OwnerAccessList";
 import { OwnerApprovalDialog } from "./OwnerApprovalDialog";
@@ -209,11 +210,14 @@ function matchesWorkspace(w: WorkspaceEntitlements, q: string, extra = ""): bool
 }
 
 /** Module assignment: every workspace's entitlements, with the confirmed,
- * audited edit (Stage 9 flow, unchanged server-side). */
+ * audited edit (Stage 9 flow, unchanged server-side). Gate 4: the GLOBAL
+ * availability switch is a separate action + dialog, never mixed into the
+ * per-workspace editor. */
 export function PlatformModulesSection() {
   const { workspaceModules: modules } = usePlatformAdmin();
   const editor = useModulesEditor();
   const [query, setQuery] = useState("");
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -228,6 +232,17 @@ export function PlatformModulesSection() {
         testId="workspace-modules-card"
         title={T.modulesSection.title}
         description={T.workspaceModules.subtitle}
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() => setAvailabilityOpen(true)}
+            disabled={modules.catalog.length === 0}
+            data-testid="module-availability-open"
+          >
+            <Power className="size-4" aria-hidden />
+            {T.moduleAvailability.open}
+          </Button>
+        }
         toolbar={
           hasRows ? (
             <AdminSearch
@@ -315,6 +330,15 @@ export function PlatformModulesSection() {
         )}
       </AdminSection>
       {editor.dialog}
+      {availabilityOpen && (
+        <ModuleAvailabilityDialog
+          catalog={modules.catalog}
+          busyKey={modules.availabilityKey}
+          errorFor={modules.availabilityErrorFor}
+          onSet={modules.setAvailability}
+          onClose={() => setAvailabilityOpen(false)}
+        />
+      )}
     </>
   );
 }

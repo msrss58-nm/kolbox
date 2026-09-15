@@ -610,6 +610,11 @@ export interface ModuleCatalogEntry {
   key: string;
   /** False = recorded and assignable, but not yet a live module. */
   available: boolean;
+  /** Gate 4: whether `available` can be switched from the console (the server
+   * refuses every other module). */
+  availabilitySwitchable: boolean;
+  /** Gate 4: how many workspaces hold this module's entitlement. */
+  entitledWorkspaces: number;
 }
 
 export interface WorkspaceEntitlements {
@@ -646,7 +651,14 @@ export async function fetchWorkspaceModules(
     for (const raw of Array.isArray(o.catalog) ? o.catalog : []) {
       const c = rec(raw);
       const key = c && str(c.key);
-      if (c && key) catalog.push({ key, available: c.available === true });
+      if (c && key) {
+        catalog.push({
+          key,
+          available: c.available === true,
+          availabilitySwitchable: c.availability_switchable === true,
+          entitledWorkspaces: num(c.entitled_workspaces),
+        });
+      }
     }
     const workspaces: WorkspaceEntitlements[] = [];
     for (const raw of Array.isArray(o.workspaces) ? o.workspaces : []) {
@@ -681,6 +693,29 @@ export async function setWorkspaceModules(
       const o = rec(parsed);
       const id = o && str(o.workspace_id);
       return o && id ? { workspaceId: id, modules: strList(o.modules) } : null;
+    },
+  );
+}
+
+/** Gate 4: a module's GLOBAL availability. Body keys are exactly `moduleKey` +
+ * `available` (the explicit target state, never a toggle); the server decides
+ * whether the module is switchable and audits a real change. */
+export async function setModuleAvailability(
+  accessToken: string,
+  moduleKey: string,
+  available: boolean,
+): Promise<
+  MultiEntityResult<{ moduleKey: string; available: boolean; changed: boolean }>
+> {
+  return postOp(
+    accessToken,
+    { op: "set_module_availability", moduleKey, available },
+    (parsed) => {
+      const o = rec(parsed);
+      const key = o && str(o.moduleKey);
+      return o && key && typeof o.available === "boolean"
+        ? { moduleKey: key, available: o.available, changed: o.changed === true }
+        : null;
     },
   );
 }

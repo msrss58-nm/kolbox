@@ -317,6 +317,44 @@ export const PLATFORM_OWNER_TEXT = {
     } as Record<string, string>,
   },
 
+  /** Gate 4 - GLOBAL module availability: a platform-wide kill switch, NOT the
+   * per-workspace entitlement below. A module is active in a workspace only
+   * when it is available here AND assigned to that workspace. */
+  moduleAvailability: {
+    open: "זמינות מודולים",
+    title: "זמינות מודולים בכל הפלטפורמה",
+    subtitle:
+      "מתג גלובלי לכל מערכות הבחירות. מודול פעיל במערכת רק כשהוא זמין כאן וגם הוקצה לאותה מערכת. שינוי הזמינות אינו מוסיף ואינו מסיר הקצאות.",
+    available: "זמין",
+    unavailable: "לא זמין",
+    fixed: "זמינות קבועה - לא ניתנת לשינוי כאן",
+    entitled: (n: number) =>
+      n === 0
+        ? "לא הוקצה לאף מערכת"
+        : n === 1
+          ? "הוקצה למערכת אחת"
+          : `הוקצה ל-${n} מערכות`,
+    enable: "הפיכה לזמין",
+    disable: "הפיכה ללא זמין",
+    confirmEnableTitle: (label: string) => `להפוך את "${label}" לזמין?`,
+    confirmEnableMessage: (label: string, n: number) =>
+      `"${label}" ייפתח מיד בכל מערכת שהוקצה לה (${n}). אף מערכת אחרת לא תקבל גישה, והפעולה נרשמת ביומן.`,
+    confirmDisableTitle: (label: string) => `להפוך את "${label}" ללא זמין?`,
+    confirmDisableMessage: (label: string, n: number) =>
+      `"${label}" ייחסם מיד בכל המערכות שהוקצה להן (${n}), גם למשתמשים מחוברים. ההקצאות והנתונים נשמרים, והפיכה לזמין תחזיר את הגישה. הפעולה נרשמת ביומן.`,
+    close: "סגירה",
+    changed: "הזמינות עודכנה",
+    errors: {
+      MODULE_AVAILABILITY_FIXED: "הזמינות של מודול זה קבועה ואינה ניתנת לשינוי.",
+      MODULE_NOT_FOUND: "המודול לא נמצא. רעננו את הדף.",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      INVALID_REQUEST: "הבקשה אינה תקינה.",
+      SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
+  },
+
   /** Stage 9 - per-workspace module entitlements (platform licensing). An
    * entitlement decides whether a module is available to a workspace at all;
    * what a user may do inside it is still decided by that workspace's roles. */
@@ -552,6 +590,13 @@ export function platformOwnerAccessError(code: string): string {
 
 /** Stage 9 - maps a module-entitlement error code to Hebrew (same unknown-code
  * fallback as the functions around it). */
+export function platformModuleAvailabilityError(code: string): string {
+  return (
+    PLATFORM_OWNER_TEXT.moduleAvailability.errors[code] ??
+    PLATFORM_OWNER_TEXT.moduleAvailability.errors.SERVER_ERROR
+  );
+}
+
 export function platformWorkspaceModulesError(code: string): string {
   return (
     PLATFORM_OWNER_TEXT.workspaceModules.errors[code] ??
