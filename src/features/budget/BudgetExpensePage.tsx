@@ -13,6 +13,7 @@ import {
   budgetCall,
   type BudgetCategory,
   type Expense,
+  type ExpenseDocuments,
   type ExpenseStatus,
   type FundingSource,
   type HistoryEntry,
@@ -21,7 +22,9 @@ import {
 import { agorotToInput } from "./budgetMoney";
 import { budgetCan, useBudgetSession } from "./budgetSession";
 import { ExpenseStatusBadge, LoadError, Money, MoneyInput, PaymentBadge, SectionCard, useBudgetAction } from "./budgetUi";
+import { ExpenseDocumentsSection } from "./ExpenseDocumentsSection";
 import { ExpenseFundingSection } from "./ExpenseFundingSection";
+import { ExpenseOrderFormSection } from "./ExpenseOrderFormSection";
 import { ExpensePartySection } from "./ExpensePartySection";
 import { ExpensePaymentsSection } from "./ExpensePaymentsSection";
 
@@ -77,6 +80,13 @@ export function BudgetExpensePage() {
     [expenseId],
   );
   const history = useAsyncData(fetchHistory);
+  // Stage 4: documents, requirement checklist and order form (their own read;
+  // the requirements depend on the expense, so every expense change reloads it).
+  const fetchDocuments = useCallback(
+    () => budgetCall<ExpenseDocuments>("get_expense_documents", { expenseId }),
+    [expenseId],
+  );
+  const documents = useAsyncData(fetchDocuments);
 
   const [transition, setTransition] = useState<(typeof NEXT)[ExpenseStatus][number] | null>(null);
   const [editing, setEditing] = useState(false);
@@ -90,6 +100,13 @@ export function BudgetExpensePage() {
     } else {
       expense.reload(); // a conflict or failure: show the server's truth
     }
+    documents.reload();
+  };
+  /** Every document mutation returns the whole documents view. */
+  const adoptDocuments = (next: ExpenseDocuments | undefined) => {
+    if (next) documents.setData(next);
+    else documents.reload();
+    history.reload();
   };
 
   if (expense.error && !expense.data) return <LoadError onRetry={expense.reload} />;
@@ -166,6 +183,19 @@ export function BudgetExpensePage() {
       <ExpenseFundingSection expense={x} lookups={lk} canManage={canManage && open} onChange={adopt} />
       {x.allocations.some((a) => a.kind === "party") && (
         <ExpensePartySection expense={x} canManage={budgetCan(session, "budget.manageFunderSubmissions") && open} onChange={adopt} />
+      )}
+      {documents.data && (documents.data.requirements.partyFunded || documents.data.orderForm.versions.length > 0) && (
+        <ExpenseOrderFormSection expense={x} data={documents.data} supplierPhone={supplier?.phone ?? null}
+          canManage={budgetCan(session, "budget.manageFunderSubmissions") && open} onChange={adoptDocuments} />
+      )}
+      {documents.data ? (
+        <ExpenseDocumentsSection data={documents.data} open={open}
+          canUpload={canManage || (budgetCan(session, "budget.manageFunderSubmissions") && documents.data.requirements.partyFunded)}
+          canFlag={canManage} onChange={adoptDocuments} />
+      ) : documents.error ? (
+        <LoadError onRetry={documents.reload} />
+      ) : (
+        <Skeleton className="h-40 rounded-2xl" />
       )}
       <ExpensePaymentsSection expense={x} lookups={lk} canManage={canManage} onChange={adopt} />
 

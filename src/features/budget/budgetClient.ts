@@ -343,6 +343,125 @@ export interface DocumentRule {
   categoryIds: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Stage 4 - documents, requirements, order form, supplier file.
+// ---------------------------------------------------------------------------
+export type DocumentMime = "application/pdf" | "image/jpeg" | "image/png" | "image/heic" | "image/heif";
+
+export interface DocumentVersion {
+  id: string;
+  versionNo: number;
+  fileName: string;
+  mimeType: DocumentMime;
+  sizeBytes: number;
+  sha256: string;
+  origin: "upload" | "generated";
+  orderFormVersionId: string | null;
+  note: string | null;
+  createdByName: string;
+  createdAt: string;
+}
+
+export interface BudgetDocument {
+  id: string;
+  documentTypeId: string;
+  typeKey: string;
+  typeName: string;
+  expenseId: string | null;
+  supplierId: string | null;
+  title: string | null;
+  notes: string | null;
+  validUntil: string | null;
+  status: "active" | "archived";
+  archivedAt: string | null;
+  archiveReason: string | null;
+  version: number;
+  createdAt: string;
+  /** Newest first. */
+  versions: DocumentVersion[];
+}
+
+export interface RequirementItem {
+  documentTypeId: string;
+  key: string;
+  name: string;
+  required: boolean;
+  rules: { ruleId: string; condition: DocumentRule["condition"]; threshold: number | null; matched: boolean }[];
+  satisfied: boolean;
+  satisfiedBy: { documentId: string; versionId: string; versionNo: number; source: "expense" | "supplier" | "order_form_return" } | null;
+}
+
+/** The server's ONE requirement evaluation (live, or the close-time snapshot). */
+export interface DocumentRequirements {
+  mode: "live" | "snapshot";
+  capturedAt?: string;
+  total: number | null;
+  fundingKinds: FundingKind[];
+  partyFunded: boolean;
+  invoiceRequired: boolean;
+  supplierSignatureRequired: boolean;
+  photoRequired: boolean;
+  latestOrderFormVersionId: string | null;
+  items: RequirementItem[];
+  missing: string[];
+  ready: boolean;
+}
+
+export type OrderFormState = "not_applicable" | "draft" | "ready" | "generated" | "sent" | "returned";
+
+export interface OrderFormVersion {
+  id: string;
+  versionNo: number;
+  documentVersionId: string;
+  templateKey: string;
+  supplierSignatureRequired: boolean;
+  sentAt: string | null;
+  sentByName: string | null;
+  sentNote: string | null;
+  createdByName: string;
+  createdAt: string;
+  returns: { versionId: string; versionNo: number; fileName: string; mimeType: DocumentMime; createdByName: string; createdAt: string }[];
+}
+
+export interface OrderFormInfo {
+  state: OrderFormState;
+  /** Newest first. */
+  versions: OrderFormVersion[];
+  canPreview: boolean;
+  canGenerate: boolean;
+  generateBlockers: string[];
+}
+
+export interface ExpenseDocuments {
+  expenseId: string;
+  expenseStatus: ExpenseStatus;
+  requirements: DocumentRequirements;
+  documents: BudgetDocument[];
+  supplierDocuments: BudgetDocument[];
+  orderForm: OrderFormInfo;
+  flags: string[];
+  manualTypes: { documentTypeId: string; key: string; name: string }[];
+  /** The types a user may choose for a new document (active, not order-form-managed). */
+  documentTypes: { id: string; key: string; name: string }[];
+}
+
+export interface SupplierFile {
+  supplier: Supplier;
+  documentTypes: { id: string; key: string; name: string }[];
+  documents: BudgetDocument[];
+  expenses: {
+    id: string;
+    referenceNo: number;
+    description: string;
+    status: ExpenseStatus;
+    total: number | null;
+    expenseDate: string | null;
+    documentsReady: boolean;
+    missing: string[];
+    documents: { id: string; typeName: string; status: "active" | "archived"; currentVersion: { id: string; versionNo: number; fileName: string } | null }[];
+  }[];
+}
+
 export interface BudgetSettings {
   periodStart: string | null;
   periodEnd: string | null;

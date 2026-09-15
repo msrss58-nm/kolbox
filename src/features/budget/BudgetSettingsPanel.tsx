@@ -60,6 +60,8 @@ export function BudgetSettingsPanel({ principal }: { principal: BudgetPrincipal 
   const [newCategory, setNewCategory] = useState("");
   const [renaming, setRenaming] = useState<BudgetCategory | null>(null);
   const [sourceDialog, setSourceDialog] = useState<FundingSource | "new" | null>(null);
+  const [newType, setNewType] = useState("");
+  const [renamingType, setRenamingType] = useState<BudgetSettings["documentTypes"][number] | null>(null);
 
   if (error && !data) {
     return error instanceof BudgetApiError && error.code === "MODULE_NOT_ENABLED" ? (
@@ -137,10 +139,44 @@ export function BudgetSettingsPanel({ principal }: { principal: BudgetPrincipal 
       </SectionCard>
 
       <SectionCard title={t.rules}>
+        <p className="mb-2 text-xs text-slate-500">{t.thresholdHint}</p>
         <ul className="divide-y divide-slate-100" data-testid="document-rules">
           {settings.documentRules.map((r) => (
-            <RuleRow key={r.id} rule={r} typeName={typeName(r.documentTypeId)} busy={busy}
+            <RuleRow key={r.id} rule={r} typeName={typeName(r.documentTypeId)} categories={categories} busy={busy}
               onSave={(args) => void run(() => call("update_document_rule", { ruleId: r.id, expectedVersion: r.version, ...args }), c.saved).then(reload)} />
+          ))}
+        </ul>
+      </SectionCard>
+
+      <SectionCard title={t.documentTypes}>
+        <form className="mb-3 flex gap-2" onSubmit={(e) => {
+          e.preventDefault();
+          void run(() => call("create_document_type", { name: newType.trim() }), c.saved).then((r) => {
+            if (r !== undefined) setNewType("");
+            reload();
+          });
+        }}>
+          <Input value={newType} onChange={(e) => setNewType(e.target.value)} placeholder={t.newDocumentType}
+            aria-label={t.documentTypeName} maxLength={100} />
+          <Button type="submit" loading={busy} disabled={!newType.trim()}><Plus className="size-4" />{c.add}</Button>
+        </form>
+        <ul className="divide-y divide-slate-100" data-testid="document-types">
+          {settings.documentTypes.map((dt) => (
+            <li key={dt.id} className={cn("flex flex-wrap items-center justify-between gap-2 py-2", !dt.isActive && "opacity-60")}>
+              <span className="font-semibold text-slate-800">
+                {dt.name}
+                {dt.isSystem && <span className="ms-2 text-xs font-normal text-slate-500">{t.systemType}</span>}
+              </span>
+              {!dt.isSystem && (
+                <span className="flex items-center gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => setRenamingType(dt)}>{c.edit}</Button>
+                  <Button size="sm" variant="ghost" disabled={busy}
+                    onClick={() => void run(() => call("update_document_type", { documentTypeId: dt.id, isActive: !dt.isActive }), c.saved).then(reload)}>
+                    {dt.isActive ? c.deactivate : c.activate}
+                  </Button>
+                </span>
+              )}
+            </li>
           ))}
         </ul>
       </SectionCard>
@@ -152,6 +188,11 @@ export function BudgetSettingsPanel({ principal }: { principal: BudgetPrincipal 
         <RenameDialog name={renaming.name} busy={busy} onClose={() => setRenaming(null)}
           onSubmit={(name) => void run(() => call("update_category", { categoryId: renaming.id, name }), c.saved)
             .then((r) => { if (r !== undefined) setRenaming(null); reload(); })} />
+      )}
+      {renamingType && (
+        <RenameDialog name={renamingType.name} label={t.documentTypeName} busy={busy} onClose={() => setRenamingType(null)}
+          onSubmit={(name) => void run(() => call("update_document_type", { documentTypeId: renamingType.id, name }), c.saved)
+            .then((r) => { if (r !== undefined) setRenamingType(null); reload(); })} />
       )}
       {sourceDialog && (
         <SourceDialog source={sourceDialog === "new" ? null : sourceDialog} canSetAmount={canSetAmount} busy={busy} onClose={() => setSourceDialog(null)}
@@ -176,12 +217,14 @@ function IconBtn({ label, onClick, disabled, danger, children }: {
   );
 }
 
-function RuleRow({ rule, typeName, busy, onSave }: {
-  rule: DocumentRule; typeName: string; busy: boolean; onSave: (args: Record<string, unknown>) => void;
+function RuleRow({ rule, typeName, categories, busy, onSave }: {
+  rule: DocumentRule; typeName: string; categories: BudgetCategory[]; busy: boolean; onSave: (args: Record<string, unknown>) => void;
 }) {
   const [text, setText] = useState(agorotToInput(rule.threshold));
   const [value, setValue] = useState<number | null>(rule.threshold);
+  const [choosing, setChoosing] = useState(false);
   const isAmount = rule.condition === "amount_gt" || rule.condition === "amount_gte";
+  const chosen = categories.filter((k) => rule.categoryIds.includes(k.id));
   const condition = {
     always: t.ruleAlways, amount_gt: t.ruleAbove, amount_gte: t.ruleAboveOrEqual, category: t.ruleCategory, manual: t.ruleManual,
   }[rule.condition];
@@ -193,8 +236,20 @@ function RuleRow({ rule, typeName, busy, onSave }: {
           {t.documentKinds[rule.fundingKind ?? "any"]} · {condition}
           {isAmount && rule.threshold !== null && <> <Money value={rule.threshold} /></>}
         </span>
+        {rule.condition === "category" && (
+          <span className="block text-xs text-slate-500" data-testid="rule-categories">
+            {t.ruleCategories}: {chosen.length ? chosen.map((k) => k.name).join(", ") : t.noCategoriesChosen}
+          </span>
+        )}
       </span>
       <span className="flex items-center gap-2">
+        {rule.condition === "category" && (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => setChoosing(true)}>{t.chooseCategories}</Button>
+        )}
+        {choosing && (
+          <CategoriesDialog categories={categories} selected={rule.categoryIds} busy={busy} onClose={() => setChoosing(false)}
+            onSubmit={(ids) => { setChoosing(false); onSave({ categoryIds: ids }); }} />
+        )}
         {isAmount && (
           <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (value !== null) onSave({ threshold: value }); }}>
             <div className="w-32"><MoneyInput value={text} aria-label={t.threshold} onChange={(v, n) => { setText(v); setValue(n); }} /></div>
@@ -261,12 +316,39 @@ function GeneralSettings({ settings, busy, onSave }: {
   );
 }
 
-function RenameDialog({ name, busy, onClose, onSubmit }: { name: string; busy: boolean; onClose: () => void; onSubmit: (name: string) => void }) {
+/** Which categories make a 'category' rule (e.g. photo) required. */
+function CategoriesDialog({ categories, selected, busy, onClose, onSubmit }: {
+  categories: BudgetCategory[]; selected: string[]; busy: boolean; onClose: () => void; onSubmit: (ids: string[]) => void;
+}) {
+  const [ids, setIds] = useState<string[]>(selected);
+  return (
+    <Modal open onClose={onClose} title={t.chooseCategories}>
+      <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); onSubmit(ids); }}>
+        <ul className="max-h-72 space-y-1 overflow-y-auto">
+          {categories.map((k) => (
+            <li key={k.id}>
+              <label className="flex min-h-11 items-center gap-2 text-sm font-semibold text-slate-700">
+                <input type="checkbox" className="size-4 accent-primary-600" checked={ids.includes(k.id)}
+                  onChange={(e) => setIds((prev) => (e.target.checked ? [...prev, k.id] : prev.filter((x) => x !== k.id)))} />
+                {k.name}
+              </label>
+            </li>
+          ))}
+        </ul>
+        <Button type="submit" className="w-full" loading={busy}>{c.save}</Button>
+      </form>
+    </Modal>
+  );
+}
+
+function RenameDialog({ name, label = t.categoryName, busy, onClose, onSubmit }: {
+  name: string; label?: string; busy: boolean; onClose: () => void; onSubmit: (name: string) => void;
+}) {
   const [value, setValue] = useState(name);
   return (
     <Modal open onClose={onClose} title={c.edit}>
       <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); onSubmit(value.trim()); }}>
-        <Field label={t.categoryName}><Input value={value} onChange={(e) => setValue(e.target.value)} maxLength={100} required /></Field>
+        <Field label={label}><Input value={value} onChange={(e) => setValue(e.target.value)} maxLength={100} required /></Field>
         <Button type="submit" className="w-full" loading={busy} disabled={!value.trim()}>{c.save}</Button>
       </form>
     </Modal>

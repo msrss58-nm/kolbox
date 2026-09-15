@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Eye, KeyRound, Plus, Truck } from "lucide-react";
+import { Eye, FolderOpen, KeyRound, Plus, Truck } from "lucide-react";
 import { PageHeader } from "../../components/PageHeader";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -14,6 +14,7 @@ import { BUDGET_TEXT, budgetErrorMessage } from "./budget.constants";
 import { BudgetApiError, budgetCall, type RevealedBank, type Supplier } from "./budgetClient";
 import { budgetCan, useBudgetSession } from "./budgetSession";
 import { LoadError, Money, useBudgetAction } from "./budgetUi";
+import { SupplierFileDialog } from "./SupplierFileDialog";
 
 const t = BUDGET_TEXT.suppliers;
 const c = BUDGET_TEXT.common;
@@ -22,6 +23,7 @@ type Dialog =
   | { kind: "edit"; supplier: Supplier | null }
   | { kind: "stepup"; supplier: Supplier; action: "reveal" | "change" }
   | { kind: "bank"; supplier: Supplier; proof: string }
+  | { kind: "file"; supplier: Supplier }
   | null;
 
 export function BudgetSuppliersPage() {
@@ -88,9 +90,14 @@ export function BudgetSuppliersPage() {
                         {!s.isActive && ` · ${c.inactive}`}
                       </p>
                     </div>
-                    {canManage && (
-                      <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: "edit", supplier: s })}>{c.edit}</Button>
-                    )}
+                    <span className="flex flex-wrap gap-1.5">
+                      <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: "file", supplier: s })} data-testid="supplier-file-open">
+                        <FolderOpen className="size-4" />{BUDGET_TEXT.supplierFile.open}
+                      </Button>
+                      {canManage && (
+                        <Button size="sm" variant="secondary" onClick={() => setDialog({ kind: "edit", supplier: s })}>{c.edit}</Button>
+                      )}
+                    </span>
                   </div>
                   <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm sm:grid-cols-4">
                     <div><dt className="text-xs text-slate-500">{t.expenseCount}</dt><dd className="font-bold">{s.expenseCount}</dd></div>
@@ -135,6 +142,9 @@ export function BudgetSuppliersPage() {
       {dialog?.kind === "stepup" && (
         <StepUpDialog supplier={dialog.supplier} action={dialog.action} onClose={() => setDialog(null)}
           onProof={(proof) => void onProof(dialog.supplier, dialog.action, proof)} />
+      )}
+      {dialog?.kind === "file" && (
+        <SupplierFileDialog supplier={dialog.supplier} canManage={canManage} onClose={() => { setDialog(null); reload(); }} />
       )}
       {dialog?.kind === "bank" && (
         <BankDialog supplier={dialog.supplier} proof={dialog.proof} onClose={() => setDialog(null)}

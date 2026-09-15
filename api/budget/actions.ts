@@ -5,6 +5,7 @@ import {
   getServiceClient,
   verifyOwnerJwt,
 } from "../election-day/_ownerAuth.js";
+import { renderOrderFormPdf, type OrderFormSnapshot } from "./_orderFormPdf.js";
 
 // Budget Stage 3 - the ONE dedicated Budget endpoint (it takes the Vercel
 // Hobby function slot freed by folding clear-voters.ts into import-voters.ts).
@@ -34,6 +35,21 @@ import {
 // one-time proof ONCE. Only the proof's sha256 is ever stored; the bank ops
 // receive the raw proof from the client and this handler replaces it with its
 // hash before the dispatcher sees it.
+//
+// Budget Stage 4 adds the DOCUMENT ops, also handled here because they touch
+// Storage (private bucket "budget-documents") - every one is authorized by the
+// dispatcher FIRST, and the Storage path always comes from the database:
+//   document_upload_start    -> DB records the intent (server-generated path)
+//                               -> a signed direct-to-Storage upload URL
+//   document_upload_complete -> the stored bytes are downloaded and VERIFIED
+//                               (size, magic bytes vs the declared type,
+//                               sha256) -> finalize, or delete + reject
+//   document_download        -> a 60-second signed link (attachment)
+//   order_form_preview       -> server-side PDF, returned, never stored
+//   order_form_generate      -> server-side PDF -> Storage -> recorded as the
+//                               next version (a failed record deletes the object)
+// The DB ops these use internally (lookup/finalize/reject/locate/data/record)
+// are refused from a client, exactly like the step-up internals.
 
 const SESSION_COOKIE_NAME = "__Host-kb_ed_session";
 const DEFAULT_PRODUCTION_ORIGIN = "https://kolbox-gamma.vercel.app";
@@ -45,7 +61,29 @@ const OP_RE = /^[a-z_]{2,40}$/;
 /** Ops whose args carry a step-up proof. */
 const PROOF_OPS = new Set<string>(["reveal_supplier_bank", "set_supplier_bank"]);
 /** Ops only this handler may call (inside the step-up flow) - never a client. */
-const INTERNAL_OPS = new Set<string>(["stepup_check", "record_stepup_failure"]);
+const INTERNAL_OPS = new Set<string>([
+  "stepup_check",
+  "record_stepup_failure",
+  "document_upload_lookup",
+  "document_upload_finalize",
+  "document_upload_reject",
+  "document_version_locate",
+  "order_form_data",
+  "order_form_record",
+]);
+/** Stage 4 ops that touch Storage / render a PDF, handled in this file. */
+const DOCUMENT_OPS = new Set<string>([
+  "document_upload_start",
+  "document_upload_complete",
+  "document_download",
+  "order_form_preview",
+  "order_form_generate",
+]);
+const DOCUMENTS_BUCKET = "budget-documents";
+const SIGNED_LINK_SECONDS = 60;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const HEIC_BRANDS = new Set<string>(["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs"]);
+const HEIF_BRANDS = new Set<string>(["mif1", "msf1", "heif"]);
 
 /** Business error codes the dispatchers raise on purpose - anything else is a
  * generic SERVER_ERROR, so no raw Postgres text ever reaches the client. */
@@ -95,6 +133,16 @@ const ERROR_STATUS: Record<string, number> = {
   AUTHORIZED_EXCEEDS_REQUEST: 409,
   SOURCE_KIND_LOCKED: 409,
   CLOSE_BLOCKED: 409,
+  // Stage 4 - documents / order form.
+  UNSUPPORTED_FILE_TYPE: 400,
+  FILE_TOO_LARGE: 400,
+  TOO_MANY_PENDING_UPLOADS: 429,
+  UPLOAD_EXPIRED: 409,
+  DOCUMENT_ARCHIVED: 409,
+  DOCUMENT_TYPE_MANAGED: 409,
+  DOCUMENT_TYPE_SYSTEM: 409,
+  ORDER_FORM_NOT_APPLICABLE: 409,
+  ORDER_FORM_SUPERSEDED: 409,
 };
 
 interface MinimalRequest {
@@ -118,7 +166,7 @@ interface RpcError {
 
 type ServiceClient = ReturnType<typeof getServiceClient>;
 
-function sha256Hex(raw: string): string {
+function sha256Hex(raw: string | Uint8Array): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
@@ -320,6 +368,217 @@ async function handleStepUp(
   res.status(200).json({ proof: rawProof });
 }
 
+/** The file's REAL type from its first bytes (never from the name or the
+ * client's Content-Type). null = not one of the accepted types. */
+function sniffMime(b: Uint8Array): string | null {
+  const ascii = (from: number, len: number) => String.fromCharCode(...b.subarray(from, from + len));
+  if (b.length >= 5 && ascii(0, 5) === "%PDF-") return "application/pdf";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => b[i] === v)) return "image/png";
+  if (b.length >= 12 && ascii(4, 4) === "ftyp") {
+    const brand = ascii(8, 4);
+    if (HEIC_BRANDS.has(brand)) return "image/heic";
+    if (HEIF_BRANDS.has(brand)) return "image/heif";
+  }
+  return null;
+}
+
+/** HEIC and HEIF are the same container family; a phone labels them loosely. */
+function sameFileType(detected: string, declared: string): boolean {
+  const family = (m: string) => (m === "image/heic" || m === "image/heif" ? "heif" : m);
+  return family(detected) === family(declared);
+}
+
+function onlyKeys(args: Record<string, unknown>, keys: string[]): boolean {
+  return Object.keys(args).every((k) => keys.includes(k));
+}
+
+/** Stage 4 document ops (see the header comment). Every Storage action runs
+ * only after the dispatcher authorized the caller for that exact object. */
+async function handleDocumentOp(
+  res: MinimalResponse,
+  op: string,
+  args: Record<string, unknown>,
+  dispatch: Dispatch,
+  supabase: ServiceClient,
+): Promise<void> {
+  const storage = supabase.storage.from(DOCUMENTS_BUCKET);
+
+  if (op === "document_upload_start") {
+    const { data, error } = await dispatch("document_upload_start", args);
+    if (error) {
+      sendRpcError(res, error);
+      return;
+    }
+    const d = (data ?? {}) as { uploadId?: unknown; storagePath?: unknown; expiresAt?: unknown; maxBytes?: unknown };
+    if (typeof d.uploadId !== "string" || typeof d.storagePath !== "string") {
+      sendError(res, 500, "SERVER_ERROR");
+      return;
+    }
+    // Bound to this one server-generated path; never overwrites (upsert off).
+    const signed = await storage.createSignedUploadUrl(d.storagePath);
+    if (signed.error || !signed.data?.signedUrl) {
+      sendError(res, 502, "STORAGE_ERROR");
+      return;
+    }
+    res.status(200).json({ data: { uploadId: d.uploadId, uploadUrl: signed.data.signedUrl, expiresAt: d.expiresAt, maxBytes: d.maxBytes } });
+    return;
+  }
+
+  if (op === "document_upload_complete") {
+    const uploadId = typeof args.uploadId === "string" ? args.uploadId : "";
+    if (!onlyKeys(args, ["uploadId"]) || !UUID_RE.test(uploadId)) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    const look = await dispatch("document_upload_lookup", { uploadId });
+    if (look.error) {
+      sendRpcError(res, look.error);
+      return;
+    }
+    const u = (look.data ?? {}) as { storagePath?: string; mimeType?: string; sizeBytes?: number; state?: string; expired?: boolean };
+    if (typeof u.storagePath !== "string" || typeof u.mimeType !== "string" || typeof u.sizeBytes !== "number") {
+      sendError(res, 500, "SERVER_ERROR");
+      return;
+    }
+    if (u.state === "completed") {
+      // A replay (the first response was lost): the DB answers the same result.
+      const again = await dispatch("document_upload_finalize", {
+        uploadId, sha256: "0".repeat(64), sizeBytes: u.sizeBytes, mimeType: u.mimeType,
+      });
+      if (again.error) {
+        sendRpcError(res, again.error);
+        return;
+      }
+      res.status(200).json({ data: again.data });
+      return;
+    }
+    if (u.state !== "pending") {
+      sendError(res, 409, "INVALID_TRANSITION");
+      return;
+    }
+    const path = u.storagePath;
+    const reject = async (reason: string, status: number, code: string) => {
+      await storage.remove([path]).catch(() => undefined);
+      await dispatch("document_upload_reject", { uploadId, reason });
+      sendError(res, status, code);
+    };
+    if (u.expired) {
+      await reject("expired", 409, "UPLOAD_EXPIRED");
+      return;
+    }
+    const dl = await storage.download(path);
+    if (dl.error || !dl.data) {
+      // Nothing stored yet: the intent stays open until it expires.
+      sendError(res, 409, "UPLOAD_MISSING");
+      return;
+    }
+    const bytes = new Uint8Array(await dl.data.arrayBuffer());
+    if (bytes.length > MAX_FILE_BYTES) {
+      await reject("too_large", 400, "FILE_TOO_LARGE");
+      return;
+    }
+    if (bytes.length !== u.sizeBytes) {
+      await reject("size_mismatch", 400, "INVALID_FILE");
+      return;
+    }
+    // The real type from the bytes AND the Content-Type Storage recorded (the
+    // one it will serve) must both match what was declared at start.
+    const detected = sniffMime(bytes);
+    const storedType = (dl.data.type || "").split(";")[0].trim().toLowerCase();
+    if (!detected || !sameFileType(detected, u.mimeType) || !storedType || !sameFileType(storedType, u.mimeType)) {
+      await reject("type_mismatch", 400, "INVALID_FILE");
+      return;
+    }
+    const fin = await dispatch("document_upload_finalize", {
+      uploadId, sha256: sha256Hex(bytes), sizeBytes: bytes.length, mimeType: u.mimeType,
+    });
+    if (fin.error) {
+      sendRpcError(res, fin.error);
+      return;
+    }
+    res.status(200).json({ data: fin.data });
+    return;
+  }
+
+  if (op === "document_download") {
+    const versionId = typeof args.versionId === "string" ? args.versionId : "";
+    if (!onlyKeys(args, ["versionId"]) || !UUID_RE.test(versionId)) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    const loc = await dispatch("document_version_locate", { versionId });
+    if (loc.error) {
+      sendRpcError(res, loc.error);
+      return;
+    }
+    const l = (loc.data ?? {}) as { storagePath?: string; fileName?: string; mimeType?: string };
+    if (typeof l.storagePath !== "string" || typeof l.fileName !== "string") {
+      sendError(res, 500, "SERVER_ERROR");
+      return;
+    }
+    const signed = await storage.createSignedUrl(l.storagePath, SIGNED_LINK_SECONDS, { download: l.fileName });
+    if (signed.error || !signed.data?.signedUrl) {
+      sendError(res, 502, "STORAGE_ERROR");
+      return;
+    }
+    res.status(200).json({ data: { url: signed.data.signedUrl, expiresIn: SIGNED_LINK_SECONDS, fileName: l.fileName, mimeType: l.mimeType } });
+    return;
+  }
+
+  // Order form: preview (returned, never stored) or generate (stored as the
+  // next version). The client names only the expense.
+  const expenseId = typeof args.expenseId === "string" ? args.expenseId : "";
+  if (!onlyKeys(args, ["expenseId"]) || !UUID_RE.test(expenseId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  const final = op === "order_form_generate";
+  const prep = await dispatch("order_form_data", { expenseId, final });
+  if (prep.error) {
+    sendRpcError(res, prep.error);
+    return;
+  }
+  const p = (prep.data ?? {}) as {
+    snapshot?: OrderFormSnapshot; expenseVersion?: number; versionNo?: number; storagePath?: string | null; fileName?: string;
+  };
+  if (!p.snapshot || typeof p.versionNo !== "number" || typeof p.fileName !== "string") {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  let pdf: Uint8Array;
+  try {
+    pdf = await renderOrderFormPdf(p.snapshot, { preview: !final, versionNo: final ? p.versionNo : null });
+  } catch {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  if (!final) {
+    res.status(200).json({ data: { pdfBase64: Buffer.from(pdf).toString("base64"), fileName: p.fileName } });
+    return;
+  }
+  if (typeof p.storagePath !== "string" || pdf.length > MAX_FILE_BYTES) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  const up = await storage.upload(p.storagePath, pdf, { contentType: "application/pdf", upsert: false });
+  if (up.error) {
+    sendError(res, 502, "STORAGE_ERROR");
+    return;
+  }
+  const rec = await dispatch("order_form_record", {
+    expenseId, expenseVersion: p.expenseVersion, versionNo: p.versionNo, storagePath: p.storagePath,
+    sha256: sha256Hex(pdf), sizeBytes: pdf.length, fileName: p.fileName, snapshot: p.snapshot,
+  });
+  if (rec.error) {
+    // Nothing references the object: remove it, so no orphan PDF remains.
+    await storage.remove([p.storagePath]).catch(() => undefined);
+    sendRpcError(res, rec.error);
+    return;
+  }
+  res.status(200).json({ data: rec.data });
+}
+
 export default async function handler(req: MinimalRequest, res: MinimalResponse): Promise<void> {
   if ((req.method ?? "GET") !== "POST") {
     sendError(res, 405, "METHOD_NOT_ALLOWED");
@@ -416,9 +675,12 @@ export default async function handler(req: MinimalRequest, res: MinimalResponse)
             email: verified.email,
             password,
           });
-          // The isolated client never persists a session; drop the one this
-          // re-check created.
-          void anonClient.auth.signOut().catch(() => undefined);
+          // The isolated client never persists a session; revoke the ONE session
+          // this re-check created. scope "local" is essential: supabase-js
+          // defaults to "global", which would revoke every session of the
+          // Owner - including the one making this request (Stage 4 regression
+          // finding: the Owner was signed out after the first step-up).
+          await anonClient.auth.signOut({ scope: "local" }).catch(() => undefined);
           if (signInError || !signIn?.user || signIn.user.id !== verified.authUserId) {
             return "invalid_password";
           }
@@ -432,6 +694,10 @@ export default async function handler(req: MinimalRequest, res: MinimalResponse)
         { prefix: "owner-reauth", actorKey: () => verified.authUserId },
         supabase,
       );
+      return;
+    }
+    if (DOCUMENT_OPS.has(op)) {
+      await handleDocumentOp(res, op, args, dispatch, supabase);
       return;
     }
 
@@ -492,6 +758,10 @@ export default async function handler(req: MinimalRequest, res: MinimalResponse)
       { prefix: "reauth", actorKey: (actorId) => actorId },
       supabase,
     );
+    return;
+  }
+  if (DOCUMENT_OPS.has(op)) {
+    await handleDocumentOp(res, op, args, dispatch, supabase);
     return;
   }
 

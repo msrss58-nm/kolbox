@@ -470,12 +470,19 @@ const blocked = await bw(U.exp, "transition_expense", { expenseId: E3.id, expect
 check("K01 close blocked, blockers listed", is(blocked, 409, "CLOSE_BLOCKED") &&
   ["FUNDING_NOT_RECONCILED", "SUPPLIER_NOT_FULLY_PAID", "PARTY_PREAPPROVAL_MISSING", "PARTY_REFERENCE_MISSING"].every((b) => blocked.body.blockers.includes(b)),
   `${d(blocked)} statusBefore=${e3i?.status} body=${JSON.stringify(blocked.body)}`);
+// Stage 4 added the required documents + order form to the close guard (the
+// Stage 1 definition). This section proves the FINANCIAL close guard, so the
+// party document rules are switched off for K02-K04 and restored right after;
+// the document part of the close guard is proven in api-budget-docs.mjs.
+const partyDocRules = (await bo(OWNER_A, "get_settings")).data.documentRules.filter((r) => r.isActive && r.fundingKind === "party");
+for (const r of partyDocRules) await bo(OWNER_A, "update_document_rule", { ruleId: r.id, isActive: false });
 cur = (await bw(U.view, "get_expense", { expenseId: E2.id })).data;
 cur = (await bw(U.exp, "transition_expense", { expenseId: E2.id, expectedVersion: cur.version, toStatus: "incurred" })).data;
 cur = (await bw(U.exp, "transition_expense", { expenseId: E2.id, expectedVersion: cur.version, toStatus: "closed" })).data;
 check("K02 party expense closes: reconciled, prior approval + reference, party payments cover authorized, all paid", cur?.status === "closed", cur?.status);
 check("K03 closed expense is locked", is(await bw(U.exp, "update_expense", { expenseId: E2.id, expectedVersion: cur.version, notes: "x" }), 409, "EXPENSE_LOCKED"));
 check("K04 reopen requires a reason", is(await bw(U.exp, "transition_expense", { expenseId: E2.id, expectedVersion: cur.version, toStatus: "incurred" }), 409, "REASON_REQUIRED"));
+for (const r of partyDocRules) await bo(OWNER_A, "update_document_rule", { ruleId: r.id, isActive: true });
 
 // ---------------------------------------------------------------------------
 section("CALCULATION LAYER (one definition, lists reconcile)");

@@ -53,7 +53,9 @@ const edits = {
   realtime: { enabled: "false" },
   studio: { enabled: "false" },
   local_smtp: { enabled: "false" },
-  storage: { enabled: "false" },
+  // Budget Stage 4: S5_STORAGE=1 keeps Storage on (the document suites need
+  // the private bucket); every other suite runs unchanged either way.
+  storage: { enabled: process.env.S5_STORAGE === "1" ? "true" : "false" },
   "storage.vector": { enabled: "false" },
   analytics: { enabled: "false" },
   edge_runtime: { enabled: "false" },
