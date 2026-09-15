@@ -170,7 +170,7 @@ Stage 3 is a local commit only - NOT pushed, NOT deployed, its three migrations 
 - **Bank step-up** reuses the existing proof tables (`election_day_reauth_proofs` / `election_owner_reauth_proofs`) with the action `budget_bank_<reveal|change>:<supplier_id>` - no second password system.
 - **`clear-voters`** now lives inside `import-voters.ts` behind the `vercel.json` rewrite (`__vf_op=clear`); keep that public contract - `scripts/budget/api-voterfile.mjs` is its retained suite. Preview-deployment check of the rewrite is still pending.
 - **Tests:** `scripts/budget/api-budget.mjs`, `ui-budget.mjs`, `api-voterfile.mjs` - scratch stack only (`S5_PORT_OFFSET`, `S5_STACK_DIR`).
-- **Pre-existing, not fixed:** trusted Election Day voter import returns 500 (`ON CONFLICT (display_name)` vs the Phase 4A workspace-scoped index) - needs its own approved fix.
+- **Trusted voter import (fixed 2026-09-15, Production CLOSED / PASS):** the coordinator sync's `ON CONFLICT` target must name the Phase 4A per-workspace index `(workspace_id, display_name) WHERE status='active'` (migration `20260916010000`, hotfix `7d3f90b`); an `ON CONFLICT` target with no exactly matching unique index fails at plan time on every call. Retained suite: `scripts/voter-import/api-voter-import.mjs`.
 
 ## Known Security Limitations (Election Day → Supabase migration)
 
