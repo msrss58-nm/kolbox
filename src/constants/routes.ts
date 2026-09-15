@@ -181,20 +181,23 @@ export const ELECTION_DAY_NAV_ITEMS: NavItem[] = [
   { to: ELECTION_DAY_ROUTES.reports, label: "דוחות", icon: FileBarChart2 },
 ];
 
-/** Budget Stage 3: the Budget module's sub-navigation. Dashboard and Reports
- * arrive with Stage 6. */
+/** The Budget module's sub-navigation (Stage 6: the complete approved set). */
 export const BUDGET_ROUTES = {
+  dashboard: `${ROUTES.budget}/dashboard`,
   planning: `${ROUTES.budget}/planning`,
   expenses: `${ROUTES.budget}/expenses`,
   suppliers: `${ROUTES.budget}/suppliers`,
+  reports: `${ROUTES.budget}/reports`,
   settings: `${ROUTES.budget}/settings`,
 } as const;
 
 export const BUDGET_NAV_SECTION_LABEL = "ניהול תקציב";
 
 export const BUDGET_NAV_ITEMS: NavItem[] = [
+  { to: BUDGET_ROUTES.dashboard, label: "דשבורד", icon: LayoutDashboard },
   { to: BUDGET_ROUTES.planning, label: "תקציב ותכנון", icon: Wallet },
   { to: BUDGET_ROUTES.expenses, label: "הוצאות", icon: Receipt },
   { to: BUDGET_ROUTES.suppliers, label: "ספקים", icon: Truck },
+  { to: BUDGET_ROUTES.reports, label: "דוחות", icon: FileBarChart2 },
   { to: BUDGET_ROUTES.settings, label: "הגדרות", icon: Settings },
 ];

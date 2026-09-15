@@ -55,10 +55,24 @@ export function BudgetExpensesPage() {
       queue: params.get("queue") ?? "",
       from: params.get("from") ?? "",
       to: params.get("to") ?? "",
+      // Stage 6 drill-downs (dashboard / reports) - server-validated filters
+      // without a dedicated control, shown as one clearable chip.
+      statusGroup: params.get("statusGroup") ?? "",
+      workflowState: params.get("workflowState") ?? "",
+      paymentStatus: params.get("paymentStatus") ?? "",
+      docReadiness: params.get("docReadiness") ?? "",
       offset: Number(params.get("offset") ?? 0) || 0,
     }),
     [params],
   );
+  const extra = (["statusGroup", "workflowState", "paymentStatus", "docReadiness"] as const).filter((k) => filters[k]);
+  const extraLabel = (k: (typeof extra)[number]) => {
+    const v = filters[k];
+    if (k === "statusGroup") return t.statusGroups[v] ?? v;
+    if (k === "workflowState") return BUDGET_TEXT.submissionState[v as keyof typeof BUDGET_TEXT.submissionState] ?? v;
+    if (k === "paymentStatus") return BUDGET_TEXT.paymentStatus[v as keyof typeof BUDGET_TEXT.paymentStatus] ?? v;
+    return v === "ready" ? BUDGET_TEXT.reports.f.docsReady : BUDGET_TEXT.reports.f.docsMissing;
+  };
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -79,7 +93,8 @@ export function BudgetExpensesPage() {
 
   const fetchList = useCallback(() => {
     const args: Record<string, unknown> = { limit: PAGE_SIZE, offset: filters.offset };
-    for (const k of ["status", "categoryId", "supplierId", "sourceId", "queue", "from", "to"] as const) {
+    for (const k of ["status", "categoryId", "supplierId", "sourceId", "queue", "from", "to",
+      "statusGroup", "workflowState", "paymentStatus", "docReadiness"] as const) {
       if (filters[k]) args[k] = filters[k];
     }
     if (search.trim()) args.search = search.trim();
@@ -159,6 +174,21 @@ export function BudgetExpensesPage() {
         </Select>
         <Input type="date" value={filters.from} onChange={(e) => setFilter("from", e.target.value)} aria-label={c.date} />
         <Input type="date" value={filters.to} onChange={(e) => setFilter("to", e.target.value)} aria-label={c.date} />
+        {extra.length > 0 && (
+          <p className="flex flex-wrap items-center gap-2 text-sm text-slate-600 sm:col-span-2 lg:col-span-4" data-testid="extra-filters">
+            <span className="font-semibold">{t.extraFilters}:</span>
+            {extra.map(extraLabel).join(" · ")}
+            <button className="min-h-11 rounded-lg px-2 font-semibold text-primary-700"
+              onClick={() => {
+                const next = new URLSearchParams(params);
+                for (const k of extra) next.delete(k);
+                next.delete("offset");
+                setParams(next, { replace: true });
+              }}>
+              {t.clearFilters}
+            </button>
+          </p>
+        )}
       </Card>
 
       {list.error && <LoadError onRetry={list.reload} />}

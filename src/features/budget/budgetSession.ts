@@ -63,11 +63,13 @@ export function budgetCan(session: BudgetSession | null, permission: string): bo
   return Boolean(session?.permissions.includes(permission));
 }
 
-/** The Budget module's menu items for a loaded session (Settings only for
- * budget.manageSettings). Shared by BudgetShell and ElectionDayShell so the
- * two never drift. Presentation only. */
+/** The Budget module's menu items for a loaded session (Reports only for
+ * budget.viewReports, Settings only for budget.manageSettings). Shared by
+ * BudgetShell and ElectionDayShell so the two never drift. Presentation only. */
 export function budgetNavItemsFor(session: BudgetSession | null): NavItem[] {
   return BUDGET_NAV_ITEMS.filter(
-    (item) => item.to !== BUDGET_ROUTES.settings || budgetCan(session, "budget.manageSettings"),
+    (item) =>
+      (item.to !== BUDGET_ROUTES.settings || budgetCan(session, "budget.manageSettings")) &&
+      (item.to !== BUDGET_ROUTES.reports || budgetCan(session, "budget.viewReports")),
   );
 }

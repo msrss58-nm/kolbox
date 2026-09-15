@@ -381,6 +381,247 @@ export interface Expense {
   submissionEvents: SubmissionEvent[];
 }
 
+// ---------------------------------------------------------------------------
+// Budget Stage 6: dashboard + reports (every figure computed server-side).
+// ---------------------------------------------------------------------------
+export type QueueKey =
+  | "awaiting_preapproval"
+  | "missing_documents"
+  | "waiting_supplier_form"
+  | "ready_to_submit"
+  | "sent_waiting_reference"
+  | "authorized_not_fully_paid"
+  | "authorized_unpaid"
+  | "authorized_partial"
+  | "unfunded"
+  | "unpaid"
+  | "missing_documents_overdue"
+  | "supplier_form_overdue"
+  | "no_reference_overdue"
+  | "unpaid_overdue";
+
+export interface DashboardAlert {
+  key: string;
+  severity: "danger" | "warning" | "info";
+  count: number;
+  amount?: number;
+  days?: number;
+  pct?: number;
+}
+
+export interface RecentExpense {
+  id: string;
+  referenceNo: number;
+  description: string;
+  expenseDate: string | null;
+  categoryName: string | null;
+  supplierName: string | null;
+  total: number | null;
+  allocated: number;
+  unfunded: number;
+  status: ExpenseStatus;
+  paymentStatus: PaymentStatus;
+  partyState: SubmissionDisplayState | null;
+}
+
+export interface BudgetDashboard {
+  kpis: {
+    totalBudget: number;
+    partyBudget: number;
+    donationBudget: number;
+    personalBudget: number;
+    totalExpenses: number;
+    committed: number;
+    actual: number;
+    available: number;
+    plannedInCategories: number;
+    unallocatedPlan: number;
+    unfundedTotal: number;
+    paid: number;
+    outstanding: number;
+    partyOutstanding: number;
+    authorizedUnpaidAmount: number;
+  };
+  queues: Record<Exclude<QueueKey, "unpaid">, number>;
+  overruns: { categories: number; sources: number; total: boolean; totalExcess: number };
+  charts: {
+    byCategory: { id: string; name: string; plan: number; committed: number; actual: number; overrun: boolean }[];
+    bySource: { id: string; name: string; kind: FundingKind; isActive: boolean; budget: number; committed: number; actual: number; overrun: boolean }[];
+    overTime: { month: string; committed: number; actual: number }[];
+  };
+  recent: RecentExpense[];
+  alerts: DashboardAlert[];
+  counts: { sources: number; categories: number; plannedCategories: number; suppliers: number; expenses: number };
+  period: { start: string | null; end: string | null };
+  categoryUsageWarningPct: number;
+}
+
+export interface Paged<T, Totals> {
+  total: number;
+  totals: Totals;
+  rows: T[];
+  limit: number;
+  offset: number;
+}
+
+export interface ExpenseReportRow {
+  id: string;
+  referenceNo: number;
+  expenseDate: string | null;
+  description: string;
+  status: ExpenseStatus;
+  categoryId: string | null;
+  categoryName: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  total: number | null;
+  allocated: number;
+  unfunded: number;
+  paid: number;
+  outstanding: number;
+  paymentStatus: PaymentStatus;
+  partyAllocated: number;
+  partyState: SubmissionDisplayState | null;
+  docsReady: boolean | null;
+  missingCount: number | null;
+}
+export type ExpenseReport = Paged<ExpenseReportRow, {
+  amount: number; committed: number; actual: number; allocated: number; unfunded: number;
+  paid: number; outstanding: number; partyAllocated: number; partyPaid: number;
+}>;
+
+export interface CategoryReportRow {
+  categoryId: string | null;
+  name: string | null;
+  isActive: boolean;
+  expenses: number;
+  committed: number;
+  actual: number;
+  draft: number;
+  paid: number;
+  outstanding: number;
+}
+export interface CategoryReport {
+  rows: CategoryReportRow[];
+  totals: { expenses: number; committed: number; actual: number; draft: number; paid: number; outstanding: number };
+}
+
+export interface SourceReportRow {
+  sourceId: string;
+  name: string;
+  kind: FundingKind;
+  isActive: boolean;
+  originalAmount: number;
+  adjustments: number;
+  currentAmount: number;
+  committed: number;
+  actual: number;
+  remaining: number;
+  overrun: boolean;
+  allocated: number;
+  paid: number;
+}
+export interface SourceReport {
+  rows: SourceReportRow[];
+  totals: { currentAmount: number; committed: number; actual: number; allocated: number; paid: number };
+}
+
+export interface SupplierReportRow {
+  supplierId: string;
+  name: string;
+  isActive: boolean;
+  taxId: string | null;
+  bankOnFile: boolean;
+  hasBankConfirmation: boolean;
+  bankConfirmationValidUntil: string | null;
+  docsExpiring: boolean;
+  expenses: number;
+  amount: number;
+  partyAllocated: number;
+  paid: number;
+  partyPaid: number;
+  partyOutstanding: number;
+  outstanding: number;
+  unfunded: number;
+}
+export type SupplierReport = Paged<SupplierReportRow, {
+  expenses: number; amount: number; partyAllocated: number; paid: number; partyPaid: number;
+  partyOutstanding: number; outstanding: number; unfunded: number;
+}>;
+
+export interface PartyReportRow {
+  allocationId: string;
+  expenseId: string;
+  referenceNo: number;
+  description: string;
+  expenseStatus: ExpenseStatus;
+  expenseDate: string | null;
+  supplierName: string | null;
+  sourceName: string;
+  workflowState: SubmissionDisplayState;
+  hasPreapproval: boolean;
+  preapprovalCode: string | null;
+  preapprovedAmount: number | null;
+  exceedsPreapproval: boolean;
+  hasReference: boolean;
+  referenceNumber: string | null;
+  authorizedAmount: number | null;
+  attempts: number;
+  amount: number;
+  paid: number;
+  remaining: number;
+  paymentStatus: PaymentStatus;
+  docsReady: boolean | null;
+  missingCount: number | null;
+}
+export type PartyReport = Paged<PartyReportRow, { amount: number; paid: number; remaining: number; preapproved: number; authorized: number }>;
+
+export interface PlanReportRow {
+  categoryId: string;
+  name: string;
+  isActive: boolean;
+  originalPlan: number;
+  adjustments: number;
+  plan: number;
+  committed: number;
+  actual: number;
+  used: number;
+  remaining: number;
+  variance: number;
+  pctUsed: number | null;
+  state: "ok" | "warning" | "overrun" | "no_plan";
+}
+export interface PlanReport {
+  rows: PlanReportRow[];
+  totals: { plan: number; committed: number; actual: number; used: number; remaining: number };
+  budget: { totalBudget: number; plannedInCategories: number; unallocatedPlan: number; committed: number; actual: number; available: number };
+  warningPct: number;
+}
+
+export interface PaymentReportRow {
+  paymentId: string;
+  paymentDate: string;
+  amount: number;
+  payer: "party" | "campaign";
+  sourceId: string;
+  sourceName: string;
+  kind: FundingKind;
+  expenseId: string;
+  referenceNo: number;
+  description: string;
+  supplierId: string | null;
+  supplierName: string | null;
+  externalReference: string | null;
+  confirmationSource: ConfirmationSource;
+  recordedByName: string;
+  recordedAt: string;
+  state: "active" | "voided";
+  voidedAt: string | null;
+  voidReason: string | null;
+  partyRemaining: number | null;
+}
+export type PaymentReport = Paged<PaymentReportRow, { activeAmount: number; activeCount: number; voidedAmount: number; voidedCount: number }>;
+
 export interface HistoryEntry {
   id: number;
   entityType: string;

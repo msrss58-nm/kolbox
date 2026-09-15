@@ -116,8 +116,9 @@ try {
   section("NAVIGATION + SESSION");
   const pb = await newPage();
   await workerLogin(pb, CODE_B, "b-full");
-  await pb.waitForURL(/\/budget\/expenses/, { timeout: 20000 }).catch(() => {});
-  check("U01 Budget-only worker lands in the Budget module", new URL(pb.url()).pathname === "/budget/expenses", new URL(pb.url()).pathname);
+  // Budget Stage 6: the module's landing page is the dashboard.
+  await pb.waitForURL(/\/budget\/dashboard/, { timeout: 20000 }).catch(() => {});
+  check("U01 Budget-only worker lands in the Budget module (dashboard)", new URL(pb.url()).pathname === "/budget/dashboard", new URL(pb.url()).pathname);
   // Section labels live in the sidebar <nav>; the footer (outside it) repeats the module title.
   const navB = pb.locator("aside nav");
   check("U02 Budget-only sidebar: 'ניהול תקציב' section, no Election Day section",

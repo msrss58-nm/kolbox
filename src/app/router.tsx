@@ -36,10 +36,12 @@ import { createBrowserRouter, Navigate, type RouteObject } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
 import { LoginPage } from "../features/auth/LoginPage";
+import { BudgetDashboardPage } from "../features/budget/BudgetDashboardPage";
 import { BudgetExpensePage } from "../features/budget/BudgetExpensePage";
 import { BudgetExpensesPage } from "../features/budget/BudgetExpensesPage";
 import { BudgetGuard } from "../features/budget/BudgetGuard";
 import { BudgetPlanningPage } from "../features/budget/BudgetPlanningPage";
+import { BudgetReportsPage } from "../features/budget/BudgetReportsPage";
 import { BudgetSettingsPage } from "../features/budget/BudgetSettingsPage";
 import { BudgetShell } from "../features/budget/BudgetShell";
 import { BudgetSuppliersPage } from "../features/budget/BudgetSuppliersPage";
@@ -359,14 +361,17 @@ const electionRoutes: RouteObject[] = [
   {
     // Budget Stage 3: the Budget module - its own top-level tree like Election
     // Day, behind BudgetGuard (the same PermissionUser session; every request
-    // is re-authorized server-side). Dashboard and Reports arrive in Stage 6.
+    // is re-authorized server-side). Stage 6 adds the dashboard (the landing
+    // page) and the reports.
     path: ROUTES.budget,
     element: <BudgetGuard />,
     children: [
       {
         element: <BudgetShell />,
         children: [
-          { index: true, element: <Navigate to="expenses" replace /> },
+          { index: true, element: <Navigate to="dashboard" replace /> },
+          { path: "dashboard", element: <BudgetDashboardPage /> },
+          { path: "reports", element: <BudgetReportsPage /> },
           { path: "planning", element: <BudgetPlanningPage /> },
           { path: "expenses", element: <BudgetExpensesPage /> },
           { path: "expenses/:expenseId", element: <BudgetExpensePage /> },
