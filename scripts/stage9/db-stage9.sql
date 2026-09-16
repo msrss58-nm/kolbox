@@ -57,6 +57,18 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Fixtures (inside the rolled-back transaction)
 -- ---------------------------------------------------------------------------
+-- Gate 4: effective module access = platform_modules.available AND the
+-- workspace's entitlement row. CAT1 asserts the catalog's availability values
+-- and ENF1 asserts that a worker in the Budget-ONLY workspace D is refused
+-- with MODULE_NOT_ENABLED - both of which hold while budget is unavailable
+-- (no module admits the login). With budget AVAILABLE the module-neutral
+-- login (election_day_login_v3 admits election_day OR budget) would correctly
+-- admit that worker instead. Pin it here rather than inheriting whatever a
+-- previously-run suite (every scripts/budget/* suite switches it on mid-run)
+-- left behind; this sits inside the rolled-back transaction, so the live flag
+-- is not changed by running this suite.
+update public.platform_modules set available = false where key = 'budget';
+
 delete from public.multi_entity_assignments;
 delete from public.multi_entity_owner;
 delete from public.election_owners;

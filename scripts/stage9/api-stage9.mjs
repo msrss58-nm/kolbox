@@ -134,6 +134,16 @@ const usersWith = async (e) =>
 // ---------------------------------------------------------------------------
 section("SETUP (scratch stack only)");
 psql(`
+  -- Gate 4: effective module access = platform_modules.available AND the
+  -- workspace's entitlement row. Section F entitles workspace D to \`budget\`
+  -- ONLY (and later strips Election Day from A) and asserts the worker login
+  -- is refused with MODULE_NOT_ENABLED - which holds while budget is
+  -- unavailable, since then no module admits the login. With budget AVAILABLE
+  -- the module-neutral login (election_day_login_v3 admits election_day OR
+  -- budget) would correctly let that worker in and F4/F10 would fail. Pin it
+  -- here instead of inheriting whatever a previously-run suite (every
+  -- scripts/budget/* suite switches it on mid-run) happened to leave behind.
+  update public.platform_modules set available = false where key = 'budget';
   delete from public.multi_entity_assignments;
   delete from public.multi_entity_owner;
   delete from public.election_day_voters where workspace_id in (select id from public.election_workspaces where name like 'S9API %');
