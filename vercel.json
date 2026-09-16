@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/budget/actions",
+      "schedule": "0 3 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/election-day/permission-users-delete",
