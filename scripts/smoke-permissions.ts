@@ -47,7 +47,23 @@ const VOTING = roleFor("seed-voting");
  * every permission that existed AS OF Phase 0, not every permission that
  * will ever exist - this list is exactly the deliberate exceptions. */
 const PERMISSIONS_ADDED_AFTER_PHASE_0: readonly Permission[] = [
+  // Dynamic Non-Voting Reasons (migration 20260806170000).
   "electionDay.manageNonVotingReasons",
+  // Reminder Lifecycle v1 (migration 20260810140000).
+  "voter.viewReminderHistory",
+  // Coordinator Allocation Management (migration 20260811100400) - by design
+  // only a role explicitly granted it holds it; see `builtInRoleSeed.ts`.
+  "electionDay.manageCoordinatorAllocation",
+  // Budget Stage 3 (migration 20260917000000): the Budget module is opt-in per
+  // role and independent of every Election Day permission - `is_manager`
+  // grants none of them, so the frozen Phase-0 manager seed has none either.
+  "budget.view",
+  "budget.manageExpenses",
+  "budget.manageFunderSubmissions",
+  "budget.manageSuppliers",
+  "budget.managePlan",
+  "budget.viewReports",
+  "budget.manageSettings",
 ];
 const PHASE_0_PERMISSIONS = ALL_PERMISSIONS.filter(
   (p) => !PERMISSIONS_ADDED_AFTER_PHASE_0.includes(p),

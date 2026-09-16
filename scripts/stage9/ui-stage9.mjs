@@ -87,7 +87,17 @@ build("election", eDist);
 check("B1 both bundles built", fs.existsSync(path.join(pDist, "index.html")) && fs.existsSync(path.join(eDist, "index.html")));
 
 section("SETUP");
+// Gate 4: effective module access = platform_modules.available AND the
+// workspace's entitlement row. The entitlement block below leaves this
+// workspace entitled to `budget` ONLY and asserts the Manager is then locked
+// out of Election Day - which holds while budget is unavailable (no module
+// admits the login). With budget AVAILABLE the module-neutral login
+// (election_day_login_v3 admits election_day OR budget) would correctly let
+// that worker in instead, so pin the flag here rather than inheriting
+// whatever a previously-run suite (e.g. scripts/budget/ui-budget.mjs, which
+// switches it on) happened to leave behind.
 psql(`
+  update public.platform_modules set available = false where key = 'budget';
   delete from public.multi_entity_assignments;
   delete from public.multi_entity_owner;
   delete from public.election_owners where email like '%@${DOMAIN}';
