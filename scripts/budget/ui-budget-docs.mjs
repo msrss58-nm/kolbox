@@ -219,7 +219,9 @@ try {
   await po.locator('input[type="email"]').fill(ownerEmail);
   await po.locator('input[autocomplete="current-password"]').fill(PW);
   await po.getByRole("button", { name: "התחברות" }).click();
-  await po.getByRole("link", { name: "הגדרות תקציב" }).first().waitFor({ timeout: 20000 });
+  // Owner sidebar accordion: the Budget module section starts collapsed.
+  await po.getByRole("button", { name: "ניהול תקציב" }).first().waitFor({ timeout: 20000 });
+  await po.getByRole("button", { name: "ניהול תקציב" }).first().click();
   await po.getByRole("link", { name: "הגדרות תקציב" }).first().click();
   check("G04 Owner settings (the second consumer of the shared panel) show the same types + category rule",
     await seen(po.getByTestId("document-types").getByText("אישור עירייה UI"), 20000) && await seen(po.getByTestId("rule-categories").getByText("אירועים UI")));

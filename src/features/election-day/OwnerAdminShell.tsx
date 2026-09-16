@@ -1,6 +1,10 @@
 import { Blocks, Settings, ShieldCheck, Users, Wallet } from "lucide-react";
 import { Outlet, useNavigate } from "react-router";
-import { AdminShell, type AdminNavItem } from "../../components/admin/AdminShell";
+import {
+  AdminShell,
+  type AdminNavItem,
+  type AdminNavSection,
+} from "../../components/admin/AdminShell";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { moduleLabel } from "../../constants/labels";
@@ -18,12 +22,25 @@ import { useOwnerWorkspaceSummary } from "./useOwnerWorkspaceSummary";
 const text = ELECTION_DAY_TEXT.owner.rolesPage;
 const adminText = ELECTION_DAY_TEXT.owner.admin;
 
-const NAV_ITEMS: AdminNavItem[] = [
+/** Workspace-wide administration: the roster, the roles (whose permissions
+ * span every module), the module entitlements and the workspace/account
+ * details - none of them belongs to a single module. */
+const GENERAL_NAV: AdminNavItem[] = [
   { to: ROUTES.electionDayOwnerUsers, label: adminText.nav.users, icon: Users },
   { to: ROUTES.electionDayOwnerRoles, label: adminText.nav.roles, icon: ShieldCheck },
   { to: ROUTES.electionDayOwnerModules, label: adminText.nav.modules, icon: Blocks },
   { to: ROUTES.electionDayOwnerSettings, label: adminText.nav.settings, icon: Settings },
-  { to: ROUTES.electionDayOwnerBudgetSettings, label: BUDGET_TEXT.settings.title, icon: Wallet },
+];
+
+/** The Budget module's only Owner-side section. Election Day and Voter
+ * Management have no Owner child route of their own today, so they get no
+ * group - an empty one would be a fake menu. */
+const BUDGET_NAV: AdminNavItem[] = [
+  {
+    to: ROUTES.electionDayOwnerBudgetSettings,
+    label: BUDGET_TEXT.settings.title,
+    icon: Wallet,
+  },
 ];
 
 /**
@@ -57,6 +74,15 @@ export function OwnerAdminShell() {
 
   const enabledModules = (summary?.modules ?? []).filter((m) => m.enabled);
   const electionDayEnabled = enabledModules.some((m) => m.key === "election_day");
+
+  // Navigation only - the same entitlement rows the header badges already
+  // read. Every section's data and mutations stay authorized by the server.
+  const navSections: AdminNavSection[] = [
+    { label: adminText.nav.generalSection, items: GENERAL_NAV },
+    ...(enabledModules.some((m) => m.key === "budget")
+      ? [{ label: moduleLabel("budget"), items: BUDGET_NAV }]
+      : []),
+  ];
 
   const context: OwnerAdminContext = {
     roleManagement,
@@ -128,7 +154,7 @@ export function OwnerAdminShell() {
   return (
     <AdminShell
       title={text.title}
-      navItems={NAV_ITEMS}
+      sections={navSections}
       account={{
         name: owner?.email ?? "",
         subtitle: adminText.accountRole,

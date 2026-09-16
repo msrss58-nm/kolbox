@@ -132,6 +132,8 @@ try {
   const hasBudgetSection = await asideA.getByText("ניהול תקציב").first().waitFor({ timeout: 15000 }).then(() => true, () => false);
   check("U03 Election Day + Budget worker: both sections, Budget below Election Day", hasBudgetSection &&
     (await asideA.getByText("יום הבחירות").count()) >= 1);
+  // Module accordion: inside Election Day the Budget section starts collapsed.
+  await asideA.getByRole("button", { name: "ניהול תקציב" }).click();
   await asideA.getByRole("link", { name: "הוצאות" }).click();
   await pa.waitForURL(/\/budget\/expenses/, { timeout: 15000 }).catch(() => {});
   check("U04 Budget menu item navigates into the Budget module", new URL(pa.url()).pathname === "/budget/expenses");
@@ -212,7 +214,9 @@ try {
   await po.locator('input[type="email"]').fill(ownerEmail);
   await po.locator('input[autocomplete="current-password"]').fill(PW);
   await po.getByRole("button", { name: "התחברות" }).click();
-  await po.getByRole("link", { name: "הגדרות תקציב" }).first().waitFor({ timeout: 20000 });
+  // Owner sidebar accordion: the Budget module section starts collapsed.
+  await po.getByRole("button", { name: "ניהול תקציב" }).first().waitFor({ timeout: 20000 });
+  await po.getByRole("button", { name: "ניהול תקציב" }).first().click();
   await po.getByRole("link", { name: "הגדרות תקציב" }).first().click();
   check("U18 Owner sees the category a delegated user created", await waitText(po, "שילוט UI", 20000));
   await shot(po, "03-owner-budget-settings");

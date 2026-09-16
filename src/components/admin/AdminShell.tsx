@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { NavLink } from "react-router";
-import { Loader2, LogOut, Menu, X, type LucideIcon } from "lucide-react";
+import { matchPath, NavLink, useLocation } from "react-router";
+import { ChevronDown, Loader2, LogOut, Menu, X, type LucideIcon } from "lucide-react";
 import { Logo } from "../Logo";
 import { ToastContainer } from "../ui/Toast";
 import { cn } from "../../lib/utils";
@@ -54,6 +54,105 @@ function AdminNavLinks({
   );
 }
 
+/** A labelled group of navigation items (e.g. general administration, or one
+ * module's own sections). Callers decide which groups exist - this component
+ * never derives them from an entitlement or a permission. */
+export interface AdminNavSection {
+  label: string;
+  items: AdminNavItem[];
+}
+
+function sectionIsActive(items: AdminNavItem[], pathname: string) {
+  return items.some(
+    (item) => matchPath({ path: item.to, end: false }, pathname) !== null,
+  );
+}
+
+/** One collapsible group: the header toggles its links. The group holding the
+ * current route opens on mount and whenever the route enters it; the user can
+ * still collapse it (the header then keeps an active marker). Collapsed links
+ * stay mounted but `hidden` - which links exist is the caller's decision,
+ * unchanged. */
+function AdminNavGroup({
+  section,
+  active,
+  onNavigate,
+}: {
+  section: AdminNavSection;
+  active: boolean;
+  onNavigate?: () => void;
+}) {
+  const [open, setOpen] = useState(active);
+  // Render-phase compare (not an effect) - see CLAUDE.md "Hooks over repeated effects".
+  const [wasActive, setWasActive] = useState(active);
+  if (active !== wasActive) {
+    setWasActive(active);
+    if (active) setOpen(true);
+  }
+  const panelId = useId();
+
+  return (
+    <li data-nav-section={section.label} data-active={active ? "true" : "false"}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className={cn(
+          "flex min-h-11.5 w-full items-center justify-between gap-2 rounded-xl px-4 text-start text-xs font-bold uppercase tracking-wide transition-colors",
+          "hover:bg-sidebar-hover hover:text-white",
+          "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
+          active ? "text-slate-200" : "text-slate-400",
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">{section.label}</span>
+          {active && !open && (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-primary-400"
+              data-active-marker
+              aria-hidden
+            />
+          )}
+        </span>
+        <ChevronDown
+          className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      <div id={panelId} hidden={!open} className="mt-1.5">
+        <AdminNavLinks items={section.items} onNavigate={onNavigate} />
+      </div>
+    </li>
+  );
+}
+
+/** Flat links, or the collapsible groups when the caller supplies sections. */
+function AdminNav({
+  items,
+  sections,
+  onNavigate,
+}: {
+  items: AdminNavItem[];
+  sections?: AdminNavSection[];
+  onNavigate?: () => void;
+}) {
+  const { pathname } = useLocation();
+  if (!sections?.length) return <AdminNavLinks items={items} onNavigate={onNavigate} />;
+  return (
+    <ul className="flex flex-col gap-3">
+      {sections.map((section) => (
+        <AdminNavGroup
+          key={section.label}
+          section={section}
+          active={sectionIsActive(section.items, pathname)}
+          onNavigate={onNavigate}
+        />
+      ))}
+    </ul>
+  );
+}
+
 function AccountBlock({ account }: { account: AdminShellAccount }) {
   return (
     <div className="min-w-0">
@@ -89,7 +188,8 @@ function AccountBlock({ account }: { account: AdminShellAccount }) {
  */
 export function AdminShell({
   title,
-  navItems,
+  navItems = [],
+  sections,
   account,
   context,
   banner,
@@ -97,7 +197,10 @@ export function AdminShell({
 }: {
   /** The page heading (h1) - always visible, at every width. */
   title: string;
-  navItems: AdminNavItem[];
+  /** Flat navigation. Ignored when `sections` is given. */
+  navItems?: AdminNavItem[];
+  /** Collapsible groups (general administration + one per module). */
+  sections?: AdminNavSection[];
   account: AdminShellAccount;
   /** Compact context beside the title (e.g. workspace + code + modules). */
   context?: ReactNode;
@@ -139,7 +242,7 @@ export function AdminShell({
           aria-label={ADMIN_SHELL_TEXT.navLabel}
           className="min-h-0 flex-1 overflow-y-auto px-3.5 py-6"
         >
-          <AdminNavLinks items={navItems} />
+          <AdminNav items={navItems} sections={sections} />
         </nav>
         <div className="m-3.5 space-y-3 rounded-2xl bg-sidebar-hover px-4 py-3.5">
           <AccountBlock account={account} />
@@ -240,7 +343,11 @@ export function AdminShell({
               aria-label={ADMIN_SHELL_TEXT.navLabel}
               className="mt-4 min-h-0 flex-1 overflow-y-auto"
             >
-              <AdminNavLinks items={navItems} onNavigate={() => setMenuOpen(false)} />
+              <AdminNav
+                items={navItems}
+                sections={sections}
+                onNavigate={() => setMenuOpen(false)}
+              />
             </nav>
             <div className="mt-4 rounded-xl bg-sidebar-hover p-3">
               <AccountBlock account={account} />

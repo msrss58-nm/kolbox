@@ -44,6 +44,70 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "voter.viewVotedStatus": "צפייה בסטטוס הצבעה",
 };
 
+export type PermissionGroupKey =
+  | "electionDay"
+  | "voterActions"
+  | "voterFields"
+  | "budget"
+  | "usersRoles"
+  | "system";
+
+/** The role editor's section for every permission - an exhaustive `Record`
+ * like `PERMISSION_LABELS`, so a new catalog permission fails to compile until
+ * it is placed. Presentation only: grouping never changes what a role holds. */
+export const PERMISSION_GROUP_OF: Record<Permission, PermissionGroupKey> = {
+  "voter.markVoted": "voterActions",
+  "voter.manageReminder": "voterActions",
+  "voter.manageRide": "voterActions",
+  "voter.editPhone": "voterActions",
+  "voter.editNotes": "voterActions",
+  "electionDay.import": "electionDay",
+  "electionDay.clearData": "electionDay",
+  "electionDay.export": "electionDay",
+  "electionDay.manageSettings": "system",
+  "electionDay.manageUsers": "usersRoles",
+  "electionDay.manageRideCoordinators": "electionDay",
+  "electionDay.manageRolesAndPermissions": "usersRoles",
+  "electionDay.manageNonVotingReasons": "electionDay",
+  "electionDay.manageCoordinatorAllocation": "electionDay",
+  "app.accessFullNavigation": "system",
+  "budget.view": "budget",
+  "budget.manageExpenses": "budget",
+  "budget.manageFunderSubmissions": "budget",
+  "budget.manageSuppliers": "budget",
+  "budget.managePlan": "budget",
+  "budget.viewReports": "budget",
+  "budget.manageSettings": "budget",
+  "voter.viewName": "voterFields",
+  "voter.viewAddress": "voterFields",
+  "voter.viewPhone": "voterFields",
+  "voter.viewMasad": "voterFields",
+  "voter.viewCoordinator": "voterFields",
+  "voter.viewNotes": "voterFields",
+  "voter.viewReminderStatus": "voterFields",
+  "voter.viewReminderHistory": "voterFields",
+  "voter.viewRideStatus": "voterFields",
+  "voter.viewVotedStatus": "voterFields",
+};
+
+/** Section order and headings in the role editor. */
+export const PERMISSION_GROUPS: {
+  key: PermissionGroupKey;
+  label: string;
+  hint?: string;
+}[] = [
+  { key: "electionDay", label: "יום הבחירות - ניהול ונתונים" },
+  { key: "voterActions", label: "בוחרים - פעולות" },
+  { key: "voterFields", label: "בוחרים - צפייה בפרטים" },
+  {
+    key: "budget",
+    label: "ניהול תקציב",
+    hint: "כל הרשאת תקציב כוללת גם צפייה; הסרת הצפייה מסירה את כל הרשאות התקציב.",
+  },
+  { key: "usersRoles", label: "משתמשים ותפקידים" },
+  { key: "system", label: "מערכת והגדרות" },
+];
+
 export const ROLE_SCOPE_LABELS: Record<RoleScopeType, string> = {
   all: "כל אנשי הקשר",
   assigned_to_me: "רק המוקצים לי",
@@ -1168,6 +1232,9 @@ export const ELECTION_DAY_TEXT = {
         roles: "תפקידים והרשאות",
         modules: "מודולים",
         settings: "הגדרות",
+        /** Header for the workspace-wide group in the Owner sidebar; each
+         * entitled module with its own Owner section gets its own group. */
+        generalSection: "ניהול כללי",
       },
       users: {
         add: "הוספת משתמש",

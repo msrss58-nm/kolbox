@@ -189,7 +189,9 @@ async function ownerLogin(p) {
   await p.locator('input[type="email"]').fill(ownerEmail);
   await p.locator('input[autocomplete="current-password"]').fill(PW);
   await p.getByRole("button", { name: "התחברות" }).click();
-  await p.getByRole("link", { name: "הגדרות תקציב" }).first().waitFor({ timeout: 20000 });
+  // Owner sidebar accordion: the Budget module section starts collapsed.
+  await p.getByRole("button", { name: "ניהול תקציב" }).first().waitFor({ timeout: 20000 });
+  await p.getByRole("button", { name: "ניהול תקציב" }).first().click();
   await p.getByRole("link", { name: "הגדרות תקציב" }).first().click();
   await p.getByTestId("budget-export-card").waitFor({ timeout: 20000 });
 }

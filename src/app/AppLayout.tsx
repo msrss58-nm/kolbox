@@ -1,7 +1,12 @@
 import { useMemo } from "react";
 import { Outlet, useNavigate } from "react-router";
 import { ROLE_LABELS } from "../constants/labels";
-import { ELECTION_DAY_NAV_SECTION_LABEL, NAV_ITEMS, ROUTES } from "../constants/routes";
+import {
+  ELECTION_DAY_NAV_SECTION_LABEL,
+  NAV_ITEMS,
+  ROUTES,
+  VOTER_MANAGEMENT_NAV_SECTION_LABEL,
+} from "../constants/routes";
 import { useAuth } from "../features/auth/authStore";
 import { useSyncActivistProfile } from "../features/auth/useSyncActivistProfile";
 import { getVisibleElectionDayNavItems } from "../features/election-day/electionDayNavVisibility";
@@ -43,6 +48,7 @@ export function AppLayout() {
   return (
     <AppShell
       navItems={navItems}
+      navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
       sections={electionDaySections}
       footer={
         user

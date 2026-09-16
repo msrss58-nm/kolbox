@@ -9,6 +9,7 @@ import {
   ELECTION_DAY_NAV_SECTION_LABEL,
   NAV_ITEMS,
   ROUTES,
+  VOTER_MANAGEMENT_NAV_SECTION_LABEL,
 } from "../../constants/routes";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { BUDGET_TEXT } from "../budget/budget.constants";
@@ -127,6 +128,7 @@ export function ElectionDayShell() {
   return (
     <AppShell
       navItems={mainNavItems}
+      navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
       sections={electionDaySections}
       mobileNavItems={visibleNavItems}
       footer={

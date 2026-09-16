@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { AdminSection } from "../../components/admin/AdminSection";
 import { Button } from "../../components/ui/Button";
@@ -18,6 +18,8 @@ import type { PermissionUser } from "../../types";
 import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import {
   ELECTION_DAY_TEXT,
+  PERMISSION_GROUP_OF,
+  PERMISSION_GROUPS,
   PERMISSION_LABELS,
   ROLE_SCOPE_LABELS,
 } from "./election-day.constants";
@@ -32,6 +34,13 @@ const rolesText = ELECTION_DAY_TEXT.owner.admin.roles;
 const GRANTABLE_PERMISSIONS = ALL_PERMISSIONS.filter(
   (p) => !NON_GRANTABLE_PERMISSIONS.has(p),
 );
+
+// The editor's sections, each in catalog order; a group with nothing
+// grantable (none today) is not shown.
+const GRANTABLE_GROUPS = PERMISSION_GROUPS.map((group) => ({
+  ...group,
+  permissions: GRANTABLE_PERMISSIONS.filter((p) => PERMISSION_GROUP_OF[p] === group.key),
+})).filter((group) => group.permissions.length > 0);
 
 const ICON_BUTTON =
   "touch-target grid place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-primary-500";
@@ -98,6 +107,7 @@ export function RoleManagementPanel({
   const [editing, setEditing] = useState<RoleRecord | "new" | null>(null);
   const [form, setForm] = useState<RoleFormState>(emptyForm());
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const groupIdBase = useId();
 
   const assignedCount = (roleId: string) =>
     permissionUsers.filter((u) => u.roleId === roleId).length;
@@ -323,21 +333,57 @@ export function RoleManagementPanel({
               <legend className="mb-1.5 block text-sm font-semibold text-slate-700">
                 {text.permissionsLabel}
               </legend>
-              <div className="grid grid-cols-1 gap-1 rounded-xl p-1 ring-1 ring-slate-200 sm:grid-cols-2">
-                {GRANTABLE_PERMISSIONS.map((permission) => (
-                  <label
-                    key={permission}
-                    className="flex min-h-10 items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={form.permissions.has(permission)}
-                      onChange={() => togglePermission(permission)}
-                      className="size-4 shrink-0 accent-primary-600"
-                    />
-                    <span className="min-w-0">{PERMISSION_LABELS[permission]}</span>
-                  </label>
-                ))}
+              <div className="space-y-3">
+                {GRANTABLE_GROUPS.map((group) => {
+                  const headingId = `${groupIdBase}-${group.key}`;
+                  const selected = group.permissions.filter((p) =>
+                    form.permissions.has(p),
+                  ).length;
+                  return (
+                    <div
+                      key={group.key}
+                      role="group"
+                      aria-labelledby={headingId}
+                      data-permission-group={group.key}
+                      className="overflow-hidden rounded-xl ring-1 ring-slate-200"
+                    >
+                      <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+                        <h3 id={headingId} className="text-sm font-bold text-slate-700">
+                          {group.label}
+                        </h3>
+                        <span
+                          dir="ltr"
+                          className="shrink-0 text-xs font-semibold text-slate-400"
+                          data-group-count
+                          aria-hidden
+                        >
+                          {selected}/{group.permissions.length}
+                        </span>
+                      </div>
+                      {group.hint && (
+                        <p className="px-3 pt-2 text-xs text-slate-500">{group.hint}</p>
+                      )}
+                      <div className="grid grid-cols-1 gap-1 p-1 sm:grid-cols-2">
+                        {group.permissions.map((permission) => (
+                          <label
+                            key={permission}
+                            className="flex min-h-10 items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={form.permissions.has(permission)}
+                              onChange={() => togglePermission(permission)}
+                              className="size-4 shrink-0 accent-primary-600"
+                            />
+                            <span className="min-w-0">
+                              {PERMISSION_LABELS[permission]}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </fieldset>
 

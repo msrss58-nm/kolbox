@@ -160,6 +160,10 @@ export const NAV_ITEMS: NavItem[] = [
   { to: ROUTES.team, label: "צוות", icon: ShieldCheck, managerOnly: true },
 ];
 
+/** Section label for `NAV_ITEMS` in the sidebar's module accordion (the main
+ * app's own items, grouped like the Election Day and Budget sections below). */
+export const VOTER_MANAGEMENT_NAV_SECTION_LABEL = "ניהול בוחרים";
+
 /** Section label for Election Day's nav items wherever they're rendered as a
  * labeled group (UX v3.1 - both `AppLayout`'s main sidebar and
  * `ElectionDayShell`'s own sidebar use this same section, see

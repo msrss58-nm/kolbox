@@ -1,5 +1,6 @@
-import { NavLink } from "react-router";
-import { LogOut, type LucideIcon } from "lucide-react";
+import { useId, useState } from "react";
+import { matchPath, NavLink, useLocation } from "react-router";
+import { ChevronDown, LogOut, type LucideIcon } from "lucide-react";
 import { Logo, LogoMark } from "../components/Logo";
 import { ToastContainer } from "../components/ui/Toast";
 import { cn } from "../lib/utils";
@@ -48,43 +49,120 @@ function SidebarLink({ to, label, icon: Icon, end }: ShellNavItem) {
   );
 }
 
+/** True when the current route belongs to one of the section's items (same
+ * matching rule as the items' own NavLink active state). */
+function sectionIsActive(items: ShellNavItem[], pathname: string) {
+  return items.some(
+    (item) => matchPath({ path: item.to, end: item.end ?? false }, pathname) !== null,
+  );
+}
+
+/** One module in the sidebar accordion: the header toggles its items. The
+ * module holding the current route opens on mount and whenever the route
+ * enters it; the user can still collapse it (the header then keeps an
+ * active marker). Collapsed items stay mounted but `hidden` - which items
+ * exist is decided by the caller exactly as before; this only shows/hides. */
+function SidebarSection({
+  section,
+  active,
+}: {
+  section: ShellNavSection;
+  active: boolean;
+}) {
+  const [open, setOpen] = useState(active);
+  // Render-phase compare (not an effect) - see CLAUDE.md "Hooks over repeated effects".
+  const [wasActive, setWasActive] = useState(active);
+  if (active !== wasActive) {
+    setWasActive(active);
+    if (active) setOpen(true);
+  }
+  const panelId = useId();
+
+  return (
+    <div
+      className="mt-4 flex flex-col gap-1 first:mt-0"
+      data-nav-section={section.label}
+      data-active={active ? "true" : "false"}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className={cn(
+          "flex min-h-11 w-full items-center justify-between gap-2 rounded-xl px-3.5 text-start text-xs font-bold uppercase tracking-wide transition-colors",
+          "hover:bg-sidebar-hover hover:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-400",
+          active ? "text-slate-200" : "text-slate-500",
+        )}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">{section.label}</span>
+          {active && !open && (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-primary-400"
+              data-active-marker
+              aria-hidden
+            />
+          )}
+        </span>
+        <ChevronDown
+          className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      <div id={panelId} hidden={!open} className="flex flex-col gap-1">
+        {section.items.map((item) => (
+          <SidebarLink key={item.to} {...item} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Generic shell chrome - desktop sidebar / mobile topbar + bottom nav -
  * shared by `AppLayout` (main app) and `ElectionDayShell` (Election Day's
  * own navigation). Each caller supplies its own nav items and footer/logout,
  * so this component carries no identity-model assumptions of its own.
+ *
+ * Desktop sidebar = a module accordion: `navItems` (under `navLabel`, when
+ * given) and every entry of `sections` are collapsible groups. The mobile
+ * bottom nav is unchanged - it already shows only the current module.
  */
 export function AppShell({
   navItems,
+  navLabel,
   sections,
   mobileNavItems,
   footer,
   children,
 }: {
   navItems: ShellNavItem[];
+  /** Groups `navItems` as their own collapsible section; flat links without it. */
+  navLabel?: string;
   sections?: ShellNavSection[];
   mobileNavItems?: ShellNavItem[];
   footer?: ShellFooter;
   children: React.ReactNode;
 }) {
+  const { pathname } = useLocation();
+  const allSections = navLabel
+    ? [{ label: navLabel, items: navItems }, ...(sections ?? [])]
+    : (sections ?? []);
+
   return (
     <div className="flex min-h-dvh">
       {/* Desktop sidebar (start side = right in RTL) */}
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-sidebar p-4 md:flex">
         <Logo light className="px-2 py-3" />
-        <nav className="mt-6 flex flex-1 flex-col gap-1">
-          {navItems.map((item) => (
-            <SidebarLink key={item.to} {...item} />
-          ))}
-          {sections?.map((section) => (
-            <div key={section.label} className="mt-4 flex flex-col gap-1">
-              <p className="px-3.5 pt-2 text-xs font-bold uppercase tracking-wide text-slate-500">
-                {section.label}
-              </p>
-              {section.items.map((item) => (
-                <SidebarLink key={item.to} {...item} />
-              ))}
-            </div>
+        <nav className="mt-6 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+          {!navLabel && navItems.map((item) => <SidebarLink key={item.to} {...item} />)}
+          {allSections.map((section) => (
+            <SidebarSection
+              key={section.label}
+              section={section}
+              active={sectionIsActive(section.items, pathname)}
+            />
           ))}
         </nav>
         {footer && (

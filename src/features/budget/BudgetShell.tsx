@@ -9,6 +9,7 @@ import {
   ELECTION_DAY_NAV_SECTION_LABEL,
   NAV_ITEMS,
   ROUTES,
+  VOTER_MANAGEMENT_NAV_SECTION_LABEL,
 } from "../../constants/routes";
 import { usePermissions } from "../../permissions/usePermissions";
 import { useAuth } from "../auth/authStore";
@@ -61,6 +62,7 @@ export function BudgetShell() {
   return (
     <AppShell
       navItems={mainNavItems}
+      navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
       sections={sections}
       mobileNavItems={budgetItems}
       footer={
