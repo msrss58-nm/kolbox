@@ -228,6 +228,19 @@ class Canvas {
     return lines.length ? lines : [T.text.none];
   }
 
+  /** breakAll where the FIRST line has its own (narrower) width: a reference
+   * value that starts inside a half-width cell and continues full width
+   * underneath. A short value stays on the first line, exactly as before. */
+  breakAllFirst(text: string, size: number, firstWidth: number, restWidth: number): string[] {
+    if (this.width(text, size) <= firstWidth) return [text];
+    const chars = Array.from(text);
+    const first: string[] = [];
+    let i = 0;
+    while (i < chars.length && this.width(first.join("") + chars[i], size) <= firstWidth) first.push(chars[i++]);
+    const rest = chars.slice(i).join("").trimStart();
+    return [first.join("").trimEnd() || chars[0], ...(rest ? this.breakAll(rest, size, restWidth) : [])];
+  }
+
   box(x: number, yTop: number, w: number, h: number, fill = false): void {
     this.page.drawRectangle({ x, y: yTop - h, width: w, height: h, borderColor: RULE, borderWidth: 0.8, color: fill ? FILL : undefined });
   }
@@ -241,8 +254,12 @@ class Canvas {
 class LayoutOverflow extends Error {}
 
 /** Renders at gap scale `k` (1 = the template's spacing). Only the vertical
- * gaps between blocks scale - never a font size, a value or a row. */
-async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): Promise<Uint8Array> {
+ * gaps between blocks scale - never a font size, a value or a row.
+ *
+ * `full` = print the official reference values (order number, approver name)
+ * IN FULL, each wrapped onto as many lines as it needs. That costs height, so
+ * it is the first choice, not the only one: see renderOrderFormPdf. */
+async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number, full: boolean): Promise<Uint8Array> {
   if (s.template !== ORDER_FORM_TEMPLATE_KEY) throw new Error("ORDER_FORM_TEMPLATE_UNKNOWN");
   const { width: W, height: H, margin: M } = T.page;
   const L = M;
@@ -285,12 +302,25 @@ async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): P
   }
   const orderNumber = s.preapprovals.map((p) => p.orderNumber).filter((v): v is string => Boolean(v)).join(", ");
   y -= gap(20);
-  c.field(T.text.orderNumber, clean(orderNumber), R, y, CW / 2);
+  // The order number is an official reference - it is NEVER cut. It starts in
+  // the half-width cell (beside the version / preview banner) and continues
+  // full width underneath, so a normal short one lays out exactly as before.
+  // The banner is drawn first (same baseline, opposite side - the appearance is
+  // unchanged) so the order-number lines follow their own label contiguously.
   c.page.drawText(
     toVisual(opts.preview ? T.text.previewBanner : `${T.text.version} ${opts.versionNo ?? ""}`.trim()),
     { x: L, y, size: T.size.label, font: bold, color: opts.preview ? rgb(0.75, 0.15, 0.15) : MUTED },
   );
-  y -= 14;
+  let onExtra = 0;
+  if (full) {
+    const onLabelW = c.right(`${T.text.orderNumber}:`, R, y, T.size.label, bold, MUTED);
+    const onLines = c.breakAllFirst(clean(orderNumber), T.size.value, CW / 2 - onLabelW - 6, CW - 6);
+    onLines.forEach((line, i) => c.right(line, i === 0 ? R - onLabelW - 6 : R, y - i * 13, T.size.value));
+    onExtra = (onLines.length - 1) * 13;
+  } else {
+    c.field(T.text.orderNumber, clean(orderNumber), R, y, CW / 2);
+  }
+  y -= 14 + onExtra;
   c.field(T.text.expenseRef, String(s.order.referenceNo), R, y, CW / 2);
   y -= gap(10);
   c.hline(L, R, y);
@@ -361,19 +391,23 @@ async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): P
   const MAX_PRE_ROWS = 3;
   const pre = s.preapprovals.slice(0, MAX_PRE_ROWS);
   const hidden = s.preapprovals.length - pre.length;
-  // Each approval takes two lines: the approval code on its own full-width
-  // line (wrapped, NEVER truncated - it must be readable in full on the
-  // official form), then approver / date / pre-approved amount. The box height
-  // follows the wrapped lines.
+  // The approval code always gets its own full-width line (wrapped, never
+  // truncated). In `full` mode the approver name gets one too; otherwise it
+  // stays in the compact detail row, exactly as before. The box height follows
+  // whatever those wrapped lines need.
   const codeLabel = `${T.text.approvalCode}:`;
+  const nameLabel = `${T.text.approverName}:`;
   const codeRoom = CW - 12 - c.width(codeLabel, T.size.label, bold) - 6;
+  const nameRoom = CW - 12 - c.width(nameLabel, T.size.label, bold) - 6;
   let rowY = y - 33;
   const rows = pre.map((p) => {
     const codeLines = c.breakAll(clean(p.approvalCode), T.size.value, codeRoom);
+    const nameLines = full ? c.breakAll(clean(p.approverName), T.size.value, nameRoom) : null;
     const codeY = rowY;
-    const detailY = codeY - (codeLines.length - 1) * 13 - 16;
+    const nameY = codeY - (codeLines.length - 1) * 13 - 16;
+    const detailY = nameLines ? nameY - (nameLines.length - 1) * 13 - 16 : nameY;
     rowY = detailY - 18;
-    return { p, codeLines, codeY, detailY };
+    return { p, codeLines, nameLines, codeY, nameY, detailY };
   });
   const lastY = rows.length ? rows[rows.length - 1].detailY : y - 33;
   const moreY = lastY - 16;
@@ -387,14 +421,21 @@ async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): P
   if (pre.length === 0) {
     c.right(T.text.preapprovalMissing, R - 6, y - 33, T.size.value, regular, MUTED);
   }
-  // Detail columns (right to left): approver, date, pre-approved amount - each
-  // at least as wide as before; the amount column stays the widest after the
-  // approver so an amount is never truncated.
-  const cols = [0.44, 0.24, 0.32].map((f) => f * CW);
-  rows.forEach(({ p, codeLines, codeY, detailY }, i) => {
+  // Detail columns (right to left). In `full` mode the approver already has its
+  // own line, so date + amount split the width in half; otherwise the original
+  // three columns are used, the amount still shrinking rather than being cut.
+  rows.forEach(({ p, codeLines, nameLines, codeY, nameY, detailY }, i) => {
     if (i > 0) c.hline(L + 8, R - 8, codeY + 11, true);
     const lw = c.right(codeLabel, R - 6, codeY, T.size.label, bold, MUTED);
     codeLines.forEach((line, j) => c.right(line, R - 6 - lw - 6, codeY - j * 13, T.size.value));
+    if (nameLines) {
+      const nw = c.right(nameLabel, R - 6, nameY, T.size.label, bold, MUTED);
+      nameLines.forEach((line, j) => c.right(line, R - 6 - nw - 6, nameY - j * 13, T.size.value));
+      c.field(T.text.approvalDate, formatDate(p.approvalDate), R - 6, detailY, CW / 2 - 12);
+      c.moneyField(T.text.preapprovedAmount, formatMoney(p.preapprovedAmount), R - 6 - CW / 2, detailY, CW / 2 - 12);
+      return;
+    }
+    const cols = [0.44, 0.24, 0.32].map((f) => f * CW);
     const values: [string, string][] = [
       [T.text.approverName, clean(p.approverName)],
       [T.text.approvalDate, formatDate(p.approvalDate)],
@@ -458,11 +499,20 @@ async function renderAt(s: OrderFormSnapshot, opts: RenderOptions, k: number): P
 const GAP_SCALES = [1, 0.85, 0.7, 0.6];
 
 export async function renderOrderFormPdf(s: OrderFormSnapshot, opts: RenderOptions): Promise<Uint8Array> {
-  for (const k of GAP_SCALES) {
-    try {
-      return await renderAt(s, opts, k);
-    } catch (e) {
-      if (!(e instanceof LayoutOverflow)) throw e;
+  // The order number and the approver name are official reference values, so
+  // the FULL layout - which prints them complete, wrapped over as many lines as
+  // they need - is tried first, across every gap scale. Only data that cannot
+  // fit one page that way (an adversarial extreme: several approvals each with
+  // a 200-character approver name) falls back to the compact layout, which
+  // clips them to their cell as before. A form therefore always renders, always
+  // on one page, and is cut only when the page truly cannot hold it.
+  for (const full of [true, false]) {
+    for (const k of GAP_SCALES) {
+      try {
+        return await renderAt(s, opts, k, full);
+      } catch (e) {
+        if (!(e instanceof LayoutOverflow)) throw e;
+      }
     }
   }
   throw new Error("ORDER_FORM_LAYOUT_OVERFLOW");

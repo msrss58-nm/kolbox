@@ -173,13 +173,51 @@ async function workerLogin(p, codeValue, name) {
   await p.waitForURL((u) => !u.pathname.endsWith("/login"), { timeout: 20000 }).catch(() => {});
   await p.locator("aside nav").first().waitFor({ timeout: 20000 });
 }
-/** The worker shell's Budget section, after the navigation probe settled. */
+/** The worker shell's Budget section, read ATOMICALLY.
+ *
+ * The label and the links used to be two sequential awaits. The shell renders
+ * the section asynchronously (the entitlement resolves after the first paint),
+ * so the two reads could straddle that render and report a state that never
+ * existed - E1 really did observe "0 labels, 6 links". Both values now come
+ * from ONE synchronous DOM read, and the poll below only decides WHEN to take
+ * that read: it samples until two consecutive samples agree, so an absent
+ * section (E3 / K3) settles just as well as a present one. */
 async function budgetNav(p) {
-  await sleep(2500);
-  return {
-    section: await p.locator("aside nav").getByText("ניהול תקציב", { exact: true }).count(),
-    hrefs: await p.locator("aside a[href^='/budget/']").evaluateAll((els) => els.map((e) => e.getAttribute("href"))),
-  };
+  return await p.evaluate(async (target) => {
+    const norm = (s) => (s ?? "").replace(/\s+/g, " ").trim();
+    // One instant, both values - never interleaved with a render.
+    const read = () => {
+      const navs = Array.from(document.querySelectorAll("aside nav"));
+      const labels = navs.flatMap((nav) =>
+        Array.from(nav.querySelectorAll("*")).filter(
+          (el) =>
+            norm(el.textContent) === target &&
+            // deepest match only, mirroring getByText's element choice
+            !Array.from(el.children).some((c) => norm(c.textContent) === target),
+        ),
+      );
+      return {
+        section: labels.length,
+        hrefs: Array.from(document.querySelectorAll("aside a[href^='/budget/']")).map((a) => a.getAttribute("href")),
+      };
+    };
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // The entitlement resolves asynchronously AFTER the first paint, so an
+    // empty nav is "stable" before it has resolved at all. Keep the original
+    // 2500ms settling floor and additionally require two consecutive equal
+    // samples; the fix for the race is that the accepted result is ONE read.
+    const FLOOR_MS = 2500;
+    const started = Date.now();
+    let key = JSON.stringify(read());
+    for (let i = 0; i < 40; i++) {
+      await wait(250);
+      const cur = read();
+      const curKey = JSON.stringify(cur);
+      if (curKey === key && Date.now() - started >= FLOOR_MS) return cur; // one atomic read
+      key = curKey;
+    }
+    return read();
+  }, "ניהול תקציב");
 }
 const row = (p, key) => p.getByTestId(`module-availability-${key}`);
 async function switchBudget(p, label) {

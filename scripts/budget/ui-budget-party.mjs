@@ -136,6 +136,16 @@ async function openExpense(p, id) {
 }
 const state = (p) => p.getByTestId("party-submission").getByTestId("submission-state");
 const hasState = (p, s, timeout = 15000) => seen(p.getByTestId("party-submission").locator(`[data-state="${s}"]`), timeout);
+const pdfFile = (name) => ({ name, mimeType: "application/pdf", buffer: pdf() });
+/** Uploads through the document dialog, from whichever trigger opens it. */
+async function uploadVia(p, trigger, file) {
+  await trigger.click();
+  const dlg = p.getByTestId("document-upload");
+  await dlg.waitFor({ timeout: 10000 });
+  await dlg.getByLabel("קובץ").setInputFiles(file);
+  await dlg.getByRole("button", { name: "העלאת מסמך" }).click();
+  await dlg.waitFor({ state: "detached", timeout: 20000 }).catch(() => {});
+}
 
 try {
   section("FUNDING SUMMARY (server-computed; the gap is shown, never filled)");
@@ -172,6 +182,32 @@ try {
     await seen(pa.getByTestId("party-preapproval").getByText("אושר בטלפון")));
   check("U06 'מוכן להגשה' is disabled while the package is incomplete (no final form yet)",
     await pa.getByTestId("mark-ready").isDisabled() && await seen(pa.getByTestId("party-readiness").getByText("טרם הופק טופס הזמנה סופי")));
+
+  // Regression guard: the party readiness / blockers are read from the EXPENSE,
+  // while an upload only returns the DOCUMENTS view. A document mutation used
+  // to leave the readiness stale until the page was reloaded. Everything below
+  // happens on the SAME page - no navigation, or the bug would be masked.
+  const readiness = pa.getByTestId("party-readiness");
+  const urlBefore = pa.url();
+  const beforeText = await readiness.innerText();
+  // Prove the premise first: if the quotation is NOT listed here, the check
+  // below would pass for the wrong reason, so fail loudly instead.
+  check("U06a the quotation is missing AND listed in the party readiness (premise of U06b)",
+    await seen(pa.getByTestId("requirement-quotation").locator('[data-state="missing"]')) && beforeText.includes("הצעת מחיר"),
+    beforeText.replace(/\s+/g, " ").slice(0, 140));
+  await uploadVia(pa, pa.getByTestId("requirement-quotation").getByRole("button", { name: "העלאה" }), pdfFile("הצעת מחיר UI.pdf"));
+  const becamePresent = await seen(pa.getByTestId("requirement-quotation").locator('[data-state="present"]'), 20000);
+  // The upload returns only the DOCUMENTS view; the expense is re-read on its
+  // own round trip that finishes later. Poll for it - a single immediate read
+  // is itself a race and would report a stale panel as a failure.
+  let afterText = beforeText;
+  for (let i = 0; i < 40 && afterText === beforeText; i++) {
+    await pa.waitForTimeout(250);
+    afterText = await readiness.innerText();
+  }
+  check("U06b a document upload refreshes the party readiness WITHOUT reloading the page",
+    becamePresent && afterText !== beforeText && !afterText.includes("הצעת מחיר") && pa.url() === urlBefore,
+    `present=${becamePresent} changed=${afterText !== beforeText} same-url=${pa.url() === urlBefore} :: ${afterText.replace(/\s+/g, " ").slice(0, 140)}`);
   await shot(pa, "02-preapproved");
 
   // The package (tested in depth by api-budget-party.mjs): final form, signed return, quotation, invoice.

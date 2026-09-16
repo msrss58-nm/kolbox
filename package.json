@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck:phase2-backfill": "tsc -p scripts/tsconfig.phase2-backfill.json",
+    "guard:test-state": "node scripts/guards/test-state-pin.mjs",
+    "guard:test-state:selftest": "node scripts/guards/test-state-pin.selftest.mjs",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --check",
     "format:write": "prettier . --write"

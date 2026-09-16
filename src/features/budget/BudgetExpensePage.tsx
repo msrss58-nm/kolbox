@@ -102,11 +102,16 @@ export function BudgetExpensePage() {
     }
     documents.reload();
   };
-  /** Every document mutation returns the whole documents view. */
+  /** Every document mutation returns the whole documents view. The party
+   * section's readiness / blockers live on the EXPENSE, not on this view, so
+   * the expense is re-read too - otherwise a document action left stale
+   * blockers on screen until the page was reloaded. `adopt` already refreshes
+   * documents for the opposite direction; both directions now propagate. */
   const adoptDocuments = (next: ExpenseDocuments | undefined) => {
     if (next) documents.setData(next);
     else documents.reload();
     history.reload();
+    expense.reload();
   };
 
   if (expense.error && !expense.data) return <LoadError onRetry={expense.reload} />;

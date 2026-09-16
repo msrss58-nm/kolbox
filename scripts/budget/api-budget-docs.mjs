@@ -600,6 +600,56 @@ check("O33 Hebrew RTL content unchanged (title, approver label/name, amounts in 
   [pdfMod.toVisual("טופס הזמנה"), pdfMod.toVisual("שם המאשר:"), pdfMod.toVisual("מאשר בדיקה"), pdfMod.toVisual("סכום שאושר מראש:"), "1,200.00 ₪", "2,000.00 ₪"]
     .every((s) => pc.strings.includes(s)));
 
+// Stage 7B maintenance: the ORDER NUMBER and the APPROVER NAME are official
+// reference values and were still being cut with an ellipsis. They now print
+// in full whenever the page can hold them (the renderer tries the full layout
+// across every gap scale first). Only data that cannot fit one page that way -
+// an adversarial extreme such as 5 approvals each with a 200-character name,
+// which needs ~78pt against the ~7pt the worst case leaves - falls back to the
+// compact layout. A form therefore ALWAYS renders, ALWAYS on one page, and is
+// clipped only when the page truly cannot hold the value.
+/** The value lines drawn after a `<label>:` cell, up to the next labelled cell. */
+const afterLabel = (strings, label) => strings.flatMap((s, i) => {
+  if (s !== pdfMod.toVisual(`${label}:`)) return [];
+  const parts = [];
+  for (let j = i + 1; j < strings.length && !strings[j].includes(":"); j++) parts.push(strings[j]);
+  return [parts];
+});
+const nonSpace = (parts) => parts.join("").replace(/\s/g, "").length;
+const uncut = (parts) => parts.length > 0 && !parts.some((p) => p.includes("…"));
+const LONG_ORDER = "PO-2026/ELECTIONS/BRANCH-14/ORDER-000123-REV-B";
+const LONG_NAME = "ישראל ישראלי־כהן, סגן מנהל הסניף המרחבי";
+const refForm = (over) => ({
+  ...formWith(["AP-1"]),
+  preapprovals: [{ orderNumber: LONG_ORDER, approvalCode: "AP-1", approverName: LONG_NAME,
+    approvalDate: "2026-09-15", preapprovedAmount: 120000, ...over }],
+});
+for (const [tag, opts] of [["final form", { preview: false, versionNo: 1 }], ["preview", { preview: true, versionNo: null }]]) {
+  const st = await printedStrings(await pdfMod.renderOrderFormPdf(refForm({}), opts));
+  const on = afterLabel(st, "מספר הזמנה")[0] ?? [];
+  const nm = afterLabel(st, "שם המאשר")[0] ?? [];
+  check(`O34 ${tag}: a realistic long order number (${LONG_ORDER.length} ch) prints in full, never cut`,
+    on.join("") === LONG_ORDER && uncut(on), JSON.stringify(on));
+  check(`O35 ${tag}: a realistic long approver name (${LONG_NAME.length} ch) prints in full, never cut`,
+    nonSpace(nm) === LONG_NAME.replace(/\s/g, "").length && uncut(nm), `${nonSpace(nm)} ch in ${nm.length} line(s)`);
+}
+// The database maxima: order_number <= 100, approver_name <= 200 chars.
+const MAXN = refForm({ orderNumber: "O".repeat(100), approvalCode: "C".repeat(100), approverName: "ש".repeat(200) });
+const maxBytes = await pdfMod.renderOrderFormPdf(MAXN, { preview: false, versionNo: 1 });
+const maxStr = await printedStrings(maxBytes);
+check("O36 at the DB maximum (order number 100, approver 200, code 100) all three print in full on one page",
+  (await PDFDocument.load(maxBytes)).getPageCount() === 1 &&
+  (afterLabel(maxStr, "מספר הזמנה")[0] ?? []).join("") === "O".repeat(100) &&
+  nonSpace(afterLabel(maxStr, "שם המאשר")[0] ?? []) === 200 &&
+  (afterLabel(maxStr, "קוד אישור")[0] ?? []).join("") === "C".repeat(100) &&
+  [afterLabel(maxStr, "מספר הזמנה")[0], afterLabel(maxStr, "שם המאשר")[0], afterLabel(maxStr, "קוד אישור")[0]].every(uncut),
+  `${nonSpace(afterLabel(maxStr, "מספר הזמנה")[0] ?? [])}/${nonSpace(afterLabel(maxStr, "שם המאשר")[0] ?? [])}/${nonSpace(afterLabel(maxStr, "קוד אישור")[0] ?? [])}`);
+// The fallback: the worst case cannot print in full, but must never fail.
+const worstStr = await printedStrings(await pdfMod.renderOrderFormPdf(worst, { preview: false, versionNo: 9999 }));
+check("O37 when full printing cannot fit, the compact layout still renders one page and never cuts the approval code",
+  worstPages === 1 && approvalCodes(worstStr).every((parts) => parts.join("") === "C".repeat(100) && !parts.some((p) => p.includes("…"))),
+  `${worstPages} page(s)`);
+
 // ---------------------------------------------------------------------------
 section("CLOSE GUARD + REQUIREMENT SNAPSHOT");
 // EO (2,000 ILS, party). Budget Stage 5 gates 'sent' behind a complete
