@@ -1,4 +1,5 @@
 {
+  "outputDirectory": "dist",
   "crons": [
     {
       "path": "/api/budget/actions",
