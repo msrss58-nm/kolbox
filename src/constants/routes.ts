@@ -7,7 +7,6 @@ import {
   Megaphone,
   Receipt,
   Settings,
-  ShieldCheck,
   Truck,
   Upload,
   Users,
@@ -22,6 +21,14 @@ export const ROUTES = {
   voters: "/voters",
   activists: "/activists",
   import: "/import",
+  /** Legacy campaign-user team administration. NO LONGER REGISTERED as a
+   * route: it is the only screen that read/wrote `public.profiles`, a table
+   * that exists in no environment (it was never in a migration and is absent
+   * from Production), through `create-user`/`remove-user` Edge Functions that
+   * are not in this repository either. The screen and its hooks are kept on
+   * disk, unreferenced, so nothing is lost if campaign-user management is
+   * ever rebuilt on the workspace model. Kept here so those retained files
+   * still resolve their own redirect target. */
   team: "/team",
   electionDay: "/election-day",
   electionDayLogin: "/election-day/login",
@@ -120,6 +127,13 @@ export const ROUTES = {
    * tree behind BudgetGuard, reached with the same PermissionUser session as
    * Election Day (a Budget-only workspace logs in there too). */
   budget: "/budget",
+  /** KOLBOX Auth origin: the cross-origin `form_post` bridge. Never receives
+   * the handoff code from the URL - see AuthContinueScreen. */
+  authContinue: "/auth/continue",
+  /** Leg 2 of the handoff, registered on each TARGET origin (election,
+   * platform, multi-entity). The confirmation screen that must be accepted
+   * before any session is created. */
+  authComplete: "/auth/complete",
 } as const;
 
 /** Election Day's own sub-navigation (UX v3 - "shell" architecture, see
@@ -143,8 +157,6 @@ export interface NavItem {
   icon: LucideIcon;
   /** react-router `end` - true means "exact match only" (needed for the "/" root route). */
   end?: boolean;
-  /** Only shown to signed-in managers. */
-  managerOnly?: boolean;
 }
 
 /** Primary navigation - drives both the desktop sidebar and the mobile bottom
@@ -152,12 +164,17 @@ export interface NavItem {
  * rendered as its own labeled section (see `ELECTION_DAY_NAV_SECTION_LABEL`
  * + `getVisibleElectionDayNavItems`), shown alongside this list rather than
  * replacing it. */
+/** Legacy-login cutover: "צוות" is gone from this list along with its route.
+ * It was the ONLY screen backed by the separate Supabase campaign identity
+ * (`profiles`), which no longer exists in any environment - see
+ * `ROUTES.team`. Every remaining item is a Voter Management screen, gated by
+ * `VoterManagementGuard` on the workspace session, so the list no longer
+ * needs a per-item visibility flag. */
 export const NAV_ITEMS: NavItem[] = [
   { to: ROUTES.dashboard, label: "דשבורד", icon: LayoutDashboard, end: true },
   { to: ROUTES.voters, label: "בוחרים", icon: Users },
   { to: ROUTES.activists, label: "פעילים", icon: Megaphone },
   { to: ROUTES.import, label: "טעינת נתונים", icon: Upload },
-  { to: ROUTES.team, label: "צוות", icon: ShieldCheck, managerOnly: true },
 ];
 
 /** Section label for `NAV_ITEMS` in the sidebar's module accordion (the main

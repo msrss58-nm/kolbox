@@ -107,7 +107,15 @@ export const useOwnerSession = create<OwnerSessionState>((set, get) => ({
       // Anything else - a stranger, an expired approval, or a transport
       // failure we cannot interpret - never leaves a session sitting in
       // isolated storage.
-      await ownerAuthClient.auth.signOut();
+      //
+      // `scope: "local"` is REQUIRED, not a preference. supabase-js defaults
+      // to "global", which revokes every refresh token for that auth.users
+      // row across EVERY origin - and all three owner realms share
+      // auth.users. Without this, a Platform or Multi-Entity Owner who
+      // mistypes their address into an Election Owner form would silently
+      // have their live console session on their own origin killed. Same
+      // rule as the Budget/owner step-up sign-outs.
+      await ownerAuthClient.auth.signOut({ scope: "local" });
       set({ owner: null, provisioning: null });
       if (provisioning.status === "ok" && provisioning.state.state === "expired") {
         return {
@@ -160,7 +168,10 @@ export const useOwnerSession = create<OwnerSessionState>((set, get) => ({
           set({ owner: null, provisioning: provisioning.state, bootstrapped: true });
           return;
         }
-        await ownerAuthClient.auth.signOut();
+        // `scope: "local"` for the same reason as the login rejection path
+        // above: a bootstrap that resolves to "not an Election Owner" must
+        // never revoke that account's sessions on the other owner origins.
+        await ownerAuthClient.auth.signOut({ scope: "local" });
       }
       set({ owner: null, provisioning: null, bootstrapped: true });
     } catch {

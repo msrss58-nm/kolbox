@@ -5,7 +5,6 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
 import { Pagination } from "../../components/ui/Pagination";
-import { useAuth } from "../auth/authStore";
 import { AddVoterModal } from "./AddVoterModal";
 import { BulkActionsBar } from "./BulkActionsBar";
 import { useVoterRegistry } from "./useVoterRegistry";
@@ -16,9 +15,15 @@ import { VoterList } from "./VoterList";
 import { VoterListHeader } from "./VoterListHeader";
 
 export function VotersPage() {
-  const user = useAuth((s) => s.user);
-  const activistId = user?.activistId ?? "act-1";
-  const registry = useVoterRegistry(activistId);
+  // Legacy-login cutover: this used to read `activistId` off the Supabase
+  // campaign user, falling back to the seeded demo activist whenever that
+  // user had none - which was ALWAYS the case for a manager, so the fallback
+  // was already the live behaviour. Voter Management has no server-side
+  // voter backend yet (classification is still per-browser MockApi), so
+  // there is nothing to attribute a real workspace actor to; real per-actor
+  // attribution belongs to the module's real backend, with the actor derived
+  // server-side from the session rather than sent by the client.
+  const registry = useVoterRegistry("act-1");
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [drawerVoterId, setDrawerVoterId] = useState<string | null>(null);

@@ -263,6 +263,10 @@ try {
   await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
   check("O5 reload keeps the Owner on administration", await waitText(ePage, "לא נוספו משתמשים עדיין"));
   await ePage.getByRole("button", { name: "התנתקות" }).click();
+  // Unified entry: sign-out now returns every election-origin principal to the
+  // one KOLBOX entry screen, which offers the Owner realm one click away.
+  await ePage.getByRole("heading", { name: "כניסה לקולבוקס" }).waitFor({ timeout: 15000 });
+  await ePage.getByRole("button", { name: "בעלי מערכת בחירות" }).click();
   await ePage.getByRole("heading", { name: "כניסת בעלים" }).waitFor({ timeout: 15000 });
   await ePage.locator('input[type="email"]').fill(email("owner"));
   await ePage.locator('input[autocomplete="current-password"]').fill(ownerPw);

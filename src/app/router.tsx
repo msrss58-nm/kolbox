@@ -35,7 +35,6 @@ import "../features/multi-entity-owner/multiEntityOwnerRecoveryUrl";
 import { createBrowserRouter, Navigate, type RouteObject } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { ActivistsPage } from "../features/activists/ActivistsPage";
-import { LoginPage } from "../features/auth/LoginPage";
 import { BudgetDashboardPage } from "../features/budget/BudgetDashboardPage";
 import { BudgetExpensePage } from "../features/budget/BudgetExpensePage";
 import { BudgetExpensesPage } from "../features/budget/BudgetExpensesPage";
@@ -85,11 +84,41 @@ import { PlatformOwnerAuthGuard } from "../features/platform-owner/PlatformOwner
 import { PlatformOwnerLoginScreen } from "../features/platform-owner/PlatformOwnerLoginScreen";
 import { PlatformOwnerMultiEntityPage } from "../features/platform-owner/PlatformOwnerMultiEntityPage";
 import { PlatformOwnerSetPasswordScreen } from "../features/platform-owner/PlatformOwnerSetPasswordScreen";
-import { TeamPage } from "../features/team/TeamPage";
 import { VotersPage } from "../features/voters/VotersPage";
+import { AuthCompleteScreen } from "../features/auth-entry/AuthCompleteScreen";
+import { AuthContinueScreen } from "../features/auth-entry/AuthContinueScreen";
+import { AuthEntryScreen } from "../features/auth-entry/AuthEntryScreen";
+import { multiEntityOwnerAuthClient } from "../services/supabase/multiEntityOwnerAuthClient";
+import { ownerAuthClient } from "../services/supabase/ownerAuthClient";
+import { platformOwnerAuthClient } from "../services/supabase/platformOwnerAuthClient";
 import { AppLayout } from "./AppLayout";
-import { AuthGuard } from "./AuthGuard";
+import { EntryScreen } from "./EntryScreen";
 import { PlatformOriginRedirect } from "./PlatformOriginRedirect";
+import { VoterManagementGuard } from "./VoterManagementGuard";
+
+/**
+ * Establishes an aal1 session in ONE realm's isolated client, from the
+ * one-time token the target origin minted during leg 2. Each surface passes
+ * its OWN client, because a session must live in the storage of the origin
+ * and client that will use it. MFA is untouched: the realm's existing guard
+ * takes over immediately afterwards and runs the existing enrol/challenge
+ * flow unchanged.
+ */
+interface OtpClient {
+  auth: {
+    verifyOtp: (p: {
+      token_hash: string;
+      type: "magiclink";
+    }) => Promise<{ error: unknown }>;
+  };
+}
+const verifyOtpWith = (client: OtpClient) => async (tokenHash: string) => {
+  const { error } = await client.auth.verifyOtp({
+    token_hash: tokenHash,
+    type: "magiclink",
+  });
+  return !error;
+};
 
 /**
  * ORIGIN SEPARATION - build-time surface selector.
@@ -142,7 +171,7 @@ import { PlatformOriginRedirect } from "./PlatformOriginRedirect";
  * bookmarks reach the new origin instead of a no-match page. They render no
  * credential field and are not a catch-all.
  */
-type AppSurface = "election" | "platform" | "both" | "multi_entity";
+type AppSurface = "election" | "platform" | "both" | "multi_entity" | "auth";
 
 const APP_SURFACE: AppSurface =
   import.meta.env.VITE_APP_SURFACE === "platform"
@@ -151,7 +180,26 @@ const APP_SURFACE: AppSurface =
       ? "both"
       : import.meta.env.VITE_APP_SURFACE === "multi_entity"
         ? "multi_entity"
-        : "election";
+        : import.meta.env.VITE_APP_SURFACE === "auth"
+          ? "auth"
+          : "election";
+
+/**
+ * The KOLBOX Auth / IdP surface - the dedicated origin that owns the ONE
+ * credential form for every principal. It registers exactly two routes and
+ * deliberately carries no application screen: origin separation is what keeps
+ * one principal's saved credential from being a fill candidate on another
+ * principal's form, and this origin's invariant is that it serves exactly one
+ * form, forever.
+ *
+ * `/auth/continue` never reads a code from the URL (see AuthContinueScreen) -
+ * that absence is a login-CSRF control, not hygiene.
+ */
+const authSurfaceRoutes: RouteObject[] = [
+  { path: "/", element: <AuthEntryScreen /> },
+  { path: ROUTES.authContinue, element: <AuthContinueScreen /> },
+  { path: "*", element: <Navigate to="/" replace /> },
+];
 
 /**
  * Platform Stage 5 - Multi-Entity Owner surface (its own origin). Same shape
@@ -169,6 +217,11 @@ const APP_SURFACE: AppSurface =
 const multiEntityOwnerRoutes: RouteObject[] = [
   { path: ROUTES.multiEntityLogin, element: <MultiEntityOwnerLoginScreen /> },
   { path: ROUTES.multiEntitySetPassword, element: <MultiEntityOwnerSetPasswordScreen /> },
+  // Leg 2 on the multi-entity origin - same shape, same MFA hand-off.
+  {
+    path: ROUTES.authComplete,
+    element: <AuthCompleteScreen verifyOtp={verifyOtpWith(multiEntityOwnerAuthClient)} />,
+  },
   {
     element: <MultiEntityOwnerAuthGuard />,
     children: [
@@ -185,6 +238,13 @@ const multiEntityOwnerRoutes: RouteObject[] = [
 /** Platform Owner surface - the FOURTH identity, served from its own origin. */
 const platformOwnerRoutes: RouteObject[] = [
   { path: ROUTES.platformLogin, element: <PlatformOwnerLoginScreen /> },
+  // Leg 2 on the platform origin. Deliberately OUTSIDE PlatformOwnerAuthGuard:
+  // it runs before any session exists, and hands over to that guard - which
+  // then forces MFA exactly as it does for a password sign-in.
+  {
+    path: ROUTES.authComplete,
+    element: <AuthCompleteScreen verifyOtp={verifyOtpWith(platformOwnerAuthClient)} />,
+  },
   {
     // Platform Stage 2 (password set/recovery): the recovery/invite landing
     // page. A TOP-LEVEL SIBLING route - deliberately NOT nested under
@@ -252,6 +312,22 @@ const platformRootRedirect: RouteObject = {
 };
 
 /**
+ * The platform origin's `/login`. Unified entry means the shared entry PATH
+ * resolves on every surface; on this one the entry IS the Platform Owner
+ * login, because that is the only principal this origin serves - which is the
+ * origin split working as designed, not a gap.
+ *
+ * Kept OUT of `platformOwnerRoutes` for exactly the reason `platformRootRedirect`
+ * is: on "both" the election surface's own `/login` (the full entry screen)
+ * must keep winning, so this is registered only on the platform-only branch.
+ * Authorizes nothing - the destination is itself a login screen.
+ */
+const platformLoginAlias: RouteObject = {
+  path: ROUTES.login,
+  element: <Navigate to={ROUTES.platformLogin} replace />,
+};
+
+/**
  * CUTOVER compatibility - the ELECTION surface only.
  *
  * Registered exclusively on the "election" branch below, so it costs the
@@ -277,8 +353,25 @@ const platformCompatRedirects: RouteObject[] = [
 /** Election Day / Election Owner / campaign surface - the existing app,
  * unchanged apart from no longer carrying the Platform Owner routes. */
 const electionRoutes: RouteObject[] = [
-  { path: ROUTES.login, element: <LoginPage /> },
+  // THE unified application entry. `/login` is the canonical path (the legacy
+  // campaign-user email/OTP screen that used to live here is retired and does
+  // not return); `/election-day/login` renders the same screen so the Owner's
+  // `?w=<code>` links and existing bookmarks keep working. `/` reaches it
+  // through VoterManagementGuard's signed-out redirect.
+  //
+  // It hosts the two realms that already share this origin (PermissionUser
+  // inline, Election Owner one click away) and LINKS to the Platform and
+  // Multi-Entity origins - their login screens are deliberately absent from
+  // this bundle, which is the whole point of the origin split.
+  { path: ROUTES.login, element: <EntryScreen /> },
   { path: ROUTES.electionDayLogin, element: <ElectionDayLoginScreen /> },
+  // Leg 2 of the Auth-origin handoff, on THIS origin. Serves both realms
+  // this origin hosts: the worker (no OTP - the server sets the session
+  // cookie) and the Election Owner (aal1 via this origin's own client).
+  {
+    path: ROUTES.authComplete,
+    element: <AuthCompleteScreen verifyOtp={verifyOtpWith(ownerAuthClient)} />,
+  },
   { path: ROUTES.electionDayOwnerLogin, element: <OwnerLoginScreen /> },
   // Stage 3B - both routes are deliberately OUTSIDE OwnerAuthGuard.
   // owner-set-password is reached from a one-time activation link by
@@ -318,17 +411,21 @@ const electionRoutes: RouteObject[] = [
     ],
   },
   {
-    // Main app shell (Supabase-authenticated routes only).
-    element: <AppLayout />,
+    // Voter Management - the legacy Supabase campaign identity (AuthGuard +
+    // `profiles.role`) is retired here. These routes now resolve through the
+    // SAME workspace PermissionUser session as Election Day and Budget, and
+    // the guard sits ABOVE the shell exactly like BudgetGuard/BudgetShell so
+    // an unauthenticated or unentitled visitor never renders shell chrome.
+    // `/team` is deliberately absent - see ROUTES.team.
+    element: <VoterManagementGuard />,
     children: [
       {
-        element: <AuthGuard />,
+        element: <AppLayout />,
         children: [
           { path: ROUTES.dashboard, element: <DashboardPage /> },
           { path: ROUTES.voters, element: <VotersPage /> },
           { path: ROUTES.activists, element: <ActivistsPage /> },
           { path: ROUTES.import, element: <ImportPage /> },
-          { path: ROUTES.team, element: <TeamPage /> },
         ],
       },
     ],
@@ -396,11 +493,13 @@ const electionRoutes: RouteObject[] = [
  * screen in the shipped JavaScript.
  */
 export const router = createBrowserRouter(
-  APP_SURFACE === "platform"
-    ? [...platformOwnerRoutes, platformRootRedirect]
-    : APP_SURFACE === "multi_entity"
-      ? multiEntityOwnerRoutes
-      : APP_SURFACE === "both"
-        ? [...electionRoutes, ...platformOwnerRoutes]
-        : [...electionRoutes, ...platformCompatRedirects],
+  APP_SURFACE === "auth"
+    ? authSurfaceRoutes
+    : APP_SURFACE === "platform"
+      ? [...platformOwnerRoutes, platformRootRedirect, platformLoginAlias]
+      : APP_SURFACE === "multi_entity"
+        ? multiEntityOwnerRoutes
+        : APP_SURFACE === "both"
+          ? [...electionRoutes, ...platformOwnerRoutes]
+          : [...electionRoutes, ...platformCompatRedirects],
 );

@@ -1147,8 +1147,15 @@ export const ELECTION_DAY_TEXT = {
   /** Local, non-server login gate for this screen only - checks against the
    * same roster managed in "ניהול הרשאות משתמשים" (see `electionDaySession.ts`). */
   session: {
+    /** SUPERSEDED by `ENTRY_TEXT.title`/`.subtitle` (src/app/appShell.constants.ts).
+     * The worker form is now rendered by the unified entry screen, which is
+     * the single sign-in for every principal, so the old wording - "Election
+     * Day needs a separate login from the rest of the system" - describes an
+     * architecture that no longer exists. Kept as the neutral module name
+     * rather than deleted, since these keys are part of this module's copy
+     * surface; the entry screen no longer reads them. */
     title: "כניסה למערכת הבחירות",
-    subtitle: "מסך יום הבחירות דורש התחברות נפרדת משאר המערכת",
+    subtitle: "התחברות עם קוד המערכת ופרטי המשתמש",
     nameLabel: "שם משתמש",
     passwordLabel: "סיסמה",
     /** Tenant-Safe Login: the workspace SELECTOR, not a secret - it decides

@@ -347,8 +347,10 @@ export default async function handler(
     const supabase = requireServiceClient(res);
     if (!supabase) return;
 
+    const sessionHash = toPgBytea(sha256Hex(rawToken));
+
     const { data, error } = await supabase.rpc("election_day_resolve_session", {
-      p_session_hash: toPgBytea(sha256Hex(rawToken)),
+      p_session_hash: sessionHash,
     });
 
     if (error || !data || (Array.isArray(data) && data.length === 0)) {
@@ -363,11 +365,37 @@ export default async function handler(
       workspace_id: string;
     };
 
+    // The GET response now carries the same effective-entitlement list the
+    // POST (login) response already did. A module guard has to resolve the
+    // workspace's entitlement on a RELOAD or a DEEP LINK too, not only in
+    // the tab that happened to perform the login - the login response is
+    // gone by then. Same RPC, same additive and non-fatal contract as the
+    // POST branch: if it cannot be read the session still resolves and the
+    // field is simply omitted, which every module guard treats as "not
+    // entitled" (fail closed). Navigation metadata only - it grants
+    // nothing, and every module re-checks its own entitlement server-side
+    // on every request.
+    let modules: string[] | undefined;
+    try {
+      const modulesResult = await supabase.rpc("workspace_session_modules", {
+        p_session_hash: sessionHash,
+      });
+      modules =
+        !modulesResult.error && Array.isArray(modulesResult.data)
+          ? (modulesResult.data as unknown[]).filter(
+              (m): m is string => typeof m === "string",
+            )
+          : undefined;
+    } catch {
+      modules = undefined;
+    }
+
     res.status(200).json({
       id: row.actor_id,
       name: row.actor_name,
       roleId: row.role_id,
       workspaceId: row.workspace_id,
+      ...(modules ? { modules } : {}),
     });
     return;
   }

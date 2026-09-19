@@ -4327,3 +4327,70 @@ DB **102/102, 0 pending, 0 drift**, latest `20260922000000`; **12 functions** (n
 
 ### Open, non-blocking
 Orphan cleanup is **SCHEDULED and verified** (`0024a12`; daily `0 3 * * *`, Hobby precision means 03:00-03:59 UTC; platform / multi_entity receive the shared schedule and stay fail-closed at 405). HEIC real-device **deferred, non-blocking**. Production UI check of the panel fix not performed (would need a forbidden `budget.*` grant). Console audit read view not built. Acceptance data retained. Three worktrees kept.
+
+## 2026-09-19 — KOLBOX AUTH / IdP ORIGIN: single login entry implemented LOCALLY (3 migrations local-only, NOT applied to Production; nothing committed, pushed or deployed)
+
+**What this is.** Every KOLBOX principal now begins at one credential form on a dedicated **auth origin**, which authenticates once, resolves the realm server-side, and hands the browser to the target origin through a single-use, short-TTL, origin-and-realm-bound handoff. The target origin mints its **own** session. Origin separation, MFA, HttpOnly sessions, workspace isolation, rate limiting and server-side authorization are all preserved unchanged.
+
+**Why a handoff at all.** No cookie or storage can span the origins: `__Host-kb_ed_session` forbids a `Domain` attribute by definition, and `*.vercel.app` is on the Public Suffix List. A session must be minted by the origin that will use it.
+
+**The flow.** Auth entry (one submit) → broker (`auth_op=login`, auth deployment only) → **leg 1** cross-origin `form_post` to `/api/auth/continue`, which atomically consumes the one-time code and sets the target origin's **own** `__Host-kb_auth_txn` HttpOnly cookie, then 303s to a bare `/auth/complete` → **leg 2** same-origin POST after an explicit **Continue/Cancel** confirmation, which is the ONLY path that mints a session. Worker → server sets `__Host-kb_ed_session`; owners → a Supabase one-time `hashed_token` is minted and consumed by that origin's own isolated client via `verifyOtp`, producing **aal1**, after which the **existing** guard runs the **existing** MFA enrol/challenge flow completely unchanged.
+
+**Login CSRF / session swapping.** An earlier revision bound the handoff to an auth-origin JS-readable cookie; that was **bypassable** (injected script simply writes the attacker's binder into the form field) and was removed. The binding is now RP-side: an `HttpOnly` `__Host-` cookie the auth origin can never manufacture, plus a **user-activated confirmation** showing the identity — the control that survives a compromised authorization surface, since an attacker who can script the auth origin can drive every automatic step. The auth origin's strict CSP (`form-action` limited to the three target origins) reduces the probability of ever needing it.
+
+**Deployment gate.** All four Vercel projects build the same `api/` tree, so request Origin is not sufficient. `api/_surfaceGate.ts` requires a **server-only** `KOLBOX_SURFACE` (never the build-time, client-visible `VITE_APP_SURFACE`) **and** exact `Host`/`KOLBOX_SELF_ORIGIN` equality. Unset ⇒ deny. Denials are **404**, not 403. Realms/origins handed to every RPC come from env, never the request. This is also the EXPAND-phase inert state and the no-deploy kill switch.
+
+**Cleanup.** Opportunistic and **bounded** (`limit 500`) inside `auth_handoff_issue`, before the insert, so a cleanup failure fails the sign-in closed. Rows live ≤90 s (code) + ≤120 s (txn) and are deleted >1 h past expiry. Cleanup is hygiene, not a control: every read re-checks expiry, so a stale row is inert. (An earlier draft claimed the existing daily cron would sweep this table — that was unsupported and withdrawn: the only cron is `/api/budget/actions`, which does Budget Storage orphan cleanup exclusively.)
+
+**Migrations (LOCAL ONLY — applied to the scratch stack, NOT to Production):** `20260923000000_auth_handoff_infrastructure.sql` (`auth_handoff_codes` + issue/consume/txn_info/complete), `20260923010000_auth_handoff_worker_primitives.sql` (`election_day_verify_credentials_v1`, `election_day_create_session_for_actor`). All additive; no existing object altered. All six functions verified `anon=false authenticated=false service_role=true`; the table is RLS-on with zero policies.
+
+**Also fixed:** the two unscoped `ownerAuthClient.auth.signOut()` rejection paths now pass `scope: "local"`. All three owner realms share `auth.users`, so the supabase-js default (`global`) would revoke a foreign realm's live session.
+
+**Function budget unchanged at 12/12** — the broker is an `auth_op` partition on `api/platform/session.ts` delegating to the underscore module `api/platform/_authBroker.ts`, plus four `vercel.json` rewrites.
+
+**Verification (scratch stack):** new adversarial API suite **47/0** (deployment gate on all four surfaces incl. unset ⇒ 404; byte-identical generic failures; rate limiting; method/CORS/no-store; leg-1 Origin, missing-Origin and missing-`Sec-Fetch-*` refusals; replay, expiry, wrong-origin and wrong-realm binding; leg-2 wrong-browser/missing cookie and cross-site refusal; cancel-then-resume refused; bounded cleanup; no raw secret at rest; owner email masked before storage). New end-to-end UI suite **27/0** across four real surfaces (worker, Election Owner, Platform Owner **with TOTP**, Multi-Entity Owner **with TOTP**, Cancel, and no code/txn/token in any URL). Regressions: `api-stage9` 83/0, `api-stage8` 51/0, `ui-stage9` 62/0, `ui-stage8` 39/0, `ui-nav-roles` 54/0, `ui-budget` 23/0, prior `ui-entry` 32/0. Build clean, eslint **0 errors**, standalone `api/` typecheck clean.
+
+**NOT done (by instruction):** no migration applied to Production, no commit, no push, no deploy, no Production mutation, no entitlement change, Voter Management not advanced and still fail-closed. The per-origin direct login routes remain fully alive (EXPAND/DEPLOY/VERIFY); CONTRACT is deliberately not started.
+
+### 2026-09-19 — Auth origin CSP wired and proven (local final gate; still nothing committed, pushed, deployed or applied to Production)
+
+**Delivery split, and why.** `vercel.json` is shared by all four Vercel projects and has no per-project conditional, so a strict CSP header there would also hit the three application surfaces, where `default-src 'none'` breaks them instantly. `VITE_APP_SURFACE` is the only per-surface switch that exists at build time, so the strict policy is emitted as a build-time `<meta>` into the **auth surface's HTML only** (`vite.config.ts`). `frame-ancestors` cannot be delivered by `<meta>` (the CSP spec ignores it there, with `report-uri` and `sandbox`), so it ships as a real header from `vercel.json` — applied to **every** surface, which is safe and correct because nothing in this application is ever framed (verified: no `iframe` in `src/`).
+
+**Exact auth-origin policy:** `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action <election> <platform> <multi-entity>; base-uri 'none'`, plus the header `Content-Security-Policy: frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+
+**No `unsafe-inline`, no `unsafe-eval` — verified, not assumed.** The auth surface's component tree has no inline `style` attributes, `LogoMark` is an inline `<svg>` rather than an `<img>`, and the only `data:` image URIs in the codebase are the MFA QR codes, which live on the platform and multi-entity surfaces. `img-src 'self'` is the single addition beyond the approved list and is required by the implemented page: `index.html` links the favicon, and favicons are subject to `img-src`.
+
+**Google Fonts removed from the auth surface** instead of widening the policy. Keeping the webfont would have required `fonts.googleapis.com` in `style-src` and `fonts.gstatic.com` in `font-src` on the one origin that handles every principal's password. The cost is cosmetic (a system Hebrew font on one screen); the benefit is that the credential page issues no third-party request at all. The three application surfaces are untouched and keep the webfont.
+
+**Runtime proof (new suite, 22/0):** the header is delivered; the entry renders under the policy; **zero** CSP violations on load or during the credential submit; a `form-action` to an unapproved origin is blocked and the browser attributes the block to `form-action`; the auth origin cannot be framed from another origin; the approved cross-origin `form_post` still succeeds and the worker still reaches Election Day; no CSP leaks onto the three app surfaces, which keep their webfont.
+
+**Migration replay:** both migrations were replayed from the **Production-equivalent baseline** (the new objects dropped first, so the database matched Production's 102) inside a transaction that was rolled back — clean apply, 6 functions, all `service_role`-only, table RLS-on with zero policies. No existing migration file was modified (git shows the two new files as untracked additions only).
+
+**Re-verified after the CSP change:** adversarial API 47/0, four-surface E2E 27/0 (rebuilt under CSP), CSP 22/0, `ui-stage9` 62/0, `api-stage9` 83/0, `ui-nav-roles` 54/0, `ui-budget` 23/0, `ui-entry` 32/0; build clean, eslint 0 errors, `api/` typecheck clean.
+
+### 2026-09-19 — Auth/IdP Production rollout PREFLIGHT (read-only; nothing changed anywhere)
+
+Facts established by direct inspection, not assumption:
+
+- **Git:** `master`, HEAD = `origin/master` = `87e2cdd`, 0/0, 0 staged. 30 non-protected dirty/untracked paths carrying THREE approved-but-undeployed stages (legacy-login retirement, unified entry, Auth/IdP + CSP). Protected 15 unchanged at +138/−45.
+- **Production:** 102 migrations applied, latest `20260922000000`, **zero drift**; the two Auth migrations are local-only, confirmed by `public.auth_handoff_codes` not existing in Production. All three surfaces serve `87e2cdd`. 12 API functions.
+- **Canonical origins (resolved from `vercel project ls` + live `/api/health`, not guessed):** election `https://kolbox-gamma.vercel.app` (`surface:"election"`), platform `https://kolbox-platform.vercel.app` (`surface:"platform"`), multi-entity `https://kolbox-multi-entity.vercel.app` (`surface:"multi_entity"`). **No auth project exists**, so the Auth origin is UNRESOLVED until it is created.
+- **CSP production bake PROVEN:** an auth build with production defaults and no override emits `form-action https://kolbox-gamma.vercel.app https://kolbox-platform.vercel.app https://kolbox-multi-entity.vercel.app`, with **zero** occurrences of localhost/127.0.0.1/scratch in the HTML.
+- **Env scope correction:** the broker and gate read only `KOLBOX_SURFACE`, `KOLBOX_SELF_ORIGIN`, `KOLBOX_AUTH_ORIGIN` (plus the three target-origin vars, read dynamically, on the auth project only). **`SESSION_ALLOWED_ORIGIN` needs NO change on any project** — leg 1 validates against `KOLBOX_AUTH_ORIGIN` itself. This is smaller than the earlier plan stated.
+- **Production principals:** 2 Election Owners, 1 Platform Owner, 3 PermissionUsers, 2 workspaces — and **0 Multi-Entity Owners / 0 assignments**, so the Multi-Entity handoff cannot be smoke-tested in Production without provisioning a seat (an approval-gated mutation, deliberately not proposed here).
+- **Shared `vercel.json` now carries `crons` and `headers`,** so a new auth project inherits both: it will emit the anti-framing headers (intended) and declare the daily Budget cron, which fails closed at 405 without `CRON_SECRET` (same as platform/multi-entity today).
+- **Topology constraint:** leg 1 requires `Sec-Fetch-Site: cross-site`. Distinct `*.vercel.app` hosts are separate sites (PSL), so the default topology is correct. Custom subdomains of one shared parent domain would be **same-site** and would break leg 1.
+
+Nothing was committed, pushed, deployed, migrated or mutated by this preflight.
+
+### 2026-09-19 — Auth/IdP rollout STARTED then STOPPED at a credential boundary. Production DB is at 104 migrations; no code deployed.
+
+**Applied to Production (real change):** `20260923000000_auth_handoff_infrastructure.sql` and `20260923010000_auth_handoff_worker_primitives.sql`. Dry run showed exactly these two and nothing else. Post-apply: **104 migrations, latest `20260923010000`, zero drift, zero pending**; `auth_handoff_codes` present with RLS on, **0 policies**, 0 rows; 6 new functions, all verified `anon=false authenticated=false service_role=true`. Business data **byte-identical** to the pre-apply baseline (workspaces 2, permission users 3, roles 8, election owners 2, platform owners 1, voters 1422, budget expenses 1, documents 6, audit events 102, entitlements 3).
+
+These migrations are additive and **inert**: no deployed code references the new objects, and the three surfaces still serve `87e2cdd`, which predates them. Old-runtime compatibility therefore holds by construction.
+
+**Also created:** empty Vercel project `kolbox-auth` (team `nahom10`). It has **no deployment, no Git connection, no environment variables, and no `KOLBOX_SURFACE`** — completely inert. Its canonical production URL is still `--`, so the Auth origin is NOT yet determinable (note `kolbox` maps to `kolbox-gamma.vercel.app`, so the `<project>.vercel.app` pattern cannot be assumed).
+
+**STOPPED at:** copying `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY` to the new project. The only CLI route is `vercel env pull`, which materializes decrypted Production secrets to a local file; the environment's safety classifier blocked it, and that guardrail matches this project's own rule against materializing credentials. No secret file was created and none was read.
+
+**Production user-facing behaviour is unchanged** — nothing was committed, pushed, deployed or cut over; the repo's Vercel link is still `kolbox`; no users, entitlements or business data were touched; Voter Management is untouched.

@@ -3,6 +3,7 @@ import {
   verifyPlatformOwnerJwt,
 } from "../election-day/_platformAuth.js";
 import { getServiceClient } from "../election-day/_ownerAuth.js";
+import { handleAuthBrokerRequest, isAuthBrokerRequest } from "./_authBroker.js";
 import { handleMultiEntityRequest, isMultiEntityRequest } from "./_multiEntitySession.js";
 
 // Platform Stage 2 - PLATFORM OWNER session/context endpoint.
@@ -1484,6 +1485,15 @@ export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
 ): Promise<void> {
+  // Auth-origin partition - evaluated before ANY other logic here, exactly
+  // like the Stage 5 partition below. Presence of `auth_op` hands the whole
+  // request to the broker module, which applies its own deployment gate
+  // (_surfaceGate) and its own verifier; the two never share a decision.
+  if (isAuthBrokerRequest(req.url)) {
+    await handleAuthBrokerRequest(req, res);
+    return;
+  }
+
   // Stage 5 partition - evaluated before ANY Platform Owner logic. See header.
   if (isMultiEntityRequest(req.url)) {
     await handleMultiEntityRequest(req, res);

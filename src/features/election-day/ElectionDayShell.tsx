@@ -14,7 +14,6 @@ import {
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { BUDGET_TEXT } from "../budget/budget.constants";
 import { budgetNavItemsFor, useBudgetSession } from "../budget/budgetSession";
-import { useAuth } from "../auth/authStore";
 import { usePermissions } from "../../permissions/usePermissions";
 import { AppShell } from "../../app/AppShell";
 import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
@@ -73,24 +72,14 @@ export function ElectionDayShell() {
   const logout = async () => {
     try {
       await logoutAction();
-      navigate(ROUTES.electionDayLogin, { replace: true });
+      // Unified entry: every election-origin sign-out returns to the one
+      // KOLBOX entry screen, never a principal-specific login path.
+      navigate(ROUTES.login, { replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : COMMON_TEXT.genericError);
     }
   };
   const { can } = usePermissions();
-
-  // Same managerOnly filter AppLayout.tsx applies to NAV_ITEMS, reused as-is
-  // (not a new permission mechanism) - `useAuth`'s Supabase session listener
-  // is already subscribed at module load regardless of route, so reading it
-  // here costs no new fetch and doesn't connect Election Day's own login to
-  // Supabase Auth in any way.
-  const supabaseUser = useAuth((s) => s.user);
-  const mainNavItems = useMemo(
-    () =>
-      NAV_ITEMS.filter((item) => !item.managerOnly || supabaseUser?.role === "manager"),
-    [supabaseUser?.role],
-  );
 
   const visibleNavItems = useMemo(() => getVisibleElectionDayNavItems(can), [can]);
 
@@ -127,7 +116,7 @@ export function ElectionDayShell() {
 
   return (
     <AppShell
-      navItems={mainNavItems}
+      navItems={NAV_ITEMS}
       navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
       sections={electionDaySections}
       mobileNavItems={visibleNavItems}

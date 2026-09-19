@@ -69,7 +69,10 @@ export function OwnerAdminShell() {
 
   const handleLogout = async () => {
     await runLogout();
-    void navigate(ROUTES.electionDayOwnerLogin, { replace: true });
+    // Unified entry: the Owner returns to the one KOLBOX entry screen, which
+    // offers the Owner realm one click away. Session revocation itself is
+    // unchanged - `logout()` above still does the full sign-out first.
+    void navigate(ROUTES.login, { replace: true });
   };
 
   const enabledModules = (summary?.modules ?? []).filter((m) => m.enabled);

@@ -1,34 +1,32 @@
 import { useMemo } from "react";
 import { Outlet, useNavigate } from "react-router";
-import { ROLE_LABELS } from "../constants/labels";
+import { toast } from "../components/ui/Toast";
+import { COMMON_TEXT } from "../constants/common-text";
 import {
   ELECTION_DAY_NAV_SECTION_LABEL,
   NAV_ITEMS,
   ROUTES,
   VOTER_MANAGEMENT_NAV_SECTION_LABEL,
 } from "../constants/routes";
-import { useAuth } from "../features/auth/authStore";
-import { useSyncActivistProfile } from "../features/auth/useSyncActivistProfile";
 import { getVisibleElectionDayNavItems } from "../features/election-day/electionDayNavVisibility";
+import { useElectionDaySession } from "../features/election-day/electionDaySession";
 import { usePermissions } from "../permissions/usePermissions";
 import { AppShell } from "./AppShell";
 
-/** Main app shell - AppShell chrome + Supabase auth identity, plus (UX v3.1)
- * an "יום הבחירות" section built from the SAME `getVisibleElectionDayNavItems`
- * filter `ElectionDayShell` uses, so the two never drift. Election Day still
- * has its own shell (`ElectionDayShell`) with its own nav/identity - the two
- * don't share a mounted layout (see router.tsx). */
+/** Voter Management's shell - AppShell chrome plus the "יום הבחירות" section
+ * built from the SAME `getVisibleElectionDayNavItems` filter `ElectionDayShell`
+ * uses, so the two never drift.
+ *
+ * Legacy-login cutover: the identity here is now the workspace PermissionUser
+ * session (the same one Election Day and Budget use), not the retired Supabase
+ * campaign user. `VoterManagementGuard` sits ABOVE this shell in the router,
+ * so nothing renders here until that session resolved and the workspace was
+ * found entitled. */
 export function AppLayout() {
-  const user = useAuth((s) => s.user);
-  const signOut = useAuth((s) => s.signOut);
   const navigate = useNavigate();
-  useSyncActivistProfile(user);
+  const sessionUser = useElectionDaySession((s) => s.user);
+  const logoutAction = useElectionDaySession((s) => s.logout);
   const { can } = usePermissions();
-
-  const navItems = useMemo(
-    () => NAV_ITEMS.filter((item) => !item.managerOnly || user?.role === "manager"),
-    [user?.role],
-  );
 
   const electionDaySections = useMemo(
     () => [
@@ -40,22 +38,28 @@ export function AppLayout() {
     [can],
   );
 
-  const doLogout = async () => {
-    await signOut();
-    void navigate(ROUTES.login, { replace: true });
+  // Same contract as the other two shells: a failed DELETE is reported and
+  // changes nothing, never reported as a successful sign-out.
+  const logout = async () => {
+    try {
+      await logoutAction();
+      navigate(ROUTES.login, { replace: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : COMMON_TEXT.genericError);
+    }
   };
 
   return (
     <AppShell
-      navItems={navItems}
+      navItems={NAV_ITEMS}
       navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
       sections={electionDaySections}
       footer={
-        user
+        sessionUser
           ? {
-              name: user.name,
-              subtitle: user.role ? ROLE_LABELS[user.role] : "",
-              onLogout: () => void doLogout(),
+              name: sessionUser.name,
+              subtitle: VOTER_MANAGEMENT_NAV_SECTION_LABEL,
+              onLogout: () => void logout(),
             }
           : undefined
       }

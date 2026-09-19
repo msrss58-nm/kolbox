@@ -12,7 +12,6 @@ import {
   VOTER_MANAGEMENT_NAV_SECTION_LABEL,
 } from "../../constants/routes";
 import { usePermissions } from "../../permissions/usePermissions";
-import { useAuth } from "../auth/authStore";
 import { getVisibleElectionDayNavItems } from "../election-day/electionDayNavVisibility";
 import { useElectionDaySession } from "../election-day/electionDaySession";
 import { BUDGET_TEXT } from "./budget.constants";
@@ -30,15 +29,9 @@ export function BudgetShell() {
   const resetBudget = useBudgetSession((s) => s.reset);
   const logoutAction = useElectionDaySession((s) => s.logout);
   const { can } = usePermissions();
-  const supabaseUser = useAuth((s) => s.user);
 
   const hasElectionDay = Boolean(session?.modules.includes("election_day"));
   const budgetItems = useMemo(() => budgetNavItemsFor(session), [session]);
-
-  const mainNavItems = useMemo(
-    () => NAV_ITEMS.filter((item) => !item.managerOnly || supabaseUser?.role === "manager"),
-    [supabaseUser?.role],
-  );
 
   const sections = useMemo(() => {
     const out: ShellNavSection[] = [];
@@ -53,7 +46,8 @@ export function BudgetShell() {
     try {
       await logoutAction();
       resetBudget();
-      navigate(ROUTES.electionDayLogin, { replace: true });
+      // Unified entry - see ElectionDayShell's matching comment.
+      navigate(ROUTES.login, { replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : COMMON_TEXT.genericError);
     }
@@ -61,7 +55,7 @@ export function BudgetShell() {
 
   return (
     <AppShell
-      navItems={mainNavItems}
+      navItems={NAV_ITEMS}
       navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
       sections={sections}
       mobileNavItems={budgetItems}

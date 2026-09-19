@@ -5,6 +5,16 @@
       "schedule": "0 3 * * *"
     }
   ],
+  "_comment_headers": "frame-ancestors cannot be delivered by <meta> (the CSP spec ignores it there), so the anti-framing directive for the Auth origin has to be a real header. This vercel.json is shared by all four projects and has no per-project conditional, so it is applied to EVERY surface - which is safe and correct here: nothing in this application is ever framed (no iframe exists in src/). The rest of the strict Auth-origin policy is emitted as a build-time <meta> by vite.config.ts, because default-src 'none' would break the three application surfaces.",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
+        { "key": "X-Frame-Options", "value": "DENY" }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/election-day/permission-users-delete",
@@ -29,6 +39,22 @@
     {
       "source": "/api/election-day/owner-session",
       "destination": "/api/election-day/owner-actions?op=session"
+    },
+    {
+      "source": "/api/auth/login",
+      "destination": "/api/platform/session?auth_op=login"
+    },
+    {
+      "source": "/api/auth/continue",
+      "destination": "/api/platform/session?auth_op=continue"
+    },
+    {
+      "source": "/api/auth/txn",
+      "destination": "/api/platform/session?auth_op=txn"
+    },
+    {
+      "source": "/api/auth/complete",
+      "destination": "/api/platform/session?auth_op=complete"
     },
     {
       "source": "/api/multi-entity/session",

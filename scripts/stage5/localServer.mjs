@@ -14,7 +14,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const rewrites = JSON.parse(fs.readFileSync(path.join(repoRoot, "vercel.json"), "utf8")).rewrites;
+const vercelConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, "vercel.json"), "utf8"));
+const rewrites = vercelConfig.rewrites;
+/** vercel.json's own `headers` table, applied to static responses exactly as
+ * the deployment will - so a suite can prove header-only CSP directives
+ * (frame-ancestors, which <meta> cannot carry) actually reach the browser. */
+const headerRules = vercelConfig.headers ?? [];
+function staticHeadersFor(pathname) {
+  const out = {};
+  for (const rule of headerRules) {
+    if (rule.source !== "/(.*)" && rule.source !== pathname) continue;
+    for (const h of rule.headers ?? []) out[String(h.key).toLowerCase()] = h.value;
+  }
+  return out;
+}
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -66,11 +79,22 @@ export function startLocalServer({ distDir, handlers, port }) {
       }
       let raw = "";
       for await (const chunk of req) raw += chunk;
+      // Vercel parses BOTH JSON and urlencoded request bodies into an object.
+      // The urlencoded branch matters for the Auth-origin handoff, which
+      // arrives as a cross-origin HTML form POST (OIDC form_post response
+      // mode) - without it the form fields would be silently dropped here.
       let body;
-      try {
-        body = raw ? JSON.parse(raw) : undefined;
-      } catch {
+      const contentType = String(req.headers["content-type"] ?? "");
+      if (!raw) {
         body = undefined;
+      } else if (contentType.includes("application/x-www-form-urlencoded")) {
+        body = Object.fromEntries(new URLSearchParams(raw));
+      } else {
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          body = undefined;
+        }
       }
       const headers = {};
       const vres = {
@@ -109,7 +133,10 @@ export function startLocalServer({ distDir, handlers, port }) {
     if (!file.startsWith(distDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       file = path.join(distDir, "index.html");
     }
-    res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": MIME[path.extname(file)] ?? "application/octet-stream",
+      ...staticHeadersFor(u.pathname),
+    });
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));

@@ -18,8 +18,14 @@ export interface ServerSessionUser {
   /** Server-derived metadata only - never an authorization authority on the
    * frontend (see CLAUDE.md's Phase 3B notes). */
   workspaceId: string;
-  /** Budget Stage 3: the workspace's effective worker modules, sent by login
-   * only. Navigation metadata - never an authorization input. */
+  /** The workspace's EFFECTIVE worker modules (entitlement row AND the
+   * module's global availability), sent by both `login()` and `getSession()`
+   * - a module guard must be able to resolve entitlement on a reload or a
+   * deep link, not only in the tab that logged in. Navigation metadata -
+   * never an authorization input, and every module re-checks its own
+   * entitlement server-side. Optional by contract: an absent field means
+   * "no entitlement could be established" and must be treated as such
+   * (fail closed), never as "allow". */
   modules?: string[];
 }
 

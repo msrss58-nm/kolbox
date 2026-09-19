@@ -31,19 +31,16 @@ import { APP_SHELL_TEXT } from "./appShell.constants";
  * entire point of the origin split.
  */
 
-/** The canonical Platform Owner origin. Hard-coded rather than read from an
- * env var: a redirect target that a misconfigured deployment could repoint is
- * exactly the kind of thing an origin split must not have. */
-const PLATFORM_ORIGIN = "https://kolbox-platform.vercel.app";
+/** Every destination this component can ever produce - the same hard-coded,
+ * key-addressed map the unified entry screen links through, now kept in one
+ * audited place (`./origins`). Behaviour here is unchanged: this shim still
+ * accepts only the three platform keys below. */
+import { KOLBOX_ORIGIN_URLS } from "./origins";
 
-/** Every destination this component can ever produce. `/platform/mfa` has no
- * entry of its own on purpose - on the platform surface that path is itself
- * just a `<Navigate>` to the console, so the console IS its canonical
- * destination and the MFA architecture is untouched by this shim. */
 const PLATFORM_ORIGIN_URLS = {
-  console: `${PLATFORM_ORIGIN}/platform`,
-  login: `${PLATFORM_ORIGIN}/platform/login`,
-  setPassword: `${PLATFORM_ORIGIN}/platform/set-password`,
+  console: KOLBOX_ORIGIN_URLS.console,
+  login: KOLBOX_ORIGIN_URLS.login,
+  setPassword: KOLBOX_ORIGIN_URLS.setPassword,
 } as const;
 
 export type PlatformOriginTarget = keyof typeof PLATFORM_ORIGIN_URLS;
