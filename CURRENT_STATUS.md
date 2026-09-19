@@ -4394,3 +4394,39 @@ These migrations are additive and **inert**: no deployed code references the new
 **STOPPED at:** copying `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_SECRET_KEY` to the new project. The only CLI route is `vercel env pull`, which materializes decrypted Production secrets to a local file; the environment's safety classifier blocked it, and that guardrail matches this project's own rule against materializing credentials. No secret file was created and none was read.
 
 **Production user-facing behaviour is unchanged** — nothing was committed, pushed, deployed or cut over; the repo's Vercel link is still `kolbox`; no users, entitlements or business data were touched; Voter Management is untouched.
+
+### 2026-09-20 — Auth/IdP Production rollout COMPLETED (code deployed on all four origins; broker live on the Auth origin only)
+
+Resumed after the credential STOP above, once the Vercel project `kolbox-auth` had been connected to `msrss58-nm/kolbox` (branch `master`) and given `VITE_APP_SURFACE=auth` plus the three Supabase variables by hand.
+
+**Commits:** `fed9d9d` (the rollout, 34 files) and three corrections, each diagnosed from real evidence rather than retried blind:
+
+- `40a0469` — a `_comment_headers` key in `vercel.json` failed **all four** deployments before any build began (Duration "?", no build log). JSON has no comments and Vercel rejects unknown top-level properties. Production kept serving the previous deployment throughout.
+- `c994b14` — `kolbox-auth` failed with `No Output Directory named "build" found`: the project was created through the CLI and so carries no framework preset. Fixed with `"outputDirectory": "dist"`, a no-op for the three Vite-detected projects.
+- `86ee23b` — `/api/health` reported the auth deployment as `"election"` because `KNOWN_SURFACES` predated the auth surface. Confirmed cosmetic before fixing: the bundle was already correct (CSP meta present, no Google Fonts, auth-sized asset).
+
+A fourth scare — all four origins returning **403 `X-Vercel-Mitigated: challenge`** — was **not** an outage: Vercel bot-mitigation was reacting to two concurrent curl pollers from one IP. Diagnosed rather than "fixed"; polling was stopped and the Vercel API used instead.
+
+**Deployed:** all four surfaces serve `86ee23b`, reporting `election` / `platform` / `multi_entity` / `auth`. `KOLBOX_SURFACE=auth` is set on `kolbox-auth` only (a non-secret value, set through a throwaway directory so the repo's Vercel link stayed `kolbox`; verified identical afterwards).
+
+**Production security gates:** `/api/auth/login` → **404** on election, platform and multi-entity; **401** (generic) on auth. `/api/auth/continue` → 404 on auth. Forged code at the election exchange → 401; foreign Origin → 403; GET → 405. Broker responses carry `no-store` and **no** `Access-Control-Allow-Origin`. Live CSP exactly as designed, with `frame-ancestors 'none'` + `X-Frame-Options: DENY` on all origins. Direct per-origin login routes remain fully alive — **no CONTRACT**.
+
+**Database:** 104 migrations, latest `20260923010000`, zero drift, zero pending; `auth_handoff_codes` RLS-on with 0 policies and 0 rows after smoke; business data unchanged.
+
+### 2026-09-20 — Auth entry VISUAL CORRECTION: the approved KOLBOX sign-in design restored on the Auth origin
+
+**The defect.** The Auth origin shipped the unified credential form inside a bare centred white card instead of the approved KOLBOX sign-in design (split screen, branded purple/violet panel). Every security gate, every adversarial case and every end-to-end flow passed — and the regression still reached Production, because **nothing asserted the design**. This is the lesson worth keeping: a suite that only tests behaviour cannot protect appearance.
+
+**The correction is visual only.** No authentication logic, route, RPC, gate, cookie, CSP directive or migration changed. The retired e-mail OTP flow was **not** restored.
+
+**Reuse, not re-creation.** The split-screen shell was extracted verbatim from the original main-app login page into `src/components/AuthBrandLayout.tsx`, with its copy in `src/constants/brand.ts`. `AuthEntryScreen`, the auto-submitting `AuthContinueForm`, the election origin's own `EntryScreen` and the legacy `LoginPage` now render **one** implementation of that design, so the Auth origin cannot drift from the approved original by construction. (`LoginPage` has been unrouted dead code since the legacy-login retirement; it was updated rather than duplicated, and was deliberately not deleted — that is a separate decision.)
+
+**`EntryScreen` was included deliberately, not incidentally.** It serves `/`, `/login` and `/election-day/login` on the election origin and is the documented fallback for clients that strip `Origin` — a real user path that survives CONTRACT. It carried exactly the same bare centred layout, so leaving it would have meant the fallback still showed the design that was rejected. Its owner-realm links, testids and touch targets are unchanged.
+
+**No CSP weakening was needed, and none was made.** The branded panel is Tailwind utilities, an inline `<svg>` wordmark and CSS gradients: no inline `style`, no background-image URL, no webfont, no remote asset. The auth surface keeps `default-src 'none'` and continues to drop Google Fonts, falling back to the system Hebrew face — the pre-existing, deliberate trade.
+
+**RTL.** The brand panel is the first flex child, so in a right-to-left document it sits on the **right** and the login area on the **left** — the approved arrangement, now asserted by geometry rather than class order, so a physical-property regression would fail the suite.
+
+**New retained suite `scripts/auth/ui-auth-visual.mjs` (45/0)** — the regression guard this defect proves was missing. It needs no database and no Supabase stack (it serves the built bundle statically and never submits), so it is cheap enough to run on every change to the entry screen. It asserts the branded split-screen layout and its geometry at 1280×800; the unified behaviour inside it (one identifier, one password, a working visibility toggle, the worker system-code path appearing and clearing); the **absence** of the OTP flow both on screen and in the shipped bundle; a professional 390 px layout with no horizontal overflow, ≥44 px touch target and RTL intact; and the strict CSP with no `unsafe-*`, no webfont and no remote asset.
+
+Three of its checks failed on first run and **all three were bugs in the suite, not in the product** — proven against the built HTML before being changed: the RTL assertion was written backwards, `svg.first()` matched the hidden brand panel's wordmark, and the "no remote asset" regex was counting the CSP `form-action` policy values as fetched assets.

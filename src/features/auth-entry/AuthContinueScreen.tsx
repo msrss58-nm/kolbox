@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { AuthBrandLayout } from "../../components/AuthBrandLayout";
 import { LogoMark } from "../../components/Logo";
 import { AUTH_ENTRY_TEXT } from "./authEntry.constants";
 
@@ -31,9 +32,12 @@ export function AuthContinueForm({ handoff }: { handoff: PendingHandoff }) {
     formRef.current?.submit();
   }, []);
 
+  // Rendered inside the same branded shell as the entry form it replaces, so
+  // the hand-off reads as one continuous screen instead of collapsing the
+  // brand panel for the moment before the cross-origin POST leaves.
   return (
-    <div className="grid min-h-dvh place-items-center bg-surface p-6">
-      <div className="w-full max-w-sm space-y-4 text-center">
+    <AuthBrandLayout>
+      <div className="space-y-4 text-center animate-fade-in">
         <LogoMark className="mx-auto size-12 animate-pulse" />
         <p className="text-sm text-slate-600">{AUTH_ENTRY_TEXT.continuing}</p>
         <form
@@ -48,7 +52,7 @@ export function AuthContinueForm({ handoff }: { handoff: PendingHandoff }) {
           </noscript>
         </form>
       </div>
-    </div>
+    </AuthBrandLayout>
   );
 }
 
