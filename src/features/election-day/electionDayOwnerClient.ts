@@ -360,7 +360,9 @@ export type ProvisionWorkspaceResult =
 async function postOwnerAction(
   accessToken: string,
   body: Record<string, unknown>,
-): Promise<{ ok: true; data: unknown } | { ok: false; code: string }> {
+): Promise<
+  { ok: true; data: unknown } | { ok: false; code: string; suggestion?: string }
+> {
   try {
     const res = await fetch(OWNER_ACTIONS_ENDPOINT, {
       method: "POST",
@@ -380,7 +382,15 @@ async function postOwnerAction(
       typeof (parsed as { error?: unknown }).error === "string"
         ? (parsed as { error: string }).error
         : "SERVER_ERROR";
-    return { ok: false, code };
+    // A taken login username is answered with the next free one, so the Owner
+    // can accept it rather than guess. Carried through as data, not as copy.
+    const suggestion =
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { suggestion?: unknown }).suggestion === "string"
+        ? (parsed as { suggestion: string }).suggestion
+        : undefined;
+    return { ok: false, code, suggestion };
   } catch {
     return { ok: false, code: "SERVER_ERROR" };
   }
@@ -498,14 +508,16 @@ export async function fetchOwnerWorkspaceModules(
 
 export type OwnerUserMutationResult =
   | { status: "ok" }
-  | { status: "error"; code: string };
+  | { status: "error"; code: string; suggestion?: string };
 
 async function postOwnerUserMutation(
   accessToken: string,
   body: Record<string, unknown>,
 ): Promise<OwnerUserMutationResult> {
   const result = await postOwnerAction(accessToken, body);
-  return result.ok ? { status: "ok" } : { status: "error", code: result.code };
+  return result.ok
+    ? { status: "ok" }
+    : { status: "error", code: result.code, suggestion: result.suggestion };
 }
 
 export function createOwnerPermissionUser(
@@ -519,6 +531,11 @@ export function createOwnerPermissionUser(
     name: input.name,
     password: input.password,
     roleId: input.roleId,
+    // Omitted entirely when blank, so the server applies its own default
+    // (the name the Owner typed) rather than receiving an empty string.
+    ...(input.username && input.username.trim() !== ""
+      ? { username: input.username.trim() }
+      : {}),
   });
 }
 

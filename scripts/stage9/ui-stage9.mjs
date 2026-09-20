@@ -217,6 +217,8 @@ try {
   check("P3 submitting with NO module is refused in the form", await waitText(page, "יש לבחור לפחות מודול אחד", 5000));
   check("P4 ... and nothing was created server-side", psql(`select count(*) from public.election_workspace_pending_owner_access where email = '${email("owner")}'`) === "0");
   await form.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
+  // Unified identity: the approval now also sets the Owner's LOGIN username.
+  await form.locator('input[name="owner-approval-username"]').fill("s9ui owner");
   await form.getByRole("button", { name: "אישור ויצירת קישור" }).click();
   await page.getByText("הבעלים אושר").waitFor({ timeout: 15000 });
   const link = await page.locator('[dir="ltr"]').filter({ hasText: "/election-day/owner-set-password" }).first().innerText();
@@ -301,8 +303,15 @@ try {
   check("U2 Owner creates an ordinary user", true);
   const mgrRow = usersCard.locator("li").filter({ hasText: "s9ui-manager" });
   const ordRow = usersCard.locator("li").filter({ hasText: "s9ui-ordinary" });
-  check("U3 the Manager's reset action is disabled (Owner cannot reset a Manager)",
-    await mgrRow.getByRole("button", { name: "לא ניתן לאפס סיסמה של משתמש בתפקיד מנהל" }).isDisabled());
+  // CONTRACT CHANGE (unified identity): the Owner may now reset ANY of their
+  // users, Manager roles included - a Manager has no e-mail and no
+  // self-service recovery, so their Owner is the only recovery path. The
+  // server-side CANNOT_RESET_MANAGER refusal was lifted with this button, so
+  // the UI is not standing in for an enforcement rule.
+  check("U3 the Manager's reset action is now OFFERED (CANNOT_RESET_MANAGER lifted)",
+    await mgrRow.getByRole("button", { name: "איפוס סיסמה" }).isEnabled());
+  check("U3b no disabled 'cannot reset a Manager' affordance remains",
+    (await mgrRow.getByRole("button", { name: "לא ניתן לאפס סיסמה של משתמש בתפקיד מנהל" }).count()) === 0);
   const newOrdinaryPw = randomPassword();
   await ordRow.getByRole("button", { name: "איפוס סיסמה" }).click();
   const resetDlg = ePage.getByRole("dialog").filter({ hasText: "איפוס סיסמה" });

@@ -765,6 +765,16 @@ export const ELECTION_DAY_TEXT = {
     modalTitle: "הוסף משתמש",
     nameLabel: "שם",
     namePlaceholder: "שם המשתמש",
+    /** The LOGIN username. Separate from the display name above, because the
+     * Users login screen has no system code: the username alone resolves the
+     * workspace, so it must be unique across every workspace, while the
+     * display name stays workspace-scoped and may repeat. */
+    usernameLabel: "שם משתמש לכניסה",
+    usernameHint: "ברירת המחדל היא השם המלא. חייב להיות ייחודי בכל המערכות.",
+    usernameTakenTitle: "שם המשתמש לכניסה כבר תפוס",
+    usernameTakenSuggestion: (name: string) => `השם הפנוי הבא: ${name}`,
+    usernameTakenNoSuggestion: "בחרו שם משתמש אחר לכניסה.",
+    usernameUseSuggestion: "השתמשו בשם המוצע",
     passwordLabel: "סיסמה",
     passwordPlaceholder: "סיסמה",
     showPasswordAriaLabel: "הצג סיסמה",
@@ -852,8 +862,7 @@ export const ELECTION_DAY_TEXT = {
     confirmDeleteButton: "מחיקת התפקיד",
     /** Platform Stage 9: the explicit Manager-role flag. */
     managerLabel: "תפקיד מנהל",
-    managerHint:
-      "סמנו לתפקידי ניהול. לא ניתן לאפס את הסיסמה של משתמש בתפקיד מנהל מתוך ניהול המשתמשים - ניתן למחוק וליצור אותו מחדש.",
+    managerHint: "סמנו לתפקידי ניהול. תפקיד מנהל מקנה הרשאות ניהול במערכת.",
     managerBadge: "מנהל",
     toast: {
       created: "התפקיד נוצר",

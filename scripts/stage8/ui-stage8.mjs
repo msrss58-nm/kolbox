@@ -39,6 +39,17 @@ import {
   totp,
 } from "../stage5/lib.mjs";
 
+/**
+ * Unified identity: every Owner-class provisioning op now claims a LOGIN
+ * username, because an Owner with no auth_identities row could never reach
+ * their dedicated login screen. Unique per call so a suite that provisions
+ * many principals never trips the global per-realm uniqueness rule.
+ */
+let __usernameSeq = 0;
+const suiteUsername = (hint = "u") =>
+  `suite ${hint} ${Date.now().toString(36)} ${++__usernameSeq}`;
+
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const outDir = path.resolve(
   process.argv[2] ?? path.join(os.tmpdir(), "kolbox-stage8-ui"),
@@ -387,7 +398,8 @@ try {
   const co = await pPost({
     op: "create_owner_access",
     name: "בעלים שהשלים",
-    email: email("eo-done"),
+    email: email("eo-done"), username: suiteUsername(),
+    username: suiteUsername(),
     modules: ["election_day"],
   });
   const doneUser = (await usersWith(email("eo-done")))[0];

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Blocks, Building2, ListChecks, Power, ScrollText, UserPlus } from "lucide-react";
 import {
   AdminListFrame,
@@ -8,10 +8,13 @@ import {
 import { Button } from "../../components/ui/Button";
 import { Drawer } from "../../components/ui/Drawer";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { Select } from "../../components/ui/Field";
+import { Field, Input, Select } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { moduleLabel } from "../../constants/labels";
 import { cn } from "../../lib/utils";
+import { toast } from "../../components/ui/Toast";
+import { platformOwnerAuthClient } from "../../services/supabase/platformOwnerAuthClient";
+import { setOwnUsername } from "./platformOwnerClient";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { formatDateTime } from "./multiEntityFormat";
 import { ModuleAvailabilityDialog } from "./ModuleAvailabilityDialog";
@@ -596,11 +599,128 @@ export function PlatformSettingsSection() {
           <dl className="divide-y divide-slate-100">
             <IdentityRow label={c.emailLabel} value={owner?.email ?? ""} />
             <IdentityRow label={c.ownerIdLabel} value={owner?.platformOwnerId ?? ""} />
+            <IdentityRow
+              label={c.usernameLabel}
+              value={owner?.username ?? c.usernameUnset}
+            />
             <IdentityRow label={c.mfaLabel} value={c.mfaValue} />
           </dl>
         </AdminListFrame>
+        {owner && owner.username === null && <PlatformOwnerUsernameForm />}
         <p className="text-xs text-slate-500">{c.stageNote}</p>
       </div>
     </AdminSection>
+  );
+}
+
+/**
+ * Claims the Platform Owner's own application username - the identity the
+ * dedicated /login/platform-owner screen resolves. Offered ONCE: the row above
+ * replaces it as soon as a username exists, because a username is permanent
+ * for the life of the principal.
+ */
+function PlatformOwnerUsernameForm() {
+  const c = T.console;
+  const refreshStatus = usePlatformOwnerSession((s) => s.refreshStatus);
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy || value.trim() === "") return;
+    setBusy(true);
+    setError(null);
+    setSuggestion(null);
+    try {
+      const { data: sess } = await platformOwnerAuthClient.auth.getSession();
+      const token = sess.session?.access_token ?? null;
+      if (!token) {
+        setError(c.usernameError);
+        return;
+      }
+      const result = await setOwnUsername(token, value.trim());
+      if (result.status === "ok") {
+        toast.success(c.usernameSaved);
+        // Re-resolve from the server rather than patching local state: the
+        // username is now part of the verified session context.
+        await refreshStatus();
+        setOpen(false);
+        return;
+      }
+      if (result.status === "taken") {
+        setError(c.usernameTaken);
+        setSuggestion(result.suggestion);
+        return;
+      }
+      setError(result.status === "invalid" ? c.usernameInvalid : c.usernameError);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button type="button" variant="secondary" size="sm" onClick={() => setOpen(true)}>
+        {c.usernameSet}
+      </Button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={(e) => void save(e)}
+      className="space-y-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200"
+      data-testid="platform-owner-username-form"
+    >
+      <Field label={c.usernameLabel} error={error ?? undefined}>
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={c.usernamePlaceholder}
+          name="platform-owner-username"
+          autoComplete="off"
+          invalid={!!error}
+          autoFocus
+        />
+        <p className="mt-1 text-xs text-slate-400">{c.usernameHint}</p>
+      </Field>
+      {suggestion && (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-600">{c.usernameSuggestion(suggestion)}</p>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setValue(suggestion);
+              setError(null);
+              setSuggestion(null);
+            }}
+          >
+            {c.usernameUseSuggestion}
+          </Button>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" loading={busy} disabled={value.trim() === ""}>
+          {c.usernameSave}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setOpen(false);
+            setError(null);
+            setSuggestion(null);
+          }}
+        >
+          {c.usernameCancel}
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import type { NewPermissionUser } from "../../services/api/types";
@@ -43,14 +43,35 @@ export function useOwnerUserManagement() {
   }, [owner, getAccessToken]);
   const { data: users, error: loadError, reload } = useAsyncData(fetchUsers);
 
+  // A taken login username is NOT a failure toast: it is a decision the Owner
+  // has to make, so it is surfaced as state the form can act on.
+  const [usernameCollision, setUsernameCollision] = useState<{
+    requested: string;
+    suggestion: string | null;
+  } | null>(null);
+
   const { run: runCreate } = useAsyncAction(
     async (proof: string, accessToken: string, input: NewPermissionUser) => {
       const result = await createOwnerPermissionUser(accessToken, proof, input);
-      if (result.status === "ok") return true;
+      if (result.status === "ok") {
+        setUsernameCollision(null);
+        return true;
+      }
+      if (result.code === "USERNAME_TAKEN") {
+        setUsernameCollision({
+          requested: (input.username ?? input.name).trim(),
+          suggestion: result.suggestion ?? null,
+        });
+        // Swallowed deliberately: the form renders the collision inline, and a
+        // generic red toast on top of it would be noise, not information.
+        return false;
+      }
       throw new Error(mapOwnerMutationErrorCode(result.code));
     },
     { successMessage: ELECTION_DAY_TEXT.permissionsManager.toast.added },
   );
+  const clearUsernameCollision = useCallback(() => setUsernameCollision(null), []);
+
   const createUser = useCallback(
     (input: NewPermissionUser) =>
       reauth.gate(
@@ -140,5 +161,7 @@ export function useOwnerUserManagement() {
     deleteUser,
     resetPassword,
     reauthDialog: reauth.reauthDialog,
+    usernameCollision,
+    clearUsernameCollision,
   };
 }

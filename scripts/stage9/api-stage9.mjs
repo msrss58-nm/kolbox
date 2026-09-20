@@ -28,6 +28,16 @@ import {
   tally,
 } from "../stage5/lib.mjs";
 
+/**
+ * Unified identity: create_owner_access now also claims the Owner's LOGIN
+ * username, because an Owner with no auth_identities row could never reach
+ * /login/election-owner. Unique per call so provisioning several Owners never
+ * trips the global per-realm uniqueness rule.
+ */
+let __usernameSeq = 0;
+const suiteUsername = () => `s9 owner ${Date.now().toString(36)} ${++__usernameSeq}`;
+
+
 loadStack();
 installLocalnetGuard();
 const ORIGIN = "http://localhost:5173";
@@ -173,7 +183,7 @@ check("SETUP Platform Owner aal2 ready", !!PO && !!PO_AAL1);
 async function onboardOwner(label, modules) {
   const addr = email(label);
   const appr = await pPost(
-    { op: "create_owner_access", name: `S9 ${label}`, email: addr, modules },
+    { op: "create_owner_access", name: `S9 ${label}`, email: addr, modules, username: suiteUsername() },
     PO,
   );
   const c = anon();
@@ -196,20 +206,20 @@ const modulesOf = (wsId) =>
 // ---------------------------------------------------------------------------
 section("A. APPROVAL WITH EXPLICIT MODULES");
 {
-  const r1 = await pPost({ op: "create_owner_access", name: "no modules", email: email("nomod") }, PO);
+  const r1 = await pPost({ op: "create_owner_access", name: "no modules", email: email("nomod") , username: suiteUsername() }, PO);
   check("A1 approval WITHOUT modules -> 400 INVALID_MODULES", r1.statusCode === 400 && r1.body?.error === "INVALID_MODULES", `${r1.statusCode}`);
-  const r2 = await pPost({ op: "create_owner_access", name: "empty", email: email("emptymod"), modules: [] }, PO);
+  const r2 = await pPost({ op: "create_owner_access", name: "empty", email: email("emptymod"), modules: [] , username: suiteUsername() }, PO);
   check("A2 approval with an EMPTY module list -> 400 INVALID_MODULES", r2.statusCode === 400 && r2.body?.error === "INVALID_MODULES");
-  const r3 = await pPost({ op: "create_owner_access", name: "bad", email: email("badmod"), modules: ["not_a_module"] }, PO);
+  const r3 = await pPost({ op: "create_owner_access", name: "bad", email: email("badmod"), modules: ["not_a_module"] , username: suiteUsername() }, PO);
   check("A3 approval with an UNKNOWN module -> 400 INVALID_MODULES", r3.statusCode === 400 && r3.body?.error === "INVALID_MODULES");
   check("A4 none of the refused approvals created an Auth user or an approval row",
     (await usersWith(email("nomod"))).length === 0 &&
       (await usersWith(email("emptymod"))).length === 0 &&
       (await usersWith(email("badmod"))).length === 0 &&
       psql(`select count(*) from public.election_workspace_pending_owner_access where email in ('${email("nomod")}','${email("emptymod")}','${email("badmod")}')`) === "0");
-  const r4 = await pPost({ op: "create_owner_access", name: "junk", email: email("junk"), modules: ["Bad Key!"] }, PO);
+  const r4 = await pPost({ op: "create_owner_access", name: "junk", email: email("junk"), modules: ["Bad Key!"] , username: suiteUsername() }, PO);
   check("A5 a syntactically invalid key is refused before any DB work (400)", r4.statusCode === 400);
-  const r5 = await pPost({ op: "create_owner_access", name: "aal1", email: email("aal1"), modules: ["election_day"] }, PO_AAL1);
+  const r5 = await pPost({ op: "create_owner_access", name: "aal1", email: email("aal1"), modules: ["election_day"] , username: suiteUsername() }, PO_AAL1);
   check("A6 aal1 Platform Owner cannot approve (401)", r5.statusCode === 401);
 }
 
@@ -273,9 +283,23 @@ const usersA = (await oGet("list_permission_users", A.token)).body ?? [];
 const managerA = usersA.find((u) => u.name === "s9-manager");
 const ordinaryA = usersA.find((u) => u.name === "s9-ordinary");
 {
+  // CONTRACT CHANGE (unified identity): the Stage 9 CANNOT_RESET_MANAGER
+  // refusal was deliberately lifted. A Manager has a username and a password
+  // and NO e-mail, so their Owner is the only possible recovery path; and the
+  // same Owner could already delete and recreate that Manager, a strictly
+  // more destructive route to the same authority.
   const p = await proof(A.token, A.pw, "reset_permission_user_password");
-  const rm = await oPost({ op: "reset_permission_user_password", reauthProof: p.value, targetUserId: managerA.id, newPassword: "irrelevant-1" }, A.token);
-  check("C9 Owner cannot reset a Manager-role user (409 CANNOT_RESET_MANAGER)", rm.statusCode === 409 && rm.body?.error === "CANNOT_RESET_MANAGER");
+  const mgrTmpPw = randomPassword();
+  const rm = await oPost({ op: "reset_permission_user_password", reauthProof: p.value, targetUserId: managerA.id, newPassword: mgrTmpPw }, A.token);
+  check("C9 Owner CAN reset a Manager-role user's password (CANNOT_RESET_MANAGER lifted)", rm.statusCode === 200, `status=${rm.statusCode} ${JSON.stringify(rm.body)}`);
+  check("C9b the Manager's new password works and the old one is dead",
+    (await puLogin(A.code, "s9-manager", mgrTmpPw)).status === 200 &&
+      (await puLogin(A.code, "s9-manager", managerPw)).status === 401);
+  // Restore it, so the rest of the suite keeps exercising the Manager it set
+  // up rather than silently testing a differently-credentialled account.
+  const pRestore = await proof(A.token, A.pw, "reset_permission_user_password");
+  const rr = await oPost({ op: "reset_permission_user_password", reauthProof: pRestore.value, targetUserId: managerA.id, newPassword: managerPw }, A.token);
+  check("C9c the Manager's original password is restored for the remaining checks", rr.statusCode === 200);
   const login0 = await puLogin(A.code, "s9-ordinary", ordinaryPw);
   const p2 = await proof(A.token, A.pw, "reset_permission_user_password");
   const newPw = randomPassword();
@@ -394,7 +418,7 @@ section("G. PLATFORM OWNER ENTITLEMENT READ / EDIT");
   check("G4 every refused edit left workspace B's entitlements unchanged", modulesOf(B.wsId) === "budget,election_day");
   const noOrigin = await callHandler(H.platformSession, { method: "POST", url: "/api/platform/session", headers: auth(PO), body: { op: "set_workspace_modules", workspaceId: B.wsId, modules: ["budget"] } });
   check("G5 an edit without the Platform Origin -> 403", noOrigin.statusCode === 403);
-  const pend = await pPost({ op: "create_owner_access", name: "S9 pending", email: email("pending"), modules: ["voter_management", "election_day"] }, PO);
+  const pend = await pPost({ op: "create_owner_access", name: "S9 pending", email: email("pending"), modules: ["voter_management", "election_day"] , username: suiteUsername() }, PO);
   const list = await pGet("/api/platform/session?op=owner_access", PO);
   const row = list.body?.approvals?.find((x) => x.pending_id === pend.body?.pendingId);
   check("G6 the approvals list shows the requested modules of a pending approval", JSON.stringify(row?.requested_modules) === '["election_day","voter_management"]');
@@ -497,7 +521,7 @@ section("K. LEGACY APPROVAL WITHOUT MODULES FAILS CLOSED");
 // ---------------------------------------------------------------------------
 section("L. MULTI-ENTITY: A WORKSPACE WITHOUT ELECTION DAY IS UNAVAILABLE, NO COUNTS");
 {
-  const me = await pPost({ op: "provision_multi_entity_owner", name: "S9 Seat", email: email("me") }, PO);
+  const me = await pPost({ op: "provision_multi_entity_owner", name: "S9 Seat", email: email("me"), username: suiteUsername() }, PO);
   const setup = anon();
   await setup.auth.verifyOtp({ token_hash: new URL(me.body?.activationLink).searchParams.get("token_hash"), type: "recovery" });
   const mePw = randomPassword();

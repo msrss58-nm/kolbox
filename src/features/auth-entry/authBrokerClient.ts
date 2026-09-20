@@ -16,6 +16,7 @@ export interface BrokerLoginSuccess {
   targetOrigin: string;
   realm: string;
 }
+
 /** One shape for every failure. The caller cannot distinguish causes, because
  * the server does not tell it any. */
 export type BrokerLoginResult =
@@ -23,44 +24,46 @@ export type BrokerLoginResult =
   | { status: "failed" }
   | { status: "network" };
 
+/**
+ * ONE credential-bearing request, to ONE realm - the realm of the endpoint
+ * the calling screen was built with. There is no realm field in the body and
+ * no fallback to another endpoint on failure.
+ */
 export async function brokerLogin(input: {
-  identifier: string;
+  endpoint: string;
+  username: string;
   password: string;
-  workspaceCode: string;
 }): Promise<BrokerLoginResult> {
   let res: Response;
   try {
-    res = await fetch("/api/auth/login", {
+    res = await fetch(input.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        identifier: input.identifier,
+        username: input.username,
         password: input.password,
-        // Omitted entirely rather than sent empty, so the worker branch is
-        // selected only by a code the user actually supplied.
-        ...(input.workspaceCode.trim() === ""
-          ? {}
-          : { workspaceCode: input.workspaceCode }),
       }),
     });
   } catch {
     return { status: "network" };
   }
-  if (res.status !== 200) return { status: "failed" };
-  let body: unknown;
+
+  let body: unknown = null;
   try {
     body = await res.json();
   } catch {
-    return { status: "failed" };
+    body = null;
   }
-  const b = body as {
+  const b = (body ?? {}) as {
     ok?: boolean;
     code?: unknown;
     targetOrigin?: unknown;
     realm?: unknown;
   };
+
+  if (res.status !== 200) return { status: "failed" };
   if (
-    b?.ok !== true ||
+    b.ok !== true ||
     typeof b.code !== "string" ||
     typeof b.targetOrigin !== "string" ||
     typeof b.realm !== "string"

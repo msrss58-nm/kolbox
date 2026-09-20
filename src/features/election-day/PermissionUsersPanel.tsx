@@ -42,18 +42,27 @@ function CreateUserDialog({
   roles,
   onAdd,
   onClose,
+  collision,
+  onClearCollision,
 }: {
   roles: readonly RoleRecord[];
   onAdd: (input: NewPermissionUser) => Promise<unknown>;
   onClose: () => void;
+  collision: { requested: string; suggestion: string | null } | null;
+  onClearCollision: () => void;
 }) {
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  // Until the Owner edits it, the login username simply mirrors the name, so
+  // the common case needs no thought and no extra typing.
+  const [usernameTouched, setUsernameTouched] = useState(false);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const effectiveRoleId = selectedRoleId ?? roles[0]?.id ?? null;
+  const effectiveUsername = usernameTouched ? username : name;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -70,8 +79,13 @@ function CreateUserDialog({
         name: name.trim(),
         password: password.trim(),
         roleId: effectiveRoleId,
+        username: effectiveUsername.trim(),
       });
-      if (result !== undefined) onClose();
+      // ONLY an outright success closes the dialog. A cancelled step-up
+      // resolves to `undefined` and a taken login username resolves to
+      // `false`; both must leave the form open with what was typed, the
+      // second so the Owner can accept the suggested name in one click.
+      if (result === true) onClose();
     } finally {
       setBusy(false);
     }
@@ -95,6 +109,54 @@ function CreateUserDialog({
             name="new-permission-user-name"
             autoFocus
           />
+        </Field>
+
+        <Field label={text.usernameLabel}>
+          <Input
+            value={effectiveUsername}
+            onChange={(e) => {
+              setUsernameTouched(true);
+              setUsername(e.target.value);
+              onClearCollision();
+            }}
+            autoComplete="off"
+            name="new-permission-user-username"
+            aria-describedby="kb-new-username-hint"
+            invalid={collision !== null}
+          />
+          <p id="kb-new-username-hint" className="mt-1 text-xs text-slate-400">
+            {text.usernameHint}
+          </p>
+          {collision && (
+            <div
+              role="alert"
+              data-testid="username-collision"
+              className="mt-2 space-y-2 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200"
+            >
+              <p className="text-xs font-semibold text-amber-900">
+                {text.usernameTakenTitle}
+              </p>
+              <p className="text-xs text-amber-800">
+                {collision.suggestion
+                  ? text.usernameTakenSuggestion(collision.suggestion)
+                  : text.usernameTakenNoSuggestion}
+              </p>
+              {collision.suggestion && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setUsernameTouched(true);
+                    setUsername(collision.suggestion ?? "");
+                    onClearCollision();
+                  }}
+                >
+                  {text.usernameUseSuggestion}
+                </Button>
+              )}
+            </div>
+          )}
         </Field>
 
         <Field label={text.passwordLabel}>
@@ -172,15 +234,21 @@ export function PermissionUsersPanel({
   onDelete,
   onReset,
   canResetPassword,
+  usernameCollision,
+  onClearUsernameCollision,
 }: {
   users: PermissionUser[];
   roles: readonly RoleRecord[];
   loaded: boolean;
   loadError: unknown;
   onRetry: () => void;
-  /** Resolves to `undefined` when the create did not happen (refused or the
-   * step-up was cancelled) - only `!== undefined` is a success. */
+  /** Resolves to `true` ONLY on a real success. `undefined` means refused or
+   * the step-up was cancelled; `false` means the login username was taken and
+   * the dialog must stay open so the Owner can accept the suggestion. */
   onAdd: (input: NewPermissionUser) => Promise<unknown>;
+  /** A taken login username, with the next free name to offer. */
+  usernameCollision: { requested: string; suggestion: string | null } | null;
+  onClearUsernameCollision: () => void;
   /** Same "undefined on failure" contract as `onAdd`. */
   onDelete: (id: string) => Promise<unknown>;
   onReset: (id: string, newPassword: string) => Promise<unknown>;
@@ -380,7 +448,12 @@ export function PermissionUsersPanel({
         <CreateUserDialog
           roles={roles}
           onAdd={onAdd}
-          onClose={() => setCreateOpen(false)}
+          onClose={() => {
+            onClearUsernameCollision();
+            setCreateOpen(false);
+          }}
+          collision={usernameCollision}
+          onClearCollision={onClearUsernameCollision}
         />
       )}
 

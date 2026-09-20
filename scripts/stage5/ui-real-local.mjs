@@ -32,6 +32,11 @@ import {
   totp,
 } from "./lib.mjs";
 
+/** Unified identity: provisioning now claims a LOGIN username. */
+let __uSeq = 0;
+const suiteUsername = () => `suite me ${Date.now().toString(36)} ${++__uSeq}`;
+
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const outDir = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), "kolbox-stage5-ui"));
 const screens = path.join(outDir, "screens");
@@ -96,7 +101,7 @@ const pPost = (body) =>
   });
 
 process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = BASE;
-const prov = await pPost({ op: "provision_multi_entity_owner", name: "בעל רב-מערכות בדיקה", email: email("me") });
+const prov = await pPost({ op: "provision_multi_entity_owner", name: "בעל רב-מערכות בדיקה", email: email("me") , username: suiteUsername() });
 const link = prov.body?.activationLink ?? "";
 check("S1 provisioning returned a link on the Multi-Entity origin", link.startsWith(`${BASE}/multi-entity/set-password?`));
 
@@ -193,7 +198,7 @@ try {
   check("U10 unassignment reflected when the tab becomes visible again", true);
 
   section("SEAT REPLACEMENT -> FORBIDDEN -> LOGOUT");
-  const rep = await pPost({ op: "provision_multi_entity_owner", name: "מחליף", email: email("me2") });
+  const rep = await pPost({ op: "provision_multi_entity_owner", name: "מחליף", email: email("me2") , username: suiteUsername() });
   check("U11 seat replaced", rep.statusCode === 201 && rep.body?.replaced === true);
   await page.getByRole("button", { name: /רענון/ }).click();
   await page.getByText("אין הרשאת גישה").waitFor({ timeout: 10000 });

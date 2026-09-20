@@ -2,6 +2,7 @@ import { Copy, KeyRound } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Card, CardTitle } from "../../components/ui/Card";
+import { KOLBOX_ORIGIN_URLS } from "../../app/origins";
 import { ROUTES } from "../../constants/routes";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { LtrValue } from "./MultiEntityLtrValue";
@@ -9,16 +10,22 @@ import type { PasswordLinkState } from "./useMultiEntityManagement";
 
 const text = PLATFORM_OWNER_TEXT.multiEntity.passwordLink;
 
-/** Stage 8B: the holder's sign-in address, derived from the link itself - the
- * server builds the link on the configured Multi-Entity origin, so its origin
- * is the one true destination in every environment (local, preview, prod). */
-function loginAddress(link: string): string | null {
+/** The LEGACY per-origin sign-in address, derived from the link itself. Kept
+ * visible only while the direct login routes remain alive during cutover; the
+ * canonical address is the dedicated Multi-Entity login on the auth origin. */
+function legacyLoginAddress(link: string): string | null {
   try {
     return `${new URL(link).origin}${ROUTES.multiEntityLogin}`;
   } catch {
     return null;
   }
 }
+
+/** The canonical address a Platform Owner sends to a new seat holder: the
+ * dedicated Multi-Entity login on the AUTH origin. Taken from the hard-coded
+ * origin map, never derived from the link or the address bar, so it cannot be
+ * repointed by a misconfigured deployment or a crafted URL. */
+const MULTI_ENTITY_LOGIN_URL = KOLBOX_ORIGIN_URLS.multiEntityLoginEntry;
 
 /**
  * The one-time password-setting link, shown once, immediately after a
@@ -42,6 +49,7 @@ export function MultiEntityPasswordLinkPanel({
 }) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [destinationCopied, setDestinationCopied] = useState(false);
 
   const copy = async () => {
     if (!value.link) return;
@@ -53,6 +61,17 @@ export function MultiEntityPasswordLinkPanel({
     } catch {
       // Never a silent failure: the link stays visible and selectable, and the
       // operator is told to copy it by hand.
+      setCopyFailed(true);
+    }
+  };
+
+  const copyDestination = async () => {
+    setCopyFailed(false);
+    try {
+      await navigator.clipboard.writeText(MULTI_ENTITY_LOGIN_URL);
+      setDestinationCopied(true);
+      window.setTimeout(() => setDestinationCopied(false), 2000);
+    } catch {
       setCopyFailed(true);
     }
   };
@@ -90,15 +109,35 @@ export function MultiEntityPasswordLinkPanel({
           )}
           <p className="text-xs text-slate-500">{text.hint}</p>
           <p className="text-xs font-semibold text-slate-600">{text.accessNote}</p>
-          {loginAddress(value.link) && (
-            <div className="space-y-1" data-testid="multi-entity-destination">
-              <p className="text-xs font-semibold text-slate-500">
-                {text.destinationLabel}
+          <div className="space-y-1" data-testid="multi-entity-destination">
+            <p className="text-xs font-semibold text-slate-500">
+              {text.destinationLabel}
+            </p>
+            <LtrValue
+              value={MULTI_ENTITY_LOGIN_URL}
+              mono={false}
+              className="text-sm font-semibold text-slate-800"
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => void copyDestination()}
+              className="w-full sm:w-auto"
+            >
+              <Copy className="me-1 size-4" aria-hidden />
+              {destinationCopied ? text.destinationCopied : text.copyDestination}
+            </Button>
+          </div>
+          {legacyLoginAddress(value.link) && (
+            <div className="space-y-1" data-testid="multi-entity-legacy-destination">
+              <p className="text-xs font-semibold text-slate-400">
+                {text.legacyDestinationLabel}
               </p>
               <LtrValue
-                value={loginAddress(value.link) ?? ""}
+                value={legacyLoginAddress(value.link) ?? ""}
                 mono={false}
-                className="text-sm font-semibold text-slate-800"
+                className="text-xs text-slate-500"
               />
             </div>
           )}

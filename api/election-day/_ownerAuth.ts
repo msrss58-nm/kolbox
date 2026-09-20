@@ -80,5 +80,6 @@ export async function verifyOwnerJwt(
   if (error || !data?.user?.id || !data.user.email) {
     return null;
   }
+
   return { authUserId: data.user.id, email: data.user.email };
 }

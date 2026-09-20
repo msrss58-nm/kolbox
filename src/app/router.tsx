@@ -87,7 +87,7 @@ import { PlatformOwnerSetPasswordScreen } from "../features/platform-owner/Platf
 import { VotersPage } from "../features/voters/VotersPage";
 import { AuthCompleteScreen } from "../features/auth-entry/AuthCompleteScreen";
 import { AuthContinueScreen } from "../features/auth-entry/AuthContinueScreen";
-import { AuthEntryScreen } from "../features/auth-entry/AuthEntryScreen";
+import { AuthLoginScreen } from "../features/auth-entry/AuthLoginScreen";
 import { multiEntityOwnerAuthClient } from "../services/supabase/multiEntityOwnerAuthClient";
 import { ownerAuthClient } from "../services/supabase/ownerAuthClient";
 import { platformOwnerAuthClient } from "../services/supabase/platformOwnerAuthClient";
@@ -185,20 +185,44 @@ const APP_SURFACE: AppSurface =
           : "election";
 
 /**
- * The KOLBOX Auth / IdP surface - the dedicated origin that owns the ONE
- * credential form for every principal. It registers exactly two routes and
- * deliberately carries no application screen: origin separation is what keeps
- * one principal's saved credential from being a fill candidate on another
- * principal's form, and this origin's invariant is that it serves exactly one
- * form, forever.
+ * The KOLBOX Auth / IdP surface - the dedicated origin that owns every
+ * credential form. It carries no application screen: origin separation is
+ * what keeps one principal's saved credential from being a fill candidate on
+ * another principal's form.
+ *
+ * THREE DEDICATED LOGIN ROUTES, one per principal class. THE ROUTE IS WHAT
+ * DECIDES THE REALM - there is no realm selector, no workspace selector and
+ * no system code anywhere on this origin. All three render the SAME component
+ * (AuthLoginScreen), so the approved KOLBOX visual design is identical by
+ * construction rather than by convention; only the title and the field set
+ * differ.
+ *
+ * `/` has no login form of its own on purpose: a bare landing would be a
+ * fourth form and would re-introduce "which kind of user am I?" as a question
+ * the user has to answer. It redirects to the Users screen, which is the
+ * overwhelmingly common case; Owners reach their own URL from the link their
+ * Platform Owner / Election Owner sent them.
  *
  * `/auth/continue` never reads a code from the URL (see AuthContinueScreen) -
  * that absence is a login-CSRF control, not hygiene.
  */
 const authSurfaceRoutes: RouteObject[] = [
-  { path: "/", element: <AuthEntryScreen /> },
+  { path: ROUTES.authLoginUsers, element: <AuthLoginScreen realmKey="users" /> },
+  {
+    path: ROUTES.authLoginElectionOwner,
+    element: <AuthLoginScreen realmKey="electionOwner" />,
+  },
+  {
+    path: ROUTES.authLoginPlatformOwner,
+    element: <AuthLoginScreen realmKey="platformOwner" />,
+  },
+  {
+    path: ROUTES.authLoginMultiEntityOwner,
+    element: <AuthLoginScreen realmKey="multiEntityOwner" />,
+  },
   { path: ROUTES.authContinue, element: <AuthContinueScreen /> },
-  { path: "*", element: <Navigate to="/" replace /> },
+  { path: "/", element: <Navigate to={ROUTES.authLoginUsers} replace /> },
+  { path: "*", element: <Navigate to={ROUTES.authLoginUsers} replace /> },
 ];
 
 /**

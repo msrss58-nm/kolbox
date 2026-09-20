@@ -16,6 +16,7 @@ import {
 } from "./platformOwnerClient";
 
 const text = PLATFORM_OWNER_TEXT.approveOwner;
+const C = PLATFORM_OWNER_TEXT.console;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -46,6 +47,8 @@ export function OwnerApprovalDialog({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [username, setUsername] = useState("");
+  const [usernameSuggestion, setUsernameSuggestion] = useState<string | null>(null);
   const [modules, setModules] = useState<Set<string>>(() => new Set());
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +87,12 @@ export function OwnerApprovalDialog({
       setError(text.modulesRequired);
       return;
     }
+    // Checked AFTER modules so the pre-existing validation precedence is
+    // unchanged for every caller that predates the login username.
+    if (username.trim() === "") {
+      setError(C.approvalUsernameRequired);
+      return;
+    }
 
     setApproving(true);
     try {
@@ -98,8 +107,16 @@ export function OwnerApprovalDialog({
         email: trimmedEmail,
         phone: phone.trim() || undefined,
         modules: [...modules],
+        username: username.trim(),
       });
       if (result.status !== "ok") {
+        // A taken login username is a decision, not a dead end: offer the
+        // next free name inline instead of a generic approval failure.
+        if (result.code === "USERNAME_TAKEN") {
+          setError(C.approvalUsernameTaken);
+          setUsernameSuggestion(result.suggestion ?? null);
+          return;
+        }
         const base = platformApproveOwnerError(result.code);
         setError(
           result.orphanedAuthUserId
@@ -146,6 +163,41 @@ export function OwnerApprovalDialog({
               />
             </Field>
           </div>
+
+          <Field label={C.approvalUsernameLabel}>
+            <Input
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setUsernameSuggestion(null);
+              }}
+              name="owner-approval-username"
+              autoComplete="off"
+              aria-describedby="kb-approval-username-hint"
+            />
+            <p id="kb-approval-username-hint" className="mt-1 text-xs text-slate-400">
+              {C.approvalUsernameHint}
+            </p>
+            {usernameSuggestion && (
+              <div className="mt-2 space-y-2">
+                <p className="text-xs text-slate-600">
+                  {C.approvalUsernameSuggestion(usernameSuggestion)}
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setUsername(usernameSuggestion);
+                    setUsernameSuggestion(null);
+                    setError(null);
+                  }}
+                >
+                  {C.approvalUsernameUseSuggestion}
+                </Button>
+              </div>
+            )}
+          </Field>
 
           <Field label={text.phoneLabel}>
             <Input

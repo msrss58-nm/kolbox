@@ -18,6 +18,9 @@ const PLATFORM_SESSION_ENDPOINT = "/api/platform/session";
 export interface PlatformOwnerContext {
   platformOwnerId: string;
   email: string;
+  /** The Platform Owner's own application username for /login/platform-owner.
+   * Null until claimed - the console then offers the assignment flow. */
+  username: string | null;
 }
 
 export type PlatformOwnerSessionResult =
@@ -30,6 +33,8 @@ export type PlatformOwnerSessionResult =
 function isPlatformOwnerContext(value: unknown): value is PlatformOwnerContext {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
+  // `username` is optional on the wire: an older deployment answers without
+  // it, and that must read as "unclaimed", never as an invalid session.
   return typeof v.platformOwnerId === "string" && typeof v.email === "string";
 }
 
@@ -48,9 +53,18 @@ export async function fetchPlatformOwnerSession(
       } catch {
         return { status: "error" };
       }
-      return isPlatformOwnerContext(body)
-        ? { status: "ok", context: body }
-        : { status: "error" };
+      if (!isPlatformOwnerContext(body)) return { status: "error" };
+      // Normalized, not passed through raw: a missing `username` must become
+      // an explicit null so every consumer can test one shape for "unclaimed".
+      const raw = body as unknown as Record<string, unknown>;
+      return {
+        status: "ok",
+        context: {
+          platformOwnerId: body.platformOwnerId,
+          email: body.email,
+          username: typeof raw.username === "string" ? raw.username : null,
+        },
+      };
     }
     if (res.status === 401) return { status: "unauthorized" };
     return { status: "error" };
@@ -89,13 +103,27 @@ export type CreateOwnerAccessResult =
   /** `orphanedAuthUserId`: the approval failed AND its compensating Auth
    * delete could not be confirmed (AUTH_CLEANUP_INCOMPLETE). Re-approving the
    * same address re-uses that account rather than creating a second one. */
-  | { status: "error"; code: string; orphanedAuthUserId?: string };
+  | {
+      status: "error";
+      code: string;
+      orphanedAuthUserId?: string;
+      /** USERNAME_TAKEN only: the next free login username to offer. */
+      suggestion?: string;
+    };
 
 export async function createOwnerAccess(
   accessToken: string,
   /** Stage 9: `modules` is the Platform Owner's explicit, non-empty module
    * entitlement choice for the workspace this Owner will create. */
-  input: { name: string; email: string; phone?: string; modules: string[] },
+  input: {
+    name: string;
+    email: string;
+    phone?: string;
+    modules: string[];
+    /** The Owner's LOGIN username for /login/election-owner. Required: an
+     * Owner with no directory identity could never sign in. */
+    username: string;
+  },
 ): Promise<CreateOwnerAccessResult> {
   try {
     const res = await fetch(PLATFORM_SESSION_ENDPOINT, {
@@ -110,6 +138,7 @@ export async function createOwnerAccess(
         email: input.email,
         ...(input.phone ? { phone: input.phone } : {}),
         modules: input.modules,
+        username: input.username,
       }),
     });
 
@@ -144,9 +173,13 @@ export async function createOwnerAccess(
         : "SERVER_ERROR";
     const orphan =
       rec(parsed) && str((parsed as Record<string, unknown>).orphanedAuthUserId);
-    return orphan
-      ? { status: "error", code, orphanedAuthUserId: orphan }
-      : { status: "error", code };
+    const suggestion = rec(parsed) && str((parsed as Record<string, unknown>).suggestion);
+    return {
+      status: "error",
+      code,
+      ...(orphan ? { orphanedAuthUserId: orphan } : {}),
+      ...(suggestion ? { suggestion } : {}),
+    };
   } catch {
     return { status: "error", code: "SERVER_ERROR" };
   }
@@ -736,4 +769,57 @@ export async function reissueOwnerAccess(
       activationLink: str(o.activationLink),
     };
   });
+}
+
+export type SetOwnUsernameResult =
+  | { status: "ok"; username: string }
+  | { status: "taken"; suggestion: string | null }
+  | { status: "invalid" }
+  | { status: "error" };
+
+/**
+ * Claims the Platform Owner's own application username - the identity the
+ * dedicated /login/platform-owner screen resolves. Claimed once; a username is
+ * permanent for the life of the principal. No external verification is
+ * involved.
+ */
+export async function setOwnUsername(
+  accessToken: string,
+  username: string,
+): Promise<SetOwnUsernameResult> {
+  try {
+    const res = await fetch(PLATFORM_SESSION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ op: "set_own_username", username }),
+    });
+    let parsed: unknown = null;
+    try {
+      parsed = await res.json();
+    } catch {
+      parsed = null;
+    }
+    const b = (parsed ?? {}) as {
+      ok?: boolean;
+      username?: unknown;
+      error?: unknown;
+      suggestion?: unknown;
+    };
+    if (res.status === 200 && b.ok === true && typeof b.username === "string") {
+      return { status: "ok", username: b.username };
+    }
+    if (res.status === 409 && b.error === "USERNAME_TAKEN") {
+      return {
+        status: "taken",
+        suggestion: typeof b.suggestion === "string" ? b.suggestion : null,
+      };
+    }
+    if (res.status === 400) return { status: "invalid" };
+    return { status: "error" };
+  } catch {
+    return { status: "error" };
+  }
 }

@@ -8,9 +8,11 @@
 //
 // It proves three things at once:
 //   1. the entry screen renders the approved branded split-screen layout;
-//   2. the NEW unified-auth behaviour is what lives inside it (one identifier,
-//      one password, a worker system-code path) - and the retired e-mail OTP
-//      flow is absent from the screen AND from the shipped bundle;
+//   2. all THREE dedicated login screens (Platform Owner, Election Owner,
+//      Manager/User) render that same approved design and differ only by
+//      title and field set - no realm selector, no workspace selector, no
+//      system code and no e-mail identifier on any of them - and the retired
+//      e-mail OTP flow is absent from the screen AND from the shipped bundle;
 //   3. the strict Auth CSP is intact and the page needs no inline script,
 //      inline style, webfont or remote asset to look right.
 //
@@ -128,8 +130,13 @@ try {
   p.on("console", (m) => {
     if (m.type() === "error") pageErrors.push(m.text());
   });
-  await p.goto(`${BASE}/`);
-  await p.getByRole("heading", { name: "כניסה לקולבוקס" }).waitFor({ timeout: 20000 });
+  const USERS_TITLE = "כניסה לקולבוקס - משתמשים";
+  const OWNER_TITLE = "כניסה לקולבוקס - בעל המערכת";
+  const PLATFORM_TITLE = "כניסה לקולבוקס - בעל הפלטפורמה";
+  const MULTI_TITLE = "כניסה לקולבוקס - בעל ריבוי מערכות";
+
+  await p.goto(`${BASE}/login/users`);
+  await p.getByRole("heading", { name: USERS_TITLE }).waitFor({ timeout: 20000 });
 
   // The brand panel is identified structurally - by the gradient utility the
   // approved design uses - not by a test id, so it cannot pass while looking
@@ -177,7 +184,7 @@ try {
 
   // ------------------------------------------- the new auth behaviour ----
   section("THE NEW UNIFIED AUTH BEHAVIOUR LIVES INSIDE THAT DESIGN");
-  check("F1 one identifier field", (await p.locator('input[name="kb-identifier"]').count()) === 1);
+  check("F1 one username field", (await p.locator('input[name="kb-username"]').count()) === 1);
   check(
     "F2 one password field, masked by default",
     (await p.locator('input[name="kb-current-password"]').getAttribute("type")) === "password",
@@ -197,24 +204,98 @@ try {
     (await p.locator('input[name="kb-current-password"]').getAttribute("type")) === "password",
   );
 
+  // The route decides the realm, so NONE of the old disambiguating inputs may
+  // exist on any screen. These are the assertions that would have caught the
+  // old universal form being reintroduced.
   check(
-    "F6 the worker / system-code path is offered",
-    await p.getByRole("button", { name: "כניסת צוות עם קוד מערכת" }).isVisible(),
-  );
-  await p.getByRole("button", { name: "כניסת צוות עם קוד מערכת" }).click();
-  check(
-    "F7 the worker path reveals the system-code field",
-    await p.locator('input[name="kb-workspace-code"]').isVisible(),
-  );
-  await p.getByRole("button", { name: "כניסה עם אימייל" }).click();
-  check(
-    "F8 leaving the worker path hides the system-code field again",
+    "F6 no system-code field on the Users screen",
     (await p.locator('input[name="kb-workspace-code"]').count()) === 0,
+  );
+  check(
+    "F7 no realm selector / staff toggle anywhere on the screen",
+    !(await p.locator("body").innerText()).includes("כניסת צוות"),
+  );
+  check(
+    "F8 the Users screen never asks for an e-mail",
+    (await p.locator('input[type="email"]').count()) === 0 &&
+      (await p.locator('input[name="kb-recovery-email"]').count()) === 0,
   );
 
   const submit = p.locator('form button[type="submit"]');
   check("F9 a single primary submit button", (await submit.count()) === 1);
   check("F10 the submit button reads the login action", (await submit.innerText()).includes("התחברות"));
+
+  // ------------------------------------ the three dedicated surfaces ----
+  section("THREE DEDICATED LOGIN SCREENS, ONE IDENTICAL APPROVED DESIGN");
+
+  const surfaces = [
+    ["T1", "/login/users", USERS_TITLE, false],
+    ["T2", "/login/election-owner", OWNER_TITLE, true],
+    ["T3", "/login/platform-owner", PLATFORM_TITLE, true],
+    ["T4", "/login/multi-entity-owner", MULTI_TITLE, true],
+  ];
+  const geometry = [];
+  for (const [id, route, title, ownerRealm] of surfaces) {
+    await p.goto(`${BASE}${route}`);
+    await p.getByRole("heading", { name: title }).waitFor({ timeout: 20000 });
+
+    const sPanel = p.locator("div.bg-gradient-to-bl.from-primary-950").first();
+    const sBox = await sPanel.boundingBox();
+    const sForm = await p.locator("form").first().boundingBox();
+    geometry.push(sBox && sForm ? `${Math.round(sBox.width)}x${Math.round(sBox.height)}` : "none");
+
+    check(`${id}a ${route} renders the approved branded panel`, await sPanel.isVisible());
+    check(
+      `${id}b ${route} keeps the RTL split (form left, brand right)`,
+      sBox !== null && sForm !== null && sForm.x < sBox.x,
+    );
+    check(
+      `${id}c ${route} shows exactly its own title`,
+      (await p.getByRole("heading", { name: title }).count()) === 1,
+    );
+    check(
+      `${id}d ${route} has username + password and NO system code`,
+      (await p.locator('input[name="kb-username"]').count()) === 1 &&
+        (await p.locator('input[name="kb-current-password"]').count()) === 1 &&
+        (await p.locator('input[name="kb-workspace-code"]').count()) === 0,
+    );
+    // The recovery field must NEVER be rendered before authentication, even on
+    // the two owner screens that can eventually ask for it.
+    check(
+      `${id}e ${route} does not render a recovery-email field before sign-in`,
+      (await p.locator('input[name="kb-recovery-email"]').count()) === 0,
+    );
+    check(
+      `${id}f ${route} offers no realm or workspace selector`,
+      (await p.locator("select").count()) === 0 &&
+        !(await p.locator("body").innerText()).includes("כניסת צוות"),
+    );
+    if (ownerRealm) {
+      check(
+        `${id}g ${route} still asks for a username, not an e-mail`,
+        (await p.locator('input[type="email"]').count()) === 0,
+      );
+    }
+    await p.screenshot({ path: path.join(screens, `auth${id}.png`) });
+  }
+  // Identical design is asserted structurally: the brand panel is the same
+  // size on all three, because all three are the same component.
+  check(
+    "T5 the approved panel geometry is identical across all FOUR screens",
+    geometry.length === 4 && new Set(geometry).size === 1,
+    geometry.join(" | "),
+  );
+  check(
+    "T6 the auth bundle carries all four titles and no legacy system-code label",
+    bundleJs.includes(USERS_TITLE) &&
+      bundleJs.includes(OWNER_TITLE) &&
+      bundleJs.includes(PLATFORM_TITLE) &&
+      bundleJs.includes(MULTI_TITLE) &&
+      !bundleJs.includes("כניסת צוות עם קוד מערכת"),
+  );
+
+  await p.goto(`${BASE}/login/users`);
+  await p.getByRole("heading", { name: USERS_TITLE }).waitFor({ timeout: 20000 });
 
   // --------------------------------------------- the OTP flow is gone ----
   section("THE RETIRED E-MAIL OTP FLOW IS ABSENT");
@@ -250,7 +331,7 @@ try {
   });
   const m = await mctx.newPage();
   m.on("pageerror", (e) => pageErrors.push(String(e)));
-  await m.goto(`${BASE}/`);
+  await m.goto(`${BASE}/login/users`);
   await m.getByRole("heading", { name: "כניסה לקולבוקס" }).waitFor({ timeout: 20000 });
 
   check(
@@ -263,7 +344,7 @@ try {
   check(
     "M2 the logo mark stands in for it",
     (await mobileLogo.isVisible()) &&
-      (await m.locator('input[name="kb-identifier"]').isVisible()),
+      (await m.locator('input[name="kb-username"]').isVisible()),
   );
 
   const overflow = await m.evaluate(() => ({
@@ -283,7 +364,7 @@ try {
     mSubmit && `${Math.round(mSubmit.width)}x${Math.round(mSubmit.height)}`,
   );
 
-  const mId = await m.locator('input[name="kb-identifier"]').boundingBox();
+  const mId = await m.locator('input[name="kb-username"]').boundingBox();
   check(
     "M5 the identifier field is not clipped and keeps a side gutter",
     mId !== null && mId.x >= 8 && mId.x + mId.width <= 390 - 8,

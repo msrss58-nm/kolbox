@@ -1,24 +1,56 @@
 /** Copy for the KOLBOX Auth origin (entry + handoff + confirmation). */
 export const AUTH_ENTRY_TEXT = {
-  title: "כניסה לקולבוקס",
   subtitle: "הזינו את פרטי הכניסה שלכם",
-  identifierLabel: "אימייל או שם משתמש",
+  usernameLabel: "שם משתמש",
   passwordLabel: "סיסמה",
-  workspaceCodeLabel: "קוד מערכת",
-  workspaceCodeHint: "הקוד שקיבלתם ממנהל המערכת",
-  workspaceCodeFromLinkHint: "הקוד מולא אוטומטית מהקישור",
-  staffToggle: "כניסת צוות עם קוד מערכת",
-  staffToggleOff: "כניסה עם אימייל",
   submit: "התחברות",
   showPassword: "הצג סיסמה",
   hidePassword: "הסתר סיסמה",
-  /** ONE message for every failure cause - unknown user, wrong password,
-   * wrong system code, an account that belongs to no realm, rate limiting.
-   * Nothing here may ever reveal which. */
+  /** ONE message for every failure cause - unknown user, wrong password, a
+   * username that belongs to a different realm, rate limiting. Nothing here
+   * may ever reveal which. */
   genericFailure: "פרטי הכניסה שגויים",
   networkFailure: "אין חיבור לאינטרנט - בדקו את החיבור ונסו שוב",
   continuing: "מעבירים אתכם…",
 } as const;
+
+/**
+ * THE FOUR DEDICATED LOGIN SCREENS.
+ *
+ * One shared component renders all four (see AuthLoginScreen), and every one
+ * takes exactly a username and a password. Only the title differs - the
+ * approved KOLBOX split-screen layout is literally the same implementation,
+ * which is what makes "identical visual design" structural rather than a
+ * promise. The realm is carried by the ROUTE, never chosen by the user and
+ * never guessed from what they typed: there is no realm selector, no
+ * workspace selector, no system code and no e-mail on any of them.
+ */
+export interface AuthRealmScreen {
+  /** Sent to the server only as the choice of endpoint, never as a body field. */
+  endpoint: string;
+  title: string;
+}
+
+export const AUTH_REALM_SCREENS = {
+  platformOwner: {
+    endpoint: "/api/auth/login/platform-owner",
+    title: "כניסה לקולבוקס - בעל הפלטפורמה",
+  },
+  electionOwner: {
+    endpoint: "/api/auth/login/election-owner",
+    title: "כניסה לקולבוקס - בעל המערכת",
+  },
+  multiEntityOwner: {
+    endpoint: "/api/auth/login/multi-entity-owner",
+    title: "כניסה לקולבוקס - בעל ריבוי מערכות",
+  },
+  users: {
+    endpoint: "/api/auth/login/users",
+    title: "כניסה לקולבוקס - משתמשים",
+  },
+} as const satisfies Record<string, AuthRealmScreen>;
+
+export type AuthRealmKey = keyof typeof AUTH_REALM_SCREENS;
 
 /** The target-origin confirmation screen. It performs NO second
  * authentication - it only confirms the resolved identity before a session is

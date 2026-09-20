@@ -109,11 +109,15 @@ const MULTI_ENTITY_SET_PASSWORD_PATH = "/multi-entity/set-password";
 // accepted, so its request contract is unchanged.
 const POST_OP_KEYS: Record<string, readonly string[]> = {
   // Stage 9: `modules` (the explicit module entitlement choice) is required.
-  create_owner_access: ["name", "email", "phone", "expiresInDays", "modules"],
+  // `username` is the Election Owner's LOGIN username for /login/election-owner.
+  // Required: without a directory row the Owner could never sign in at all.
+  create_owner_access: ["name", "email", "phone", "expiresInDays", "modules", "username"],
+  // The Platform Owner's own application username for /login/platform-owner.
+  set_own_username: ["username"],
   set_workspace_modules: ["workspaceId", "modules"],
   // Gate 4: a module's GLOBAL availability (the platform-wide kill switch).
   set_module_availability: ["moduleKey", "available"],
-  provision_multi_entity_owner: ["name", "email", "phone"],
+  provision_multi_entity_owner: ["name", "email", "phone", "username"],
   assign_workspace: ["workspaceId"],
   unassign_workspace: ["workspaceId"],
   purge_replaced_auth_user: ["previousAuthUserId"],
@@ -463,6 +467,113 @@ function sendProvisioningFailure(
  * client on the page to consume. Same reasoning, same two-link analysis, as
  * scripts/platform-owner-bootstrap.mjs.
  */
+/**
+ * The login-username half of provisioning, shared by both Owner classes.
+ *
+ * WHY IT LIVES HERE. Every dedicated login surface resolves a principal
+ * through auth_identities. An Owner created without a directory row is an
+ * Owner who can never sign in, so claiming the username is part of
+ * provisioning, not an afterthought.
+ *
+ * Checked BEFORE any Auth account is created, so the ordinary collision case
+ * costs nothing and answers with the next free name instead of a bare error -
+ * the same contract the worker create path uses.
+ */
+async function usernameUnavailable(
+  supabase: ReturnType<typeof getServiceClient>,
+  res: MinimalResponse,
+  realm: string,
+  username: string,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("auth_identity_resolve", {
+    p_realm: realm,
+    p_username: username,
+  });
+  if (error) {
+    sendError(res, 500, "SERVER_ERROR");
+    return true;
+  }
+  const taken = !!data && (!Array.isArray(data) || data.length > 0);
+  if (!taken) return false;
+
+  const { data: suggestion } = await supabase.rpc("auth_identity_suggest_username", {
+    p_realm: realm,
+    p_base: username,
+  });
+  res.status(409).json({
+    error: "USERNAME_TAKEN",
+    requested: username,
+    suggestion: typeof suggestion === "string" ? suggestion : null,
+  });
+  return true;
+}
+
+/** The Platform Owner's own application username, or null when unclaimed. */
+async function readOwnUsername(authUserId: string): Promise<string | null> {
+  try {
+    const supabase = getServiceClient();
+    // Through the DEFINER accessor, never a direct table read: auth_identities
+    // grants nothing to any role by design.
+    const { data, error } = await supabase.rpc("auth_identity_for_subject", {
+      p_auth_user_id: authUserId,
+    });
+    if (error) return null;
+    return typeof data === "string" && data !== "" ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Maps auth_identity_assign's named errors onto the console's shapes. */
+function usernameErrorCode(message: string): { status: number; code: string } {
+  if (message.includes("USERNAME_TAKEN")) return { status: 409, code: "USERNAME_TAKEN" };
+  if (message.includes("SUBJECT_ALREADY_ASSIGNED")) {
+    return { status: 409, code: "USERNAME_ALREADY_SET" };
+  }
+  return { status: 400, code: "INVALID_USERNAME" };
+}
+
+/**
+ * The Platform Owner sets their OWN application username - the identity the
+ * dedicated /login/platform-owner screen resolves. Claimed once; a username is
+ * permanent for the life of the principal.
+ */
+async function handleSetOwnUsername(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  authUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const username = str(body.username).trim();
+  if (!username) {
+    sendError(res, 400, "INVALID_USERNAME");
+    return;
+  }
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  if (await usernameUnavailable(supabase, res, "platform_owner", username)) return;
+
+  const { error } = await supabase.rpc("auth_identity_assign", {
+    p_realm: "platform_owner",
+    p_username: username,
+    p_auth_user_id: authUserId,
+    p_actor_id: null,
+    p_workspace_id: null,
+  });
+  if (error) {
+    const { status, code } = usernameErrorCode(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  res.status(200).json({ ok: true, username });
+}
+
 async function handleCreateOwnerAccess(
   req: MinimalRequest,
   res: MinimalResponse,
@@ -473,9 +584,10 @@ async function handleCreateOwnerAccess(
   const name = str(body.name);
   const email = str(body.email).toLowerCase();
   const phone = str(body.phone);
+  const username = str(body.username).trim();
   const expiresInDaysRaw = body.expiresInDays;
 
-  if (!name || !email || !looksLikeEmail(email)) {
+  if (!name || !email || !looksLikeEmail(email) || !username) {
     sendError(res, 400, "INVALID_REQUEST");
     return;
   }
@@ -533,6 +645,11 @@ async function handleCreateOwnerAccess(
     sendError(res, 400, "INVALID_MODULES");
     return;
   }
+
+  // --- 0a. The login username must be free BEFORE anything is created, so
+  // the ordinary collision case costs nothing and answers with the next free
+  // name instead of a bare error.
+  if (await usernameUnavailable(supabase, res, "election_owner", username)) return;
 
   // --- 0. Classify the address BEFORE creating anything (Stage 8B) ---------
   // An address with an approval is re-issued from the approvals list, never
@@ -609,6 +726,36 @@ async function handleCreateOwnerAccess(
     createdHere = true;
   } else {
     sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  // --- 1b. Claim the Owner's login username --------------------------------
+  // Before the approval row, so a collision costs only the compensating
+  // delete of the account created moments ago and leaves no approval behind.
+  //
+  // IDEMPOTENT for a re-approval: when this flow adopts an account it created
+  // earlier, that account already holds its username. A username is permanent
+  // for the life of a principal, so the existing one stands and the claim is
+  // skipped - re-approving must not fail with SUBJECT_ALREADY_ASSIGNED.
+  const existingUsername = await readOwnUsername(authUserId);
+  const { error: usernameErr } = existingUsername
+    ? { error: null as null }
+    : await supabase.rpc("auth_identity_assign", {
+        p_realm: "election_owner",
+        p_username: username,
+        p_auth_user_id: authUserId,
+        p_actor_id: null,
+        p_workspace_id: null,
+      });
+  if (usernameErr) {
+    const { status, code } = usernameErrorCode(usernameErr.message ?? "");
+    await sendOwnerAccessFailure(
+      res,
+      supabase,
+      status,
+      code,
+      createdHere ? authUserId : null,
+    );
     return;
   }
 
@@ -888,8 +1035,9 @@ async function handleProvisionMultiEntityOwner(
   const name = str(body.name);
   const email = str(body.email).toLowerCase();
   const phone = str(body.phone);
+  const meUsername = str(body.username).trim();
 
-  if (!name || !email || !looksLikeEmail(email)) {
+  if (!name || !email || !looksLikeEmail(email) || !meUsername) {
     sendError(res, 400, "INVALID_REQUEST");
     return;
   }
@@ -917,6 +1065,10 @@ async function handleProvisionMultiEntityOwner(
   }
 
   // --- 1. Auth user, no password (same rule as an Election Owner) ----------
+  // Same pre-check as the Election Owner path: free the collision case from
+  // ever creating an Auth account.
+  if (await usernameUnavailable(supabase, res, "multi_entity_owner", meUsername)) return;
+
   const { data: created, error: createErr } = await supabase.auth.admin.createUser({
     email,
     email_confirm: true,
@@ -973,6 +1125,23 @@ async function handleProvisionMultiEntityOwner(
       sendOrphanedAuthUser(res, status, code, authUserId);
       return;
     }
+    sendError(res, status, code);
+    return;
+  }
+
+  // --- 1b. Claim the seat holder's login username --------------------------
+  // Same rule as the Election Owner: without a directory row the holder could
+  // never reach /login/multi-entity-owner.
+  const { error: meUsernameErr } = await supabase.rpc("auth_identity_assign", {
+    p_realm: "multi_entity_owner",
+    p_username: meUsername,
+    p_auth_user_id: authUserId,
+    p_actor_id: null,
+    p_workspace_id: null,
+  });
+  if (meUsernameErr) {
+    await deleteAuthUserConfirmed(supabase, authUserId);
+    const { status, code } = usernameErrorCode(meUsernameErr.message ?? "");
     sendError(res, status, code);
     return;
   }
@@ -1582,13 +1751,20 @@ export default async function handler(
     }
     // Default GET payload is deliberately unchanged - the Platform Owner client
     // shape-guards on exactly these two keys.
-    res
-      .status(200)
-      .json({ platformOwnerId: verified.platformOwnerId, email: verified.email });
+    res.status(200).json({
+      platformOwnerId: verified.platformOwnerId,
+      email: verified.email,
+      // Null until the Platform Owner has claimed an application username;
+      // the console uses this to show the assignment flow exactly once.
+      username: await readOwnUsername(verified.authUserId),
+    });
     return;
   }
 
   switch (postOp) {
+    case "set_own_username":
+      await handleSetOwnUsername(req, res, verified.authUserId);
+      return;
     case "create_owner_access":
       await handleCreateOwnerAccess(req, res, verified.authUserId);
       return;

@@ -83,15 +83,24 @@ const OPS: Record<string, OpDescriptor> = {
   },
   create_permission_user: {
     method: "POST",
-    rpc: "election_day_create_permission_user_owner_v3",
+    // v4 = v3 plus the globally-unique login username, claimed in the same
+    // transaction. `username` is optional: omitted, the server defaults it to
+    // the name the Owner typed (first name + last name).
+    rpc: "election_day_create_permission_user_owner_v4",
     requiresProof: true,
     requiredKeys: ["name", "password", "roleId"],
     buildParams: (b) => {
       const name = str(b.name).trim();
       const password = str(b.password);
       const roleId = str(b.roleId);
+      const username = str(b.username).trim();
       if (!name || !password || !UUID_PATTERN.test(roleId)) return null;
-      return { p_name: name, p_password: password, p_role_id: roleId };
+      return {
+        p_name: name,
+        p_password: password,
+        p_role_id: roleId,
+        p_username: username === "" ? null : username,
+      };
     },
   },
   delete_permission_user: {
@@ -492,6 +501,12 @@ function mapRpcError(error: { message?: string; code?: string } | undefined): {
       return { status: 404, code: "USER_NOT_FOUND" };
     case "CANNOT_RESET_MANAGER":
       return { status: 409, code: "CANNOT_RESET_MANAGER" };
+    case "USERNAME_TAKEN":
+      return { status: 409, code: "USERNAME_TAKEN" };
+    case "INVALID_USERNAME":
+      return { status: 400, code: "INVALID_USERNAME" };
+    case "NO_USERNAME_AVAILABLE":
+      return { status: 409, code: "NO_USERNAME_AVAILABLE" };
     case "INVALID_PASSWORD":
       return { status: 400, code: "INVALID_PASSWORD" };
     case "VOTER_NOT_FOUND":
@@ -734,6 +749,9 @@ export default async function handler(
     "op",
     ...(descriptor.requiresProof ? ["reauthProof"] : []),
     ...descriptor.requiredKeys,
+    // Optional on create_permission_user: when absent the server defaults the
+    // login username to the name the Owner typed.
+    "username",
     "arranged",
     "requested",
     "completed",
@@ -811,6 +829,25 @@ export default async function handler(
 
   if (rpcResult.error) {
     const { status, code } = mapRpcError(rpcResult.error);
+    // A taken login username is an ordinary product outcome, not a failure to
+    // report generically: answer with the next free name so the Owner can
+    // accept it in one click instead of guessing.
+    if (code === "USERNAME_TAKEN" && opName === "create_permission_user") {
+      const base = str(body.username).trim() || str(body.name).trim();
+      const suggestion = await supabase.rpc("auth_identity_suggest_username", {
+        p_realm: "worker",
+        p_base: base,
+      });
+      res.status(409).json({
+        error: "USERNAME_TAKEN",
+        requested: base,
+        suggestion:
+          !suggestion.error && typeof suggestion.data === "string"
+            ? suggestion.data
+            : null,
+      });
+      return;
+    }
     sendError(res, status, code);
     return;
   }

@@ -15,9 +15,6 @@ const adminText = ELECTION_DAY_TEXT.owner.admin;
 /** Users: create / delete Managers and ordinary users, reset ordinary users. */
 export function OwnerUsersSection() {
   const { userManagement, roleManagement } = useOwnerAdmin();
-  const managerRoleIds = new Set(
-    roleManagement.roles.filter((r) => r.isManager).map((r) => r.id),
-  );
   return (
     <PermissionUsersPanel
       users={userManagement.users}
@@ -28,7 +25,14 @@ export function OwnerUsersSection() {
       onAdd={userManagement.createUser}
       onDelete={userManagement.deleteUser}
       onReset={userManagement.resetPassword}
-      canResetPassword={(u) => !managerRoleIds.has(u.roleId)}
+      // The Owner may now reset ANY of their users, Manager roles included:
+      // a Manager has no e-mail and no self-service recovery, so their Owner
+      // is the only possible recovery path. The server-side
+      // CANNOT_RESET_MANAGER refusal was lifted with it, so this is not a
+      // hidden button standing in for an enforcement rule.
+      canResetPassword={() => true}
+      usernameCollision={userManagement.usernameCollision}
+      onClearUsernameCollision={userManagement.clearUsernameCollision}
     />
   );
 }

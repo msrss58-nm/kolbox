@@ -129,6 +129,12 @@ export const ROUTES = {
   budget: "/budget",
   /** KOLBOX Auth origin: the cross-origin `form_post` bridge. Never receives
    * the handoff code from the URL - see AuthContinueScreen. */
+  /** The three dedicated KOLBOX login routes on the auth origin. The route
+   * itself determines the realm the server will authenticate against. */
+  authLoginUsers: "/login/users",
+  authLoginElectionOwner: "/login/election-owner",
+  authLoginPlatformOwner: "/login/platform-owner",
+  authLoginMultiEntityOwner: "/login/multi-entity-owner",
   authContinue: "/auth/continue",
   /** Leg 2 of the handoff, registered on each TARGET origin (election,
    * platform, multi-entity). The confirmation screen that must be accepted

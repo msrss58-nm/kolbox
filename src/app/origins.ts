@@ -22,6 +22,7 @@
  */
 const PLATFORM_ORIGIN = "https://kolbox-platform.vercel.app";
 const MULTI_ENTITY_ORIGIN = "https://kolbox-multi-entity.vercel.app";
+const AUTH_ORIGIN = "https://kolbox-auth.vercel.app";
 
 export const KOLBOX_ORIGIN_URLS = {
   /** `/platform/mfa` has no entry on purpose - on the platform surface that
@@ -31,6 +32,12 @@ export const KOLBOX_ORIGIN_URLS = {
   login: `${PLATFORM_ORIGIN}/platform/login`,
   setPassword: `${PLATFORM_ORIGIN}/platform/set-password`,
   multiEntityLogin: `${MULTI_ENTITY_ORIGIN}/multi-entity/login`,
+  /** The dedicated Multi-Entity login on the AUTH origin - the address a
+   * Platform Owner sends to a new seat holder. Hard-coded like every other
+   * entry here: a cross-origin destination that a misconfigured deployment
+   * or a crafted URL could repoint is exactly what an origin split must not
+   * have. */
+  multiEntityLoginEntry: `${AUTH_ORIGIN}/login/multi-entity-owner`,
 } as const;
 
 export type KolboxOriginTarget = keyof typeof KOLBOX_ORIGIN_URLS;

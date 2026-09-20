@@ -94,6 +94,11 @@ export interface NewPermissionUser {
   name: string;
   password: string;
   roleId: string;
+  /** Optional LOGIN username. Omitted, the server defaults it to `name`
+   * (first name + last name). Unlike `name`, it must be unique across
+   * every workspace, because the Users login screen carries no system
+   * code and the username alone resolves the workspace. */
+  username?: string;
 }
 
 /** Dynamic Roles & Permissions Phase 2: role create/update input. `scopeType`

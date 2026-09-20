@@ -10,8 +10,14 @@
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
-        { "key": "X-Frame-Options", "value": "DENY" }
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'none'"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        }
       ]
     }
   ],
@@ -41,10 +47,6 @@
       "destination": "/api/election-day/owner-actions?op=session"
     },
     {
-      "source": "/api/auth/login",
-      "destination": "/api/platform/session?auth_op=login"
-    },
-    {
       "source": "/api/auth/continue",
       "destination": "/api/platform/session?auth_op=continue"
     },
@@ -71,6 +73,22 @@
     {
       "source": "/api/multi-entity/workspace-aggregates",
       "destination": "/api/platform/session?me_op=workspace_aggregates"
+    },
+    {
+      "source": "/api/auth/login/platform-owner",
+      "destination": "/api/platform/session?auth_op=login_platform_owner"
+    },
+    {
+      "source": "/api/auth/login/election-owner",
+      "destination": "/api/platform/session?auth_op=login_election_owner"
+    },
+    {
+      "source": "/api/auth/login/users",
+      "destination": "/api/platform/session?auth_op=login_worker"
+    },
+    {
+      "source": "/api/auth/login/multi-entity-owner",
+      "destination": "/api/platform/session?auth_op=login_multi_entity_owner"
     },
     {
       "source": "/(.*)",

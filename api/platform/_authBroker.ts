@@ -35,6 +35,8 @@ import {
   targetDeploymentRealms,
 } from "../_surfaceGate.js";
 
+type Realm = "worker" | "election_owner" | "platform_owner" | "multi_entity_owner";
+
 export interface BrokerRequest {
   method?: string;
   url?: string;
@@ -50,7 +52,28 @@ export interface BrokerResponse {
 }
 
 const PARTITION_KEY = "auth_op";
-const AUTH_OPS = new Set<string>(["login", "continue", "txn", "complete"]);
+
+/**
+ * THREE DEDICATED LOGIN OPS - one per login screen. The REALM COMES FROM THE
+ * OP, i.e. from the route the user visited, never from a body field and never
+ * from guessing at the shape of what they typed. That is what removes the
+ * realm selector, the system code and the e-mail heuristic all at once: the
+ * Users screen can only ever resolve a worker, the Owner screen only an
+ * Election Owner, the Platform screen only the Platform Owner.
+ */
+const LOGIN_OPS: Record<string, Realm> = {
+  login_worker: "worker",
+  login_election_owner: "election_owner",
+  login_platform_owner: "platform_owner",
+  login_multi_entity_owner: "multi_entity_owner",
+};
+
+const AUTH_OPS = new Set<string>([
+  ...Object.keys(LOGIN_OPS),
+  "continue",
+  "txn",
+  "complete",
+]);
 
 /** 90 s for the code (architecture invariant); 120 s for the RP transaction,
  * which must survive a redirect plus a human reading the confirmation. */
@@ -170,8 +193,6 @@ async function sleepUntil(startedAt: number, floorMs: number): Promise<void> {
 // login - AUTH DEPLOYMENT ONLY
 // ---------------------------------------------------------------------------
 
-type Realm = "worker" | "election_owner" | "platform_owner" | "multi_entity_owner";
-
 const REALM_TARGET_ENV: Record<Exclude<Realm, "worker">, string> = {
   election_owner: "KOLBOX_ELECTION_ORIGIN",
   platform_owner: "KOLBOX_PLATFORM_ORIGIN",
@@ -184,7 +205,17 @@ function targetOriginFor(realm: Realm): string | null {
   return raw === "" ? null : raw.replace(/\/+$/, "");
 }
 
-async function handleLogin(req: BrokerRequest, res: BrokerResponse): Promise<void> {
+/**
+ * Resolves a username inside ONE realm and authenticates against that realm's
+ * own credential store. Exactly one credential-bearing call per submit; a
+ * failure is never retried against another realm, because there is no other
+ * realm to try - the route already decided.
+ */
+async function handleLogin(
+  req: BrokerRequest,
+  res: BrokerResponse,
+  realm: Realm,
+): Promise<void> {
   const startedAt = Date.now();
 
   if (req.method !== "POST") return deny(res, 405);
@@ -195,13 +226,14 @@ async function handleLogin(req: BrokerRequest, res: BrokerResponse): Promise<voi
   if (!origin || !auth || !constantTimeEquals(origin, auth)) return deny(res, 403);
 
   const body = bodyOf(req);
-  if (!keysAllowed(body, ["identifier", "password", "workspaceCode"])) {
+  // Username and password only. No workspace code, no e-mail identifier, no
+  // realm field: the route already decided the realm.
+  if (!keysAllowed(body, ["username", "password"])) {
     return deny(res, 400);
   }
-  const identifier = str(body.identifier).trim();
+  const username = str(body.username).trim();
   const password = str(body.password);
-  const workspaceCode = str(body.workspaceCode).trim();
-  if (identifier === "" || password === "") {
+  if (username === "" || password === "") {
     await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
     return deny(res, 401);
   }
@@ -213,8 +245,10 @@ async function handleLogin(req: BrokerRequest, res: BrokerResponse): Promise<voi
     return deny(res, 500);
   }
 
-  // Rate limit BEFORE any credential work, reusing the existing buckets.
-  const idBucket = `auth:id:${sha256Hex(identifier.toLowerCase())}`;
+  // Rate limit BEFORE any credential work. The bucket is scoped to the realm
+  // as well as the username, so one realm's lockout can never deny service to
+  // a different principal who happens to share a username in another realm.
+  const idBucket = `auth:${realm}:${sha256Hex(username.toLowerCase())}`;
   const ip = clientIp(req);
   const [idAttempts, ipAttempts] = await Promise.all([
     supabase.rpc("election_day_register_login_attempt", { p_bucket_key: idBucket }),
@@ -233,41 +267,70 @@ async function handleLogin(req: BrokerRequest, res: BrokerResponse): Promise<voi
     return deny(res, 429);
   }
 
-  let realm: Realm | null = null;
+  // ONE directory lookup, scoped to this route's realm. A username belonging
+  // to a different realm resolves to nothing here, which is exactly the
+  // wrong-realm rejection - and it is indistinguishable from "no such user".
+  const { data: idData, error: idError } = await supabase.rpc("auth_identity_resolve", {
+    p_realm: realm,
+    p_username: username,
+  });
+  if (idError) return deny(res, 500);
+  const idRow = (Array.isArray(idData) ? idData[0] : idData) as
+    | { auth_user_id: string | null; actor_id: string | null }
+    | undefined;
+  if (!idRow) {
+    await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
+    return deny(res, 401);
+  }
+
   let authUserId: string | null = null;
   let actorId: string | null = null;
   let workspaceId: string | null = null;
   let displayName = "";
   let displayContext: string | null = null;
 
-  if (workspaceCode !== "") {
-    // WORKER REALM. Chosen by the presence of a workspace code - an input that
-    // exists in exactly one realm. Exactly ONE credential-bearing call; a
-    // failure is never retried against another realm.
-    const { data, error } = await supabase.rpc("election_day_verify_credentials_v1", {
-      p_workspace_code: workspaceCode,
-      p_name: identifier,
-      p_password: password,
-    });
+  if (realm === "worker") {
+    if (!idRow.actor_id) {
+      await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
+      return deny(res, 401);
+    }
+    // The workspace is derived inside this RPC from the actor's own row -
+    // never from the directory and never from anything the client sent. That
+    // is what keeps tenant isolation intact now the system code is gone.
+    const { data, error } = await supabase.rpc(
+      "election_day_verify_credentials_by_actor_v1",
+      { p_actor_id: idRow.actor_id, p_password: password },
+    );
     if (error || !data || (Array.isArray(data) && data.length === 0)) {
       await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
       return deny(res, 401);
     }
     const row = (Array.isArray(data) ? data[0] : data) as {
-      actor_id: string;
       actor_name: string;
       workspace_id: string;
       workspace_name: string;
     };
-    realm = "worker";
-    actorId = row.actor_id;
+    actorId = idRow.actor_id;
     workspaceId = row.workspace_id;
     displayName = row.actor_name;
     displayContext = row.workspace_name;
   } else {
-    // OWNER CLASS. ONE authentication against the shared auth.users - never
-    // three speculative attempts. The realm is then a POST-AUTHENTICATION
-    // lookup using no password at all.
+    // OWNER REALMS. The e-mail is fetched server-side from the Auth account
+    // the directory named; it is never typed, never returned, and never a
+    // credential the user supplies.
+    if (!idRow.auth_user_id) {
+      await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
+      return deny(res, 401);
+    }
+    const { data: userData, error: userError } = await supabase.auth.admin.getUserById(
+      idRow.auth_user_id,
+    );
+    if (userError || !userData?.user?.email) {
+      await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
+      return deny(res, 401);
+    }
+    const email = userData.user.email;
+
     let anonClient: ReturnType<typeof getAnonAuthClient>;
     try {
       anonClient = getAnonAuthClient();
@@ -275,43 +338,45 @@ async function handleLogin(req: BrokerRequest, res: BrokerResponse): Promise<voi
       return deny(res, 500);
     }
     const { data: signIn, error: signInError } = await anonClient.auth.signInWithPassword(
-      {
-        email: identifier,
-        password,
-      },
+      { email, password },
     );
-    if (signInError || !signIn?.user) {
+    if (signInError || !signIn?.user || signIn.user.id !== idRow.auth_user_id) {
       await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
       return deny(res, 401);
     }
-    const userId = signIn.user.id;
-    const email = signIn.user.email ?? identifier;
-    // The broker holds no session: this isolated client is signed out
-    // immediately, LOCALLY, so it can never revoke the principal's real
-    // sessions on their own origin (all owner realms share auth.users).
+    // LOCAL scope: all owner realms share auth.users, so a global sign-out
+    // here would revoke the principal's real sessions on their own origin.
     await anonClient.auth.signOut({ scope: "local" });
 
-    // Fixed order. Each resolver answers only "mine / not mine" and never
-    // names a realm, which is what makes try-in-order safe rather than an
-    // oracle. None of these takes a password.
-    const probes: { realm: Realm; fn: string }[] = [
-      { realm: "platform_owner", fn: "platform_resolve_owner_context" },
-      { realm: "election_owner", fn: "election_day_resolve_owner_context" },
-      { realm: "multi_entity_owner", fn: "multi_entity_resolve_owner_context" },
-    ];
-    for (const probe of probes) {
-      const { data, error } = await supabase.rpc(probe.fn, { p_auth_user_id: userId });
-      if (!error && data && (!Array.isArray(data) || data.length > 0)) {
-        realm = probe.realm;
-        break;
-      }
+    // The directory said which realm this is; the realm's own resolver must
+    // agree before anything is issued. Defence in depth: a stale directory
+    // row can never by itself admit someone to a console.
+    const resolverFor: Record<string, string> = {
+      platform_owner: "platform_resolve_owner_context",
+      election_owner: "election_day_resolve_owner_context",
+      multi_entity_owner: "multi_entity_resolve_owner_context",
+    };
+    const { data: ctx, error: ctxError } = await supabase.rpc(resolverFor[realm], {
+      p_auth_user_id: idRow.auth_user_id,
+    });
+    let confirmed = !ctxError && !!ctx && (!Array.isArray(ctx) || ctx.length > 0);
+    // An approved-but-unprovisioned Election Owner has no election_owners row
+    // yet. They must still be able to sign in - that first sign-in is how they
+    // reach the setup screen and create their workspace.
+    if (!confirmed && realm === "election_owner") {
+      const { data: pending, error: pendingError } = await supabase.rpc(
+        "election_day_resolve_owner_provisioning_state",
+        { p_auth_user_id: idRow.auth_user_id },
+      );
+      confirmed =
+        !pendingError && !!pending && (!Array.isArray(pending) || pending.length > 0);
     }
-    if (realm === null) {
+    if (!confirmed) {
       await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
       return deny(res, 401);
     }
-    authUserId = userId;
-    // Masked BEFORE storage, so no raw email is ever written to the row.
+
+    authUserId = idRow.auth_user_id;
     displayName = maskEmail(email);
   }
 
@@ -337,9 +402,6 @@ async function handleLogin(req: BrokerRequest, res: BrokerResponse): Promise<voi
 
   await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
   noStore(res);
-  // The code is returned to the SAME-ORIGIN caller only, held in memory by
-  // the page, and submitted as a form field. It is never placed in a URL,
-  // localStorage, sessionStorage or a cookie.
   res.status(200).json({ ok: true, code: rawCode, targetOrigin: target, realm });
 }
 
@@ -629,11 +691,12 @@ export async function handleAuthBrokerRequest(
   const op = ops[0];
   const host = req.headers.host;
 
-  if (op === "login") {
-    // 404, not 403: a wrong-surface caller learns nothing about whether the
-    // op exists here.
+  // The four login ops live on the AUTH deployment only. 404, not 403: a
+  // wrong-surface caller learns nothing about whether the op exists here.
+  const loginRealm = LOGIN_OPS[op];
+  if (loginRealm) {
     if (!isAuthDeployment(host)) return deny(res, 404);
-    return handleLogin(req, res);
+    return handleLogin(req, res, loginRealm);
   }
 
   const realms = targetDeploymentRealms(host);

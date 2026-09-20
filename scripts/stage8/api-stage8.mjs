@@ -31,6 +31,17 @@ import {
   tally,
 } from "../stage5/lib.mjs";
 
+/**
+ * Unified identity: every Owner-class provisioning op now claims a LOGIN
+ * username, because an Owner with no auth_identities row could never reach
+ * their dedicated login screen. Unique per call so a suite that provisions
+ * many principals never trips the global per-realm uniqueness rule.
+ */
+let __usernameSeq = 0;
+const suiteUsername = (hint = "u") =>
+  `suite ${hint} ${Date.now().toString(36)} ${++__usernameSeq}`;
+
+
 loadStack();
 installLocalnetGuard();
 const handlers = await buildHandlers();
@@ -64,6 +75,7 @@ const approve = (local, token, extra = {}) =>
       op: "create_owner_access",
       name: `EO ${local}`,
       email: email(local),
+      username: suiteUsername(),
       modules: ["election_day"], // Stage 9: explicit module choice is required
       ...extra,
     },
@@ -174,6 +186,7 @@ let firstPendingId = "";
       op: "create_owner_access",
       name: "x",
       email: `  FRESH@${DOMAIN.toUpperCase()} `,
+      username: suiteUsername(),
       modules: ["election_day"],
     },
     PO,
@@ -436,10 +449,12 @@ let approvals = [];
     (await pGet("/api/platform/session?op=nope", PO)).statusCode === 400,
   );
   check(
-    "G3 default GET payload unchanged",
+    // Unified identity: the payload gained the Platform Owner's own login
+    // `username` (null until claimed). Nothing else changed.
+    "G3 default GET payload is the identity trio",
     Object.keys((await pGet("/api/platform/session", PO)).body ?? {})
       .sort()
-      .join(",") === "email,platformOwnerId",
+      .join(",") === "email,platformOwnerId,username",
   );
 }
 

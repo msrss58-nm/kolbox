@@ -39,6 +39,11 @@ import {
   totp,
 } from "../stage5/lib.mjs";
 
+/** Unified identity: provisioning now claims a LOGIN username. */
+let __uSeq = 0;
+const suiteUsername = () => `suite me ${Date.now().toString(36)} ${++__uSeq}`;
+
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const outDir = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), "kolbox-stage7-ui"));
 const screens = path.join(outDir, "screens");
@@ -149,7 +154,7 @@ const VOTER_IDS = psql(`select string_agg(id::text, ',') from public.election_da
 // Seat: provisioned through the real Platform op, activated through its real
 // one-time link, TOTP enrolled here (the UI enrollment flow is Stage 5's).
 process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = BASE;
-const prov = await pPost({ op: "provision_multi_entity_owner", name: "בעל רב-מערכות S7", email: email("me") });
+const prov = await pPost({ op: "provision_multi_entity_owner", name: "בעל רב-מערכות S7", email: email("me") , username: suiteUsername() });
 const setup = anon();
 await setup.auth.verifyOtp({ token_hash: new URL(prov.body.activationLink).searchParams.get("token_hash"), type: "recovery" });
 const mePw = randomPassword();
@@ -490,7 +495,7 @@ try {
 
   // -------------------------------------------------------------------------
   section("SEAT REPLACEMENT -> FORBIDDEN");
-  const rep = await pPost({ op: "provision_multi_entity_owner", name: "מחליף S7", email: email("me2") });
+  const rep = await pPost({ op: "provision_multi_entity_owner", name: "מחליף S7", email: email("me2") , username: suiteUsername() });
   check("RP1 seat replaced through the real Platform op", rep.statusCode === 201 && rep.body?.replaced === true);
   await refreshBtn().click();
   await page.getByText("אין הרשאת גישה").waitFor({ timeout: 15000 });
