@@ -45,6 +45,10 @@ if (!/nbymfgphnsounqncfjgl/.test(URL_)) {
   process.exit(1);
 }
 
+/** The single real Platform Owner preserved by the 2026-09-20 cleanup. */
+const OWNER_AUTH_USER_ID = "54ee240e-8c08-456b-88e8-3c54ec292b00";
+const OWNER_USERNAME = "נחום משה";
+
 let pass = 0, fail = 0;
 const check = (name, ok, detail = "") => {
   if (ok) { pass++; console.log(`  ok   ${name}`); }
@@ -104,7 +108,7 @@ check("C1 auth_identity_resolve executes and resolves nobody", rs.status === 200
 const sg = await rpc(SVC, "auth_identity_suggest_username", { p_realm: "platform_owner", p_base: "נחום משה" });
 check("C2 auth_identity_suggest_username executes", sg.status === 200, `status=${sg.status} ${JSON.stringify(sg.body)}`);
 
-section("D. BUSINESS BASELINE UNCHANGED BY THE MIGRATION");
+section("D. THE PRESERVED PRODUCTION BASELINE");
 const counts = {};
 for (const [label, rel] of [
   ["workspaces", "election_workspaces"],
@@ -122,11 +126,41 @@ for (const [label, rel] of [
   counts[label] = cr.includes("/") ? cr.split("/")[1] : "?";
 }
 console.log("   counts:", JSON.stringify(counts));
-check("D1 two workspaces still present", counts.workspaces === "2", counts.workspaces);
-check("D2 three permission users still present", counts.permission_users === "3", counts.permission_users);
-check("D3 two election owners still present", counts.election_owners === "2", counts.election_owners);
-check("D4 one platform owner still present", counts.platform_owners === "1", counts.platform_owners);
-check("D5 1422 voters still present", counts.voters === "1422", counts.voters);
+// Baseline retargeted after the approved Production cleanup (2026-09-20),
+// which reduced Production to exactly ONE real principal. The old counts
+// (2 workspaces / 3 permission users / 2 election owners / 1422 voters)
+// described the pre-cleanup state and can never hold again.
+check("D1 exactly one Platform Owner", counts.platform_owners === "1", counts.platform_owners);
+check("D2 exactly one identity-directory row (the Platform Owner's username)",
+  counts.auth_identities === "1", counts.auth_identities);
+check("D3 no workspaces", counts.workspaces === "0", counts.workspaces);
+check("D4 no permission users and no roles",
+  counts.permission_users === "0" && counts.roles === "0",
+  `${counts.permission_users}/${counts.roles}`);
+check("D5 no election owners and no voters",
+  counts.election_owners === "0" && counts.voters === "0",
+  `${counts.election_owners}/${counts.voters}`);
+
+section("E. PLATFORM OWNER SIGNS IN WITH PASSWORD ONLY");
+// Mandatory Platform Owner MFA was removed from the active login flow, and the
+// Owner's leftover TOTP factor was unenrolled so GoTrue stops refusing an
+// in-app password change with `insufficient_aal`. Both facts are checkable
+// without any credential: the factor simply must not exist.
+const factors = await fetch(`${URL_}/auth/v1/admin/users/${OWNER_AUTH_USER_ID}/factors`, {
+  headers: { apikey: SVC, authorization: `Bearer ${SVC}` },
+});
+let factorList = null;
+try { factorList = await factors.json(); } catch { factorList = null; }
+const factorArray = Array.isArray(factorList) ? factorList : (factorList?.factors ?? null);
+check("E1 the Platform Owner has NO enrolled MFA factor",
+  factors.status === 200 && Array.isArray(factorArray) && factorArray.length === 0,
+  `status=${factors.status} ${JSON.stringify(factorList)}`);
+const resolved = await rpc(SVC, "auth_identity_resolve", {
+  p_realm: "platform_owner", p_username: OWNER_USERNAME,
+});
+check(`E2 the username "${OWNER_USERNAME}" still resolves on the Platform Owner realm`,
+  resolved.status === 200 && Array.isArray(resolved.body) && resolved.body.length === 1,
+  JSON.stringify(resolved.body));
 
 console.log(`\nPRODUCTION IDENTITY VERIFY: ${pass} ok / ${fail} FAIL`);
 process.exitCode = fail === 0 ? 0 : 1;
