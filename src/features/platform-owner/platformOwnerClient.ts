@@ -290,6 +290,8 @@ export type MultiEntityResult<T> =
       /** Provisioning failed AND its compensating Auth delete could not be
        * confirmed, so an account may remain. Surfaced, never swallowed. */
       orphanedAuthUserId?: string;
+      /** USERNAME_TAKEN only: the next free login username to offer. */
+      suggestion?: string | null;
     };
 
 /* ---- shape guards -------------------------------------------------------- */
@@ -396,6 +398,7 @@ function failure<T>(status: number, body: unknown): MultiEntityResult<T> {
   if (o && "heldBy" in o) out.heldBy = str(o.heldBy);
   const orphan = o && str(o.orphanedAuthUserId);
   if (orphan) out.orphanedAuthUserId = orphan;
+  if (o && "suggestion" in o) out.suggestion = str(o.suggestion);
   return out;
 }
 
@@ -454,11 +457,15 @@ export async function fetchMultiEntityState(
 }
 
 /** Creates or replaces the singleton seat. Body keys are EXACTLY
- * `name`/`email`/`phone` - the server rejects any extra key with a 400, and
- * `phone` is omitted rather than sent empty. */
+ * `name`/`email`/`phone`/`username` - the server rejects any extra key with a
+ * 400, and `phone` is omitted rather than sent empty.
+ *
+ * `username` is REQUIRED by the server (it claims the seat holder's row in the
+ * identity directory in the same request): without it the holder could never
+ * sign in at /login/multi-entity-owner, and the whole call 400s. */
 export async function provisionMultiEntityOwner(
   accessToken: string,
-  input: { name: string; email: string; phone?: string },
+  input: { name: string; email: string; phone?: string; username: string },
 ): Promise<MultiEntityResult<ProvisionedMultiEntityOwner>> {
   return postOp(
     accessToken,
@@ -467,6 +474,7 @@ export async function provisionMultiEntityOwner(
       name: input.name,
       email: input.email,
       ...(input.phone ? { phone: input.phone } : {}),
+      username: input.username,
     },
     (parsed) => {
       const o = rec(parsed);

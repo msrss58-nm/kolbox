@@ -9,7 +9,9 @@
 //     tenant-isolated;
 //   * recovery-address verification is MANDATORY for Owners before any
 //     application access, enforced at the SERVER, not in the UI;
-//   * Platform Owner MFA is untouched (aal1 is still refused, aal2 admitted);
+//   * the Platform Owner signs in with password ONLY - an aal1 session is
+//     admitted and no second factor is demanded - while the MFA machinery
+//     still enrolls/verifies and authority still comes from platform_owners;
 //   * the legacy direct login route still works during cutover.
 //
 // DESTRUCTIVE ON THE SCRATCH STACK ONLY (loadStack() refuses anything else).
@@ -181,37 +183,86 @@ check("W3 the Platform Owner username on the Users screen -> 401", r.statusCode 
 r = await login("login_worker", { username: "נחום משה", password: PW }, "https://evil.test");
 check("W4 a foreign Origin is refused (403)", r.statusCode === 403);
 
-// ------------------------------------------- mandatory recovery for Owners --
-section("PLATFORM OWNER MFA IS UNCHANGED");
+// ------------------------- Platform Owner: password-only sign-in (no MFA) --
+section("PLATFORM OWNER SIGNS IN WITH PASSWORD ONLY - NO MFA PROMPT");
 
+// CONTRACT CHANGE (deliberate, product decision): mandatory Platform Owner
+// MFA was removed from the ACTIVE login flow. `PLATFORM_OWNER_MFA_REQUIRED`
+// is false in api/election-day/_platformAuth.ts and in
+// src/features/platform-owner/platform-owner.constants.ts, so an aal1
+// (password-only) session of the real Platform Owner is now ADMITTED.
+// This section previously asserted the opposite (S1: "an aal1 Platform Owner
+// session is refused"). The MFA implementation itself is untouched and still
+// proven below: enrollment and verification still work (S2), the elevated
+// session is still accepted (S3), and authority still comes ONLY from
+// platform_owners membership, never from `aal` (S6).
 const poSession = await signIn(`po-${stamp}@kolbox.test`, PW);
-const poToken = poSession.token;
-let r2 = await callHandler(H.platformSession, {
-  method: "GET",
-  url: "/api/platform/session",
-  headers: { authorization: `Bearer ${poToken}` },
-});
-check(
-  "S1 an aal1 Platform Owner session is refused (MFA preserved)",
-  r2.statusCode === 401 || r2.statusCode === 403,
-  `status=${r2.statusCode}`,
-);
 
-// enrollTotp enrolls AND verifies, returning the elevated aal2 token.
+// enrollTotp enrolls AND verifies, returning the elevated aal2 token. Doing
+// this FIRST leaves the account holding a VERIFIED factor - exactly the state
+// Production is in - so the password-only sign-in below is tested under the
+// condition that used to force the challenge screen.
 const aal2Token = (await enrollTotp(poSession.client, `auth-suite-${stamp}`)).token;
-r2 = await callHandler(H.platformSession, {
+let r2 = await callHandler(H.platformSession, {
   method: "GET",
   url: "/api/platform/session",
   headers: { authorization: `Bearer ${aal2Token}` },
 });
 check(
-  "S2 the aal2 Platform Owner session is admitted",
+  "S2 MFA still works end to end: a factor enrolls and verifies",
+  r2.statusCode === 200,
+  `status=${r2.statusCode}`,
+);
+check(
+  "S3 the aal2 Platform Owner session is still admitted",
   r2.statusCode === 200,
   `status=${r2.statusCode} ${JSON.stringify(r2.body)}`,
 );
+
+// A FRESH password-only sign-in, on an account that now holds a verified
+// TOTP factor. This is the exact Production condition.
+const poPwOnly = await signIn(`po-${stamp}@kolbox.test`, PW);
+const aalNow = await poPwOnly.client.auth.mfa.getAuthenticatorAssuranceLevel();
+const factorsNow = await poPwOnly.client.auth.mfa.listFactors();
+const hasVerified = (factorsNow.data?.totp ?? []).some((f) => f.status === "verified");
 check(
-  "S3 no recovery-address gate stands between a verified Owner and the console",
+  "S4 the password-only session really is aal1 AND a verified factor exists " +
+    "(the state that used to render the TOTP challenge)",
+  aalNow.data?.currentLevel === "aal1" && aalNow.data?.nextLevel === "aal2" && hasVerified,
+  `current=${aalNow.data?.currentLevel} next=${aalNow.data?.nextLevel} verifiedFactor=${hasVerified}`,
+);
+
+r2 = await callHandler(H.platformSession, {
+  method: "GET",
+  url: "/api/platform/session",
+  headers: { authorization: `Bearer ${poPwOnly.token}` },
+});
+check(
+  "S5 the aal1 password-only Platform Owner session is ADMITTED (200) - " +
+    "no second factor demanded",
   r2.statusCode === 200,
+  `status=${r2.statusCode} ${JSON.stringify(r2.body)}`,
+);
+
+// Authority must STILL come from platform_owners membership, not from aal.
+// Dropping the aal gate must not widen WHO is accepted.
+const strangerEmail = `stranger-${stamp}@kolbox.test`;
+await A.auth.admin.createUser({
+  email: strangerEmail,
+  password: PW,
+  email_confirm: true,
+});
+const stranger = await signIn(strangerEmail, PW);
+r2 = await callHandler(H.platformSession, {
+  method: "GET",
+  url: "/api/platform/session",
+  headers: { authorization: `Bearer ${stranger.token}` },
+});
+check(
+  "S6 a NON-Platform-Owner aal1 session is still refused - authority comes " +
+    "from platform_owners, never from aal",
+  r2.statusCode === 401 || r2.statusCode === 403,
+  `status=${r2.statusCode}`,
 );
 
 // --------------------------------------------- legacy fallback preserved ----

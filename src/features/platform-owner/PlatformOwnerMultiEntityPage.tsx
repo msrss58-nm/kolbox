@@ -41,10 +41,16 @@ export function PlatformOwnerMultiEntityPage() {
   // and confirmation step reset after a success as well as after a cancel.
   const openForm = () => {
     m.clearError();
+    m.clearUsernameSuggestion();
     setFormOpen(true);
   };
 
-  const submit = async (input: { name: string; email: string; phone?: string }) => {
+  const submit = async (input: {
+    name: string;
+    email: string;
+    phone?: string;
+    username: string;
+  }) => {
     const ok = await m.provision(input);
     // The modal stays open on failure so the operator keeps what they typed
     // and can read the inline reason next to the fields.
@@ -129,6 +135,7 @@ export function PlatformOwnerMultiEntityPage() {
           seat={m.seat}
           busy={provisionBusy}
           error={provisionError}
+          usernameSuggestion={m.usernameSuggestion}
           onSubmit={(input) => void submit(input)}
           onClose={() => setFormOpen(false)}
         />

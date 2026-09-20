@@ -442,7 +442,12 @@ let approvals = [];
     ),
   );
   check("G2 no token -> 401", (await listOp(null)).statusCode === 401);
-  check("G2 aal1 Platform Owner -> 401", (await listOp(PO_AAL1)).statusCode === 401);
+  // CONTRACT CHANGE: mandatory Platform Owner MFA was removed from the active
+  // login flow (PLATFORM_OWNER_MFA_REQUIRED = false), so an aal1 Platform
+  // Owner is admitted. Authority still comes from the platform_owners row -
+  // the aal2 stranger below is still refused.
+  check("G2 aal1 Platform Owner -> 200 (password-only sign-in is admitted)",
+    (await listOp(PO_AAL1)).statusCode === 200);
   check("G2 aal2 stranger -> 401", (await listOp(STRANGER)).statusCode === 401);
   check(
     "G3 unknown GET op still 400",
@@ -572,10 +577,9 @@ section("REISSUE - active / expired / consumed / not found");
     ).statusCode === 403,
   );
   check("R7 no token -> 401", (await reissue(firstPendingId, null)).statusCode === 401);
-  check(
-    "R7 aal1 Platform Owner -> 401",
-    (await reissue(firstPendingId, PO_AAL1)).statusCode === 401,
-  );
+  // The aal1 Platform Owner is admitted now (see G2), so this probe is no
+  // longer a refusal - and re-issuing here would mint a real recovery link as
+  // a side effect of an auth test. Admission is asserted on the READ op in G2.
   check(
     "R7 aal2 stranger -> 401",
     (await reissue(firstPendingId, STRANGER)).statusCode === 401,

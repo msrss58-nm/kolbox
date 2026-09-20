@@ -11,6 +11,31 @@ import { getServiceClient } from "./_ownerAuth.js";
 // with it is the plumbing (service client + Bearer extraction), never the
 // authorization decision. Do not "unify" the two verifiers.
 
+/**
+ * Whether a Platform Owner session must have completed a second factor
+ * (`aal2`) before this verifier will authorize it.
+ *
+ * Currently FALSE by product decision: Platform Owner sign-in completes with
+ * username + password alone, and the TOTP screen is not shown. Nothing about
+ * the MFA implementation was removed - GoTrue still holds any enrolled
+ * factor, `platformOwnerSession.ts` still implements enrollment and
+ * verification, and both MFA screens still exist. Re-enabling mandatory MFA
+ * is this one constant plus its client-side twin.
+ *
+ * MUST BE KEPT IN SYNC with PLATFORM_OWNER_MFA_REQUIRED in
+ * `src/features/platform-owner/platform-owner.constants.ts`. The two are
+ * separate because `api/` and `src/` share no module (server bundle vs
+ * browser bundle). Both mismatches fail safe: server-only true => the client
+ * calls at aal1 and gets a fail-closed 401; client-only true => a TOTP screen
+ * is shown that the server no longer requires.
+ *
+ * THIS constant is the security boundary - the client-side one is only about
+ * which screen renders. Authority itself has never come from `aal` (see
+ * CHECK 3 below); dropping this check widens WHICH sessions of the Platform
+ * Owner's own account are accepted, it does not widen WHO is accepted.
+ */
+export const PLATFORM_OWNER_MFA_REQUIRED = false;
+
 interface MinimalRequest {
   headers: Record<string, string | string[] | undefined>;
 }
@@ -38,14 +63,17 @@ export function extractPlatformBearerToken(req: MinimalRequest): string | null {
  * Verify a browser-supplied Supabase JWT as the singleton PLATFORM OWNER.
  *
  * Fail-closed: returns null on ANY failure - missing/malformed/tampered/
- * expired token, revoked or deleted user, an aal1 (non-MFA) session, a
- * missing email, an RPC error, or a caller that is simply not the platform
- * owner. There is no partial success and no "trusted" fallback.
+ * expired token, revoked or deleted user, a missing email, an RPC error, or
+ * a caller that is simply not the platform owner (plus an aal1 session while
+ * PLATFORM_OWNER_MFA_REQUIRED is true). There is no partial success and no
+ * "trusted" fallback.
  *
  * All THREE checks are required, in this order:
  *
  * 1. auth.getUser(token) - a live, stateful call to the Auth server.
- * 2. auth.getClaims(token) - signature/exp verification, then aal === "aal2".
+ * 2. auth.getClaims(token) - signature/exp verification, and - only while
+ *    PLATFORM_OWNER_MFA_REQUIRED is true - aal === "aal2". That flag is
+ *    currently false, so a password-only (aal1) session is accepted here.
  * 3. platform_resolve_owner_context(p_auth_user_id) - the verified id must
  *    match the singleton platform_owners row.
  *
@@ -94,7 +122,7 @@ export async function verifyPlatformOwnerJwt(
   if (claimsError || !claimsData?.claims) {
     return null;
   }
-  if (claimsData.claims.aal !== "aal2") {
+  if (PLATFORM_OWNER_MFA_REQUIRED && claimsData.claims.aal !== "aal2") {
     return null;
   }
   // The claims must describe the SAME identity getUser() just verified - a

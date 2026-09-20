@@ -76,6 +76,10 @@ export function useMultiEntityManagement() {
   );
   const [notice, setNotice] = useState<ActionNotice | null>(null);
   const [passwordLink, setPasswordLink] = useState<PasswordLinkState | null>(null);
+  /** The next free login username the server offered after a USERNAME_TAKEN.
+   * Cleared at the start of every mutation, so it can never outlive the
+   * collision that produced it. */
+  const [usernameSuggestion, setUsernameSuggestion] = useState<string | null>(null);
 
   /** Reads the current access token. Returns null when there is no session at
    * all, which is treated exactly like a 401. */
@@ -145,6 +149,7 @@ export function useMultiEntityManagement() {
       if (busyKey) return false; // double-submit guard
       setActionError(null);
       setNotice(null);
+      setUsernameSuggestion(null);
       setBusyKey(key);
       try {
         const t = await token();
@@ -159,6 +164,9 @@ export function useMultiEntityManagement() {
         }
         if (res.status === "error") {
           setActionError({ key, message: messageFor(res) });
+          // USERNAME_TAKEN is the only code that carries one: a collision is a
+          // decision, not a dead end, so the next free name is offered inline.
+          if (res.suggestion) setUsernameSuggestion(res.suggestion);
           return false;
         }
         const n = onOk?.(res.data) ?? null;
@@ -172,7 +180,7 @@ export function useMultiEntityManagement() {
   );
 
   const provision = useCallback(
-    async (input: { name: string; email: string; phone?: string }) => {
+    async (input: { name: string; email: string; phone?: string; username: string }) => {
       const ok = await run(
         BUSY.provision,
         (t) => provisionMultiEntityOwner(t, input),
@@ -288,6 +296,9 @@ export function useMultiEntityManagement() {
 
     passwordLink,
     dismissPasswordLink: () => setPasswordLink(null),
+
+    usernameSuggestion,
+    clearUsernameSuggestion: () => setUsernameSuggestion(null),
 
     provision,
     assign,

@@ -27,6 +27,7 @@ export function MultiEntityProvisionModal({
   seat,
   busy,
   error,
+  usernameSuggestion,
   onSubmit,
   onClose,
 }: {
@@ -35,12 +36,20 @@ export function MultiEntityProvisionModal({
   seat: MultiEntitySeat | null;
   busy: boolean;
   error: string | null;
-  onSubmit: (input: { name: string; email: string; phone?: string }) => void;
+  /** The next free login username, when the last attempt hit USERNAME_TAKEN. */
+  usernameSuggestion: string | null;
+  onSubmit: (input: {
+    name: string;
+    email: string;
+    phone?: string;
+    username: string;
+  }) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [username, setUsername] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
@@ -50,6 +59,7 @@ export function MultiEntityProvisionModal({
     setName("");
     setEmail("");
     setPhone("");
+    setUsername("");
     setLocalError(null);
     setConfirming(false);
   };
@@ -69,6 +79,11 @@ export function MultiEntityProvisionModal({
       setLocalError(text.missingEmail);
       return false;
     }
+    // Checked LAST so the pre-existing name/email precedence is unchanged.
+    if (!username.trim()) {
+      setLocalError(text.missingUsername);
+      return false;
+    }
     setLocalError(null);
     return true;
   };
@@ -79,6 +94,7 @@ export function MultiEntityProvisionModal({
       email: email.trim(),
       // Omitted rather than sent empty: the op body allow-list is exact.
       phone: phone.trim() || undefined,
+      username: username.trim(),
     });
 
   const handleSubmit = (event: FormEvent) => {
@@ -146,6 +162,37 @@ export function MultiEntityProvisionModal({
               disabled={busy}
               autoComplete="off"
             />
+          </Field>
+
+          <Field label={text.usernameLabel}>
+            <Input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              maxLength={64}
+              disabled={busy}
+              autoComplete="off"
+              name="multi-entity-username"
+              placeholder={text.usernamePlaceholder}
+              aria-describedby="kb-me-username-hint"
+            />
+            <p id="kb-me-username-hint" className="mt-1 text-xs text-slate-400">
+              {text.usernameHint}
+            </p>
+            {usernameSuggestion && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-500">
+                  {text.usernameSuggestion(usernameSuggestion)}
+                </span>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-brand underline"
+                  disabled={busy}
+                  onClick={() => setUsername(usernameSuggestion)}
+                >
+                  {text.usernameUseSuggestion}
+                </button>
+              </div>
+            )}
           </Field>
 
           <Field label={text.phoneLabel}>

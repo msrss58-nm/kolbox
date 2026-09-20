@@ -36,7 +36,6 @@ import {
   signIn,
   sleep,
   tally,
-  totp,
 } from "../stage5/lib.mjs";
 
 /**
@@ -64,6 +63,9 @@ const E_PORT = 5197;
 const PBASE = `http://127.0.0.1:${P_PORT}`;
 const EBASE = `http://127.0.0.1:${E_PORT}`;
 const MEBASE = "http://127.0.0.1:5196"; // display-only: the Multi-Entity origin
+// The seat holder signs in on the dedicated AUTH origin, not on the
+// Multi-Entity origin - see src/app/origins.ts `multiEntityLoginEntry`.
+const ME_LOGIN_ENTRY = "https://kolbox-auth.vercel.app/login/multi-entity-owner";
 process.env.PLATFORM_ALLOWED_ORIGIN = PBASE;
 process.env.KOLBOX_ELECTION_APP_BASE_URL = EBASE;
 process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = MEBASE;
@@ -221,22 +223,7 @@ const oldLinkWorks = async (link) => {
   return !r.error;
 };
 
-async function totpInto(p, secret, successLocator) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await p.locator('input[autocomplete="one-time-code"]').fill(totp(secret));
-    await p.getByRole("button", { name: "אימות" }).click();
-    if (
-      await successLocator.waitFor({ timeout: 8000 }).then(
-        () => true,
-        () => false,
-      )
-    )
-      return true;
-    await sleep(31000); // a code used by the API enrollment cannot be reused in its window
-  }
-  return false;
-}
-
+let approvalSeq = 0;
 async function approveViaUi(name, addr) {
   // Admin shell: approval is a dialog opened from the Owners section; it
   // stays open (form or success panel) until closed.
@@ -247,6 +234,14 @@ async function approveViaUi(name, addr) {
   await f.waitFor({ timeout: 10000 });
   await f.getByLabel("שם הבעלים").fill(name);
   await f.getByLabel("אימייל").fill(addr);
+  // The approval dialog gained a REQUIRED login username (the Owner's identity
+  // for /login/election-owner); without it the form refuses client-side and no
+  // success panel ever appears. Usernames are globally unique per realm, so
+  // each approval in this run gets its own.
+  approvalSeq += 1;
+  await f
+    .locator('input[name="owner-approval-username"]')
+    .fill(`s8ui owner ${approvalSeq}`);
   // Stage 9: the module choice is explicit and required.
   await f.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
   await f.getByRole("button", { name: "אישור ויצירת קישור" }).click();
@@ -262,14 +257,15 @@ try {
   await page.locator('input[type="email"]').fill(email("po"));
   await page.locator('input[autocomplete="current-password"]').fill(poPw);
   await page.getByRole("button", { name: "התחברות" }).click();
-  await page.getByRole("heading", { name: "אימות דו-שלבי" }).waitFor({ timeout: 15000 });
-  check("U0 no approvals request at aal1", reqs.ownerAccess === 0);
-  const inConsole = await totpInto(
-    page,
-    poApi.secret,
-    page.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }),
-  );
-  check("U1 password + TOTP -> console", inConsole);
+  // Password-only sign-in: mandatory Platform Owner MFA was removed from the
+  // active login flow (PLATFORM_OWNER_MFA_REQUIRED = false). There is no aal1
+  // stop any more, so the old "no approvals request at aal1" probe has no
+  // state to observe. The account still holds a verified TOTP factor.
+  const inConsole = await page
+    .getByRole("heading", { name: "מסוף בעל הפלטפורמה" })
+    .waitFor({ timeout: 20000 })
+    .then(() => true, () => false);
+  check("U1 password only -> console (no TOTP prompt)", inConsole);
   await page.getByText("טרם אושרו בעלים").waitFor({ timeout: 10000 });
   check("U2 approvals list: explicit empty state", reqs.ownerAccess >= 1);
   await shot(page, "01-console-empty-390");
@@ -509,12 +505,15 @@ try {
   let dialog = page.getByRole("dialog");
   await dialog.getByLabel("שם מלא").fill("בעל רב-מערכות בדיקה");
   await dialog.getByLabel("אימייל").fill(email("me1"));
+  // The seat holder's LOGIN username is required: the server claims their
+  // identity-directory row in the same request.
+  await dialog.locator('input[name="multi-entity-username"]').fill("me seat one");
   await dialog.getByRole("button", { name: "הקצאת בעל רב-מערכות" }).click();
   await page.getByText("קישור לקביעת סיסמה").waitFor({ timeout: 15000 });
   const dest = await page.locator('[data-testid="multi-entity-destination"]').innerText();
   check(
-    "M2 the password-link panel shows the real Multi-Entity sign-in address",
-    dest.includes(`${MEBASE}/multi-entity/login`),
+    "M2 the password-link panel shows the dedicated Multi-Entity sign-in address",
+    dest.includes(ME_LOGIN_ENTRY),
     dest.replace(/\s+/g, " "),
   );
   const closedAfterProvision = await page
@@ -533,10 +532,15 @@ try {
     "M3 re-opening after a success: every field empty, no error",
     (await dialog.getByLabel("שם מלא").inputValue()) === "" &&
       (await dialog.getByLabel("אימייל").inputValue()) === "" &&
+      (await dialog.locator('input[name="multi-entity-username"]').inputValue()) === "" &&
       (await dialog.getByRole("alert").count()) === 0,
   );
   await dialog.getByLabel("שם מלא").fill("אותה כתובת");
   await dialog.getByLabel("אימייל").fill(email("me1"));
+  // A FRESH username here: the server pre-checks username availability BEFORE
+  // it classifies the e-mail, so reusing a taken one would mask the
+  // EMAIL_ALREADY_REGISTERED this check is actually about.
+  await dialog.locator('input[name="multi-entity-username"]').fill("me seat dup");
   await dialog.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();
   await page.getByRole("button", { name: "החלפה", exact: true }).click();
   await page.getByText("כבר משויכת לחשבון קיים").waitFor({ timeout: 15000 });
@@ -552,8 +556,26 @@ try {
     (await dialog.getByRole("alert").count()) === 0 &&
       (await dialog.getByLabel("אימייל").inputValue()) === "",
   );
+  // A TAKEN login username is a decision, not a dead end: the seat's previous
+  // holder keeps their directory row (the account is not deleted on replace),
+  // so reusing it must be refused inline and offer the next free name.
   await dialog.getByLabel("שם מלא").fill("מחליף");
   await dialog.getByLabel("אימייל").fill(email("me2"));
+  await dialog.locator('input[name="multi-entity-username"]').fill("me seat one");
+  await dialog.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();
+  await page.getByRole("button", { name: "החלפה", exact: true }).click();
+  await page.getByText("שם המשתמש תפוס").waitFor({ timeout: 15000 });
+  check(
+    "M5b a taken login username is refused inline and the next free name is offered",
+    (await page.getByText("השם הפנוי הבא:").count()) === 1,
+  );
+  await page.getByRole("button", { name: "השתמשו בשם המוצע" }).click();
+  dialog = page.getByRole("dialog");
+  check(
+    "M5c accepting the suggestion fills the field with the offered name",
+    (await dialog.locator('input[name="multi-entity-username"]').inputValue()) === "me seat one 2",
+    await dialog.locator('input[name="multi-entity-username"]').inputValue(),
+  );
   await dialog.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();
   await page.getByRole("button", { name: "החלפה", exact: true }).click();
   await page.getByText("ההחלפה הושלמה").waitFor({ timeout: 15000 });
@@ -606,7 +628,7 @@ try {
     reqs.ownerAccess === afterLogout,
   );
 
-  section("MFA SETUP SIGN-OUT (a non-owner at aal1 is no longer stranded)");
+  section("NON-OWNER SIGN-OUT (a signed-in non-owner is not stranded)");
   const sContext = await browser.newContext({
     viewport: { width: 390, height: 844 },
     locale: "he-IL",
@@ -616,17 +638,21 @@ try {
   await sPage.locator('input[type="email"]').fill(email("stranger"));
   await sPage.locator('input[autocomplete="current-password"]').fill(strangerPw);
   await sPage.getByRole("button", { name: "התחברות" }).click();
+  // With MFA gone from the flow this account no longer lands on TOTP
+  // enrollment: it is admitted to aal1, the server refuses it (it is not the
+  // Platform Owner) and the guard shows the "no access" screen. The property
+  // under test is unchanged - that screen must still offer a working sign-out.
   await sPage
-    .getByRole("heading", { name: "הגדרת אימות דו-שלבי" })
+    .getByRole("heading", { name: "אין הרשאת גישה" })
     .waitFor({ timeout: 15000 });
-  await shot(sPage, "08-mfa-enroll-signout-390");
+  await shot(sPage, "08-forbidden-signout-390");
   await sPage.getByRole("button", { name: "התנתקות" }).click();
   await sPage
     .getByRole("heading", { name: "כניסת בעל הפלטפורמה" })
     .waitFor({ timeout: 10000 });
   const sKeys = await sPage.evaluate(() => Object.keys(localStorage));
   check(
-    "S1 MFA setup offers sign-out and it clears the platform session",
+    "S1 the no-access screen offers sign-out and it clears the platform session",
     !sKeys.includes("kb-platform-owner-auth-token"),
     sKeys.join(","),
   );

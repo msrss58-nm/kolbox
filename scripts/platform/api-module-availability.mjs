@@ -243,15 +243,23 @@ section("B. AUTH / REQUEST SHAPE (every refusal changes nothing)");
 const beforeB = { cat: catalogStr(), rows: moduleRows(), audit: auditCount(), ent: entAuditCount() };
 {
   const forged = [b64({ alg: "HS256", typ: "JWT" }), b64({ sub: po.user.id, aal: "aal2", role: "authenticated", exp: Math.floor(Date.now() / 1000) + 3600 }), b64("not-a-signature")].join(".");
+  // CONTRACT CHANGE: mandatory Platform Owner MFA was removed from the active
+  // login flow (PLATFORM_OWNER_MFA_REQUIRED = false), so an aal1 Platform
+  // Owner is now ADMITTED and must NOT be probed here - this block asserts
+  // "every refusal changes nothing", and an admitted call really would flip
+  // availability and corrupt every later section. It is asserted positively,
+  // on a READ, as B1b below.
   const r = {
     none: await setAvail("budget", true, null),
     forged: await setAvail("budget", true, forged),
-    aal1: await setAvail("budget", true, PO_AAL1),
     stranger: await setAvail("budget", true, STRANGER),
     owner: await setAvail("budget", true, OWNER_T),
   };
-  check("B1 no token / forged token / Platform Owner at aal1 / aal2 stranger / Election Owner -> 401",
+  check("B1 no token / forged token / aal2 stranger / Election Owner -> 401",
     Object.values(r).every((x) => x.statusCode === 401), Object.entries(r).map(([k, x]) => `${k}=${x.statusCode}`).join(" "));
+  const aal1Read = await pGet("/api/platform/session?op=workspace_modules", PO_AAL1);
+  check("B1b the Platform Owner at aal1 IS admitted (password-only sign-in) - authority is the platform_owners row, not aal",
+    aal1Read.statusCode === 200, `status=${aal1Read.statusCode}`);
   const noOrigin = await pPost({ op: "set_module_availability", moduleKey: "budget", available: true }, PO, {});
   const badOrigin = await pPost({ op: "set_module_availability", moduleKey: "budget", available: true }, PO, { origin: "https://evil.example" });
   check("B2 no Origin / foreign Origin -> 403 FORBIDDEN_ORIGIN", noOrigin.statusCode === 403 && badOrigin.statusCode === 403);
@@ -393,9 +401,9 @@ section("I. PLATFORM READ reflects the switch");
   check("I1 catalog entries carry availability_switchable + entitled_workspaces (budget switchable + available, election_day fixed)",
     g.statusCode === 200 && b?.available === true && b?.availability_switchable === true && String(b?.entitled_workspaces) === budgetModuleRows() &&
       e?.availability_switchable === false && e?.available === true, JSON.stringify(g.body?.catalog));
-  check("I2 aal1 / stranger cannot read it (401)",
-    (await pGet("/api/platform/session?op=workspace_modules", PO_AAL1)).statusCode === 401 &&
-      (await pGet("/api/platform/session?op=workspace_modules", STRANGER)).statusCode === 401);
+  check("I2 a stranger cannot read it (401); the Platform Owner at aal1 can (200)",
+    (await pGet("/api/platform/session?op=workspace_modules", STRANGER)).statusCode === 401 &&
+      (await pGet("/api/platform/session?op=workspace_modules", PO_AAL1)).statusCode === 200);
 }
 
 // ---------------------------------------------------------------------------

@@ -31,7 +31,6 @@ import {
   signIn,
   sleep,
   tally,
-  totp,
 } from "../stage5/lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -155,14 +154,11 @@ async function platformLogin(p) {
   await p.locator('input[type="email"]').fill(email("po"));
   await p.locator('input[autocomplete="current-password"]').fill(poPw);
   await p.getByRole("button", { name: "התחברות" }).click();
-  await p.getByRole("heading", { name: "אימות דו-שלבי" }).waitFor({ timeout: 15000 });
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await p.locator('input[autocomplete="one-time-code"]').fill(totp(poApi.secret));
-    await p.getByRole("button", { name: "אימות" }).click();
-    if (await seen(p.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }), 8000)) return true;
-    await sleep(31000); // a TOTP code cannot be reused within its window
-  }
-  return false;
+  // Mandatory Platform Owner MFA was removed from the active login flow
+  // (PLATFORM_OWNER_MFA_REQUIRED = false), so password alone reaches the
+  // console. The account still HOLDS a verified TOTP factor - it is simply
+  // never demanded.
+  return await seen(p.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }), 20000);
 }
 async function workerLogin(p, codeValue, name) {
   psql("delete from public.election_day_login_attempts;");

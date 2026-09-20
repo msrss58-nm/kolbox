@@ -80,16 +80,20 @@ function BlockedScreen({
  *   signed_out     -> /platform/login
  *   mfa_enroll     -> enrollment screen  (aal1: the ONLY thing reachable)
  *   mfa_challenge  -> challenge screen   (aal1: the ONLY thing reachable)
+ *                     - both unreachable while PLATFORM_OWNER_MFA_REQUIRED
+ *                       is false, which it currently is: sign-in completes on
+ *                       username + password and no TOTP screen is shown. The
+ *                       branches are kept so re-enabling MFA is one constant.
  *   forbidden      -> "not authorized"   (aal2 but the server returned 401 -
  *                                         production signup is OPEN, so any
  *                                         self-enrolled user can reach aal2)
  *   error          -> retry screen       (fail closed)
  *   authorized     -> <Outlet />         (server returned 200)
  *
- * The two `aal1` branches render their screens INLINE rather than redirecting
- * to a route, so there is no URL - `/platform`, `/platform/mfa`, or anything
- * added later under this branch - that can render a child while the session
- * is still at `aal1`. `refreshStatus()` also returns before its privileged
+ * When mandatory MFA is on, the two `aal1` branches render their screens
+ * INLINE rather than redirecting to a route, so there is no URL -
+ * `/platform`, `/platform/mfa`, or anything added later under this branch -
+ * that can render a child while the session is still at `aal1`. `refreshStatus()` also returns before its privileged
  * fetch on those branches, so an `aal1` session never even calls
  * `GET /api/platform/session`.
  *

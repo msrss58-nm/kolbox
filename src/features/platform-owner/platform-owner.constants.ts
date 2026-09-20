@@ -10,6 +10,22 @@
  * source of truth for it. */
 export const PLATFORM_OWNER_MFA_FACTOR_NAME = "KolBox Platform Owner";
 
+/** Whether the Platform Owner console demands a second factor before it will
+ * render, i.e. whether `platformOwnerSession.refreshStatus()` diverts an
+ * `aal1` session into the enrollment/challenge screens.
+ *
+ * Currently FALSE by product decision: sign-in completes with username +
+ * password and the TOTP screen is never shown. Nothing was deleted -
+ * `PlatformOwnerMfaEnrollScreen`, `PlatformOwnerMfaChallengeScreen`, the
+ * store's `enrollMfa`/`verifyMfa` actions and the guard's `mfa_enroll`/
+ * `mfa_challenge` branches all remain, simply unreachable while this is
+ * false. Re-enabling is this one constant plus its server-side twin.
+ *
+ * MUST BE KEPT IN SYNC with PLATFORM_OWNER_MFA_REQUIRED in
+ * `api/election-day/_platformAuth.ts`, which is the actual security
+ * boundary - this constant only decides which screen renders. */
+export const PLATFORM_OWNER_MFA_REQUIRED = false;
+
 /** Platform Stage 2 (password set/recovery): minimum length for the Platform
  * Owner's password. Deliberately well above the campaign app's bar - this is
  * the single most privileged identity in the system. Enforced client-side by
@@ -28,7 +44,7 @@ export const PLATFORM_OWNER_PASSWORD_MAX_BYTES = 72;
 export const PLATFORM_OWNER_TEXT = {
   login: {
     title: "כניסת בעל הפלטפורמה",
-    subtitle: "כניסה מאובטחת עם אימות דו-שלבי",
+    subtitle: "כניסה מאובטחת לניהול הפלטפורמה",
     emailLabel: "אימייל",
     passwordLabel: "סיסמה",
     showPassword: "הצג סיסמה",
@@ -67,7 +83,7 @@ export const PLATFORM_OWNER_TEXT = {
     },
     success: {
       title: "הסיסמה עודכנה",
-      body: "התחברו מחדש עם הסיסמה החדשה. גם לאחר העדכון נדרש אימות דו-שלבי כרגיל.",
+      body: "התחברו מחדש עם הסיסמה החדשה.",
       continue: "המשך למסך הכניסה",
     },
     errors: {
@@ -114,7 +130,7 @@ export const PLATFORM_OWNER_TEXT = {
 
   forbidden: {
     title: "אין הרשאת גישה",
-    body: "החשבון עבר אימות דו-שלבי אך אינו רשום כבעל הפלטפורמה. פנו לבעל הפלטפורמה הרשום.",
+    body: "החשבון אינו רשום כבעל הפלטפורמה. פנו לבעל הפלטפורמה הרשום.",
     logout: "התנתקות",
   },
 
@@ -152,7 +168,7 @@ export const PLATFORM_OWNER_TEXT = {
     usernameError: "שמירת שם המשתמש נכשלה",
     emailLabel: "אימייל",
     mfaLabel: "רמת אימות",
-    mfaValue: "aal2 - אימות דו-שלבי פעיל",
+    mfaValue: "כניסה עם סיסמה - אימות דו-שלבי אינו נדרש",
     stageNote:
       "אישור בעלים יוצר חשבון ללא סיסמה ומפיק קישור חד-פעמי. הסיסמה נבחרת על ידי הבעלים בלבד.",
     logout: "התנתקות",
@@ -462,6 +478,15 @@ export const PLATFORM_OWNER_TEXT = {
       nameLabel: "שם מלא",
       emailLabel: "אימייל",
       phoneLabel: "טלפון (לא חובה)",
+      /** The seat holder's LOGIN username for /login/multi-entity-owner.
+       * Required: without a directory identity the holder could never sign in. */
+      usernameLabel: "שם משתמש לכניסה",
+      usernameHint:
+        "זהו שם המשתמש לכניסה בכתובת בעל רב-המערכות. ניתן להגדיר פעם אחת בלבד.",
+      usernamePlaceholder: "לדוגמה: נחום משה",
+      missingUsername: "יש להזין שם משתמש לכניסה",
+      usernameSuggestion: (name: string) => `השם הפנוי הבא: ${name}`,
+      usernameUseSuggestion: "השתמשו בשם המוצע",
       submitProvision: "הקצאת בעל רב-מערכות",
       submitReplace: "החלפת בעל רב-מערכות",
       submitting: "מבצעים...",
@@ -580,6 +605,9 @@ export const PLATFORM_OWNER_TEXT = {
         "החשבון אינו רשום כחשבון שנוצר בניסיון הקצאה שנכשל. לא בוצעה מחיקה.",
       AUTH_CLEANUP_AUDIT_WRITE_FAILED:
         "המחיקה בוצעה אך רישום היומן נכשל. הריצו את הפעולה שוב כדי להשלים את הרישום.",
+      USERNAME_TAKEN: "שם המשתמש תפוס",
+      INVALID_USERNAME: "שם המשתמש אינו תקין. אסור להשתמש ב-@ וברווח כפול.",
+      USERNAME_ALREADY_SET: "לחשבון הזה כבר הוגדר שם משתמש לכניסה.",
       FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
       UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
       INVALID_REQUEST: "הפרטים שהוזנו אינם תקינים.",

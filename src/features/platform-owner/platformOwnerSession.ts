@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { platformOwnerAuthClient } from "../../services/supabase/platformOwnerAuthClient";
-import { PLATFORM_OWNER_MFA_FACTOR_NAME } from "./platform-owner.constants";
+import {
+  PLATFORM_OWNER_MFA_FACTOR_NAME,
+  PLATFORM_OWNER_MFA_REQUIRED,
+} from "./platform-owner.constants";
 import {
   fetchPlatformOwnerSession,
   type PlatformOwnerContext,
@@ -27,14 +30,16 @@ import {
  *
  * SECURITY MODEL - `owner` is display metadata only, never authority:
  *   - `status === "authorized"` is set ONLY after `GET /api/platform/session`
- *     returns 200. The server independently verifies the JWT, requires
- *     `claims.aal === "aal2"`, and requires membership of the singleton
- *     `platform_owners` row.
- *   - The privileged endpoint is NEVER called while the session is at
- *     `aal1` - `refreshStatus()` returns early on the MFA branches, above
- *     the fetch. Production signup is open, so any self-registered user can
- *     reach `aal1` (and even `aal2` by self-enrolling a TOTP factor); the
- *     403-equivalent ("forbidden") state exists precisely for that case.
+ *     returns 200. The server independently verifies the JWT and requires
+ *     membership of the singleton `platform_owners` row - that membership,
+ *     never `aal`, is what confers authority. Production signup is open, so
+ *     any self-registered user can reach `aal1` (and `aal2` by self-enrolling
+ *     a TOTP factor); the 403-equivalent ("forbidden") state exists for that.
+ *   - Mandatory MFA is currently OFF (`PLATFORM_OWNER_MFA_REQUIRED`), so an
+ *     `aal1` session is accepted and no TOTP screen is shown. While that flag
+ *     is true instead, the server additionally requires `claims.aal ===
+ *     "aal2"` and `refreshStatus()` returns early on the MFA branches, above
+ *     the fetch, so an `aal1` session never calls the privileged endpoint.
  *   - Every non-"authorized" outcome (loading, transport error, unknown)
  *     fails CLOSED. There is no optimistic path.
  */
@@ -169,32 +174,40 @@ export const usePlatformOwnerSession = create<PlatformOwnerSessionState>((set, g
         return;
       }
 
-      const { data: aal, error: aalError } =
-        await platformOwnerAuthClient.auth.mfa.getAuthenticatorAssuranceLevel();
-      if (aalError || !aal) {
-        apply({ owner: null, status: "error", bootstrapped: true });
-        return;
-      }
-
-      if (aal.currentLevel !== "aal2") {
-        // aal1 branch. Returns BEFORE the privileged fetch below - an
-        // aal1 session can never trigger a call to
-        // `GET /api/platform/session`, and can never reach "authorized".
-        const { data: factors, error: factorsError } =
-          await platformOwnerAuthClient.auth.mfa.listFactors();
-        if (factorsError || !factors) {
+      // Mandatory MFA is currently OFF (PLATFORM_OWNER_MFA_REQUIRED), so a
+      // password-only session goes straight to the server below and the TOTP
+      // screens are never shown. The whole aal1 branch is preserved verbatim
+      // for when the flag is turned back on - including its rule that an
+      // aal1 session must never call `GET /api/platform/session`. An already
+      // enrolled factor is simply left alone: it stays in GoTrue, unused.
+      if (PLATFORM_OWNER_MFA_REQUIRED) {
+        const { data: aal, error: aalError } =
+          await platformOwnerAuthClient.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (aalError || !aal) {
           apply({ owner: null, status: "error", bootstrapped: true });
           return;
         }
-        const verified =
-          factors.totp.find((factor) => factor.status === "verified") ?? null;
-        apply({
-          owner: null,
-          status: verified ? "mfa_challenge" : "mfa_enroll",
-          mfaState: { ...EMPTY_MFA_STATE, factorId: verified?.id ?? null },
-          bootstrapped: true,
-        });
-        return;
+
+        if (aal.currentLevel !== "aal2") {
+          // aal1 branch. Returns BEFORE the privileged fetch below - an
+          // aal1 session can never trigger a call to
+          // `GET /api/platform/session`, and can never reach "authorized".
+          const { data: factors, error: factorsError } =
+            await platformOwnerAuthClient.auth.mfa.listFactors();
+          if (factorsError || !factors) {
+            apply({ owner: null, status: "error", bootstrapped: true });
+            return;
+          }
+          const verified =
+            factors.totp.find((factor) => factor.status === "verified") ?? null;
+          apply({
+            owner: null,
+            status: verified ? "mfa_challenge" : "mfa_enroll",
+            mfaState: { ...EMPTY_MFA_STATE, factorId: verified?.id ?? null },
+            bootstrapped: true,
+          });
+          return;
+        }
       }
 
       const result = await fetchPlatformOwnerSession(session.access_token);

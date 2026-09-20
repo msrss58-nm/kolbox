@@ -11,9 +11,11 @@
  *     the service-role key on the operator's own machine.
  *   - NO PERMANENT BYPASS. It does not disable MFA, does not lower the aal2
  *     requirement, and does not mint a long-lived escape hatch. It deletes the
- *     enrolled factor(s), which drops the Owner back to aal1 - and the guard
- *     then forces a FRESH TOTP enrolment before the console is reachable
- *     again. The aal2 requirement is never weakened, for anyone, at any point.
+ *     enrolled factor(s), which drops the Owner back to aal1. It changes no
+ *     gate: while PLATFORM_OWNER_MFA_REQUIRED is true the guard then forces a
+ *     FRESH TOTP enrolment before the console is reachable again; while it is
+ *     false (the current setting) the Owner simply signs in with username +
+ *     password. Either way this script weakens nothing on its own.
  *   - AUDITED. Every run that mutates writes a durable
  *     platform_owner_recovery_audit row via a service_role-only RPC.
  *   - NO SECRETS ANYWHERE. Factor IDs only. Never a TOTP secret, never a key,
@@ -171,9 +173,10 @@ async function main() {
   console.log(`audit row written: ${auditId}`);
   console.log("");
   console.log("Recovery complete.");
-  console.log("The Owner is now at aal1 with no enrolled factor. On next login the");
-  console.log("guard requires a FRESH TOTP enrolment before the console is reachable.");
-  console.log("No permanent bypass was created and the aal2 requirement is unchanged.");
+  console.log("The Owner is now at aal1 with no enrolled factor, and signs in with");
+  console.log("username + password (PLATFORM_OWNER_MFA_REQUIRED is currently false,");
+  console.log("so the guard no longer forces a fresh TOTP enrolment). This script");
+  console.log("only deleted the factor - it created no bypass and changed no gate.");
   return 0;
 }
 

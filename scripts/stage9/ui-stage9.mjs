@@ -30,7 +30,6 @@ import {
   signIn,
   sleep,
   tally,
-  totp,
 } from "../stage5/lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -159,15 +158,6 @@ const noOverflow = (p) =>
 const waitText = (p, t, timeout = 15000) =>
   p.getByText(t).first().waitFor({ timeout }).then(() => true, () => false);
 
-async function totpInto(p, secret, successLocator) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await p.locator('input[autocomplete="one-time-code"]').fill(totp(secret));
-    await p.getByRole("button", { name: "אימות" }).click();
-    if (await successLocator.waitFor({ timeout: 8000 }).then(() => true, () => false)) return true;
-    await sleep(31000); // the enrolment code cannot be reused within its window
-  }
-  return false;
-}
 /** Waits for the worker shell. On failure returns the URL + a short text
  * excerpt (synthetic data only) and a screenshot, so a miss is diagnosable. */
 async function workerShell(p, label) {
@@ -202,8 +192,12 @@ try {
   await page.locator('input[type="email"]').fill(email("po"));
   await page.locator('input[autocomplete="current-password"]').fill(poPw);
   await page.getByRole("button", { name: "התחברות" }).click();
-  await page.getByRole("heading", { name: "אימות דו-שלבי" }).waitFor({ timeout: 15000 });
-  check("P1 password + TOTP -> console", await totpInto(page, poApi.secret, page.getByRole("heading", { name: "מסוף בעל הפלטפורמה" })));
+  // Password-only sign-in: mandatory Platform Owner MFA was removed from the
+  // active login flow (PLATFORM_OWNER_MFA_REQUIRED = false). The account still
+  // holds a verified TOTP factor; it is simply never demanded.
+  check("P1 password only -> console (no TOTP prompt)",
+    await page.getByRole("heading", { name: "מסוף בעל הפלטפורמה" })
+      .waitFor({ timeout: 20000 }).then(() => true, () => false));
   // Admin shell: approval is a dialog opened from the Owners section.
   await page.getByRole("button", { name: "אישור בעלים חדש" }).click();
   const form = page.locator("form").filter({ has: page.getByRole("button", { name: "אישור ויצירת קישור" }) });
