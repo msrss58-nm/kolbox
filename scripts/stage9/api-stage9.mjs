@@ -219,8 +219,14 @@ section("A. APPROVAL WITH EXPLICIT MODULES");
       psql(`select count(*) from public.election_workspace_pending_owner_access where email in ('${email("nomod")}','${email("emptymod")}','${email("badmod")}')`) === "0");
   const r4 = await pPost({ op: "create_owner_access", name: "junk", email: email("junk"), modules: ["Bad Key!"] , username: suiteUsername() }, PO);
   check("A5 a syntactically invalid key is refused before any DB work (400)", r4.statusCode === 400);
+  // CONTRACT CHANGE: mandatory Platform Owner MFA was removed from the active
+  // login flow (PLATFORM_OWNER_MFA_REQUIRED = false), so an aal1 Platform
+  // Owner is the normal signed-in state and IS admitted. Authority still
+  // comes only from the platform_owners row - the stranger/Owner-token
+  // refusals elsewhere in this suite are unchanged.
   const r5 = await pPost({ op: "create_owner_access", name: "aal1", email: email("aal1"), modules: ["election_day"] , username: suiteUsername() }, PO_AAL1);
-  check("A6 aal1 Platform Owner cannot approve (401)", r5.statusCode === 401);
+  check("A6 aal1 Platform Owner CAN approve (password-only sign-in)", r5.statusCode === 201,
+    `status=${r5.statusCode}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -404,9 +410,9 @@ section("G. PLATFORM OWNER ENTITLEMENT READ / EDIT");
   const g = await pGet("/api/platform/session?op=workspace_modules", PO);
   const ws = g.body?.workspaces?.find((w) => w.workspace_id === B.wsId);
   check("G1 Platform read: catalog of 3 modules + each workspace's modules", g.statusCode === 200 && g.body?.catalog?.length === 3 && JSON.stringify(ws?.modules) === '["budget","election_day"]');
-  check("G2 aal1 / stranger / Election Owner tokens cannot read entitlements (401)",
-    (await pGet("/api/platform/session?op=workspace_modules", PO_AAL1)).statusCode === 401 &&
-      (await pGet("/api/platform/session?op=workspace_modules", A.token)).statusCode === 401);
+  check("G2 an Election Owner token cannot read entitlements (401); the aal1 Platform Owner can (200)",
+    (await pGet("/api/platform/session?op=workspace_modules", A.token)).statusCode === 401 &&
+      (await pGet("/api/platform/session?op=workspace_modules", PO_AAL1)).statusCode === 200);
   const e1 = await pPost({ op: "set_workspace_modules", workspaceId: B.wsId, modules: [] }, PO);
   const e2 = await pPost({ op: "set_workspace_modules", workspaceId: B.wsId, modules: ["nope_module"] }, PO);
   const e3 = await pPost({ op: "set_workspace_modules", workspaceId: crypto.randomUUID(), modules: ["budget"] }, PO);

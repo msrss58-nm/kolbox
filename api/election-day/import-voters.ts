@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
+import { extractBearerToken, verifyOwnerJwt } from "./_ownerAuth.js";
 
 // Phase 3 Import/Clear Voter File - PermissionUser session path. POST only.
 // Browser -> __Host-kb_ed_session HttpOnly cookie + a previously-issued
@@ -38,6 +39,41 @@ const CLEAR_ALLOWED_BODY_KEYS = new Set<string>(["reauthProof"]);
 const VOTER_FILE_OP_PARAM = "__vf_op";
 
 const SESSION_COOKIE_NAME = "__Host-kb_ed_session";
+/** `?principal=owner` selects the Election Owner path, exactly as
+ * api/budget/actions.ts already does. Absent/anything else = the worker
+ * path, byte-identical to before. */
+const PRINCIPAL_PARAM = "principal";
+
+function isOwnerPrincipal(url: string | undefined): boolean {
+  return (
+    new URL(url ?? "/", "http://localhost").searchParams.get(PRINCIPAL_PARAM) === "owner"
+  );
+}
+
+type ResolvedPrincipal =
+  | { kind: "worker"; sessionToken: string }
+  | { kind: "owner"; authUserId: string }
+  | { kind: "unauthorized" };
+
+/**
+ * One authorization step for both voter-file routes. The worker branch is the
+ * original check, unchanged. The Owner branch verifies the Owner JWT and
+ * hands back the auth user id the Owner RPCs take - those RPCs
+ * (election_day_import_voters_owner_v3 / election_day_clear_voters_owner_v3)
+ * re-resolve the Owner's workspace themselves and delegate to the SAME shared
+ * core the PermissionUser wrappers use, so no scope is derived here.
+ */
+async function resolvePrincipal(req: MinimalRequest): Promise<ResolvedPrincipal> {
+  if (isOwnerPrincipal(req.url)) {
+    const raw = extractBearerToken(req);
+    const verified = raw ? await verifyOwnerJwt(raw) : null;
+    return verified
+      ? { kind: "owner", authUserId: verified.authUserId }
+      : { kind: "unauthorized" };
+  }
+  const sessionToken = req.cookies?.[SESSION_COOKIE_NAME];
+  return sessionToken ? { kind: "worker", sessionToken } : { kind: "unauthorized" };
+}
 const DEFAULT_PRODUCTION_ORIGIN = "https://kolbox-gamma.vercel.app";
 
 interface MinimalRequest {
@@ -165,11 +201,14 @@ async function handleClear(req: MinimalRequest, res: MinimalResponse): Promise<v
     return;
   }
 
-  const rawSessionToken = req.cookies?.[SESSION_COOKIE_NAME];
-  if (!rawSessionToken) {
+  const principal = await resolvePrincipal(req);
+  if (principal.kind === "unauthorized") {
     sendError(res, 401, "UNAUTHORIZED");
     return;
   }
+  const ownerPrincipal = principal.kind === "owner";
+  const ownerAuthUserId = principal.kind === "owner" ? principal.authUserId : "";
+  const rawSessionToken = principal.kind === "worker" ? principal.sessionToken : "";
 
   let supabase: ReturnType<typeof getServiceClient>;
   try {
@@ -179,13 +218,17 @@ async function handleClear(req: MinimalRequest, res: MinimalResponse): Promise<v
     return;
   }
 
-  const sessionHashBytea = toPgBytea(sha256Hex(rawSessionToken));
   const proofHashBytea = toPgBytea(sha256Hex(reauthProof));
 
-  const { error } = await supabase.rpc("election_day_clear_voters_v3", {
-    p_session_hash: sessionHashBytea,
-    p_reauth_proof_hash: proofHashBytea,
-  });
+  const { error } = ownerPrincipal
+    ? await supabase.rpc("election_day_clear_voters_owner_v3", {
+        p_auth_user_id: ownerAuthUserId,
+        p_reauth_proof_hash: proofHashBytea,
+      })
+    : await supabase.rpc("election_day_clear_voters_v3", {
+        p_session_hash: toPgBytea(sha256Hex(rawSessionToken)),
+        p_reauth_proof_hash: proofHashBytea,
+      });
 
   if (error) {
     const { status, code } = mapClearRpcError(error);
@@ -233,11 +276,14 @@ export default async function handler(
     return;
   }
 
-  const rawSessionToken = req.cookies?.[SESSION_COOKIE_NAME];
-  if (!rawSessionToken) {
+  const principal = await resolvePrincipal(req);
+  if (principal.kind === "unauthorized") {
     sendError(res, 401, "UNAUTHORIZED");
     return;
   }
+  const ownerPrincipal = principal.kind === "owner";
+  const ownerAuthUserId = principal.kind === "owner" ? principal.authUserId : "";
+  const rawSessionToken = principal.kind === "worker" ? principal.sessionToken : "";
 
   let supabase: ReturnType<typeof getServiceClient>;
   try {
@@ -247,14 +293,19 @@ export default async function handler(
     return;
   }
 
-  const sessionHashBytea = toPgBytea(sha256Hex(rawSessionToken));
   const proofHashBytea = toPgBytea(sha256Hex(reauthProof));
 
-  const { data, error } = await supabase.rpc("election_day_import_voters_v3", {
-    p_session_hash: sessionHashBytea,
-    p_reauth_proof_hash: proofHashBytea,
-    p_voters: voters,
-  });
+  const { data, error } = ownerPrincipal
+    ? await supabase.rpc("election_day_import_voters_owner_v3", {
+        p_auth_user_id: ownerAuthUserId,
+        p_reauth_proof_hash: proofHashBytea,
+        p_voters: voters,
+      })
+    : await supabase.rpc("election_day_import_voters_v3", {
+        p_session_hash: toPgBytea(sha256Hex(rawSessionToken)),
+        p_reauth_proof_hash: proofHashBytea,
+        p_voters: voters,
+      });
 
   if (error) {
     const { status, code } = mapRpcError(error);

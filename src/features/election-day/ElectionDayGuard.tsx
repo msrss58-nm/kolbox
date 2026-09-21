@@ -5,7 +5,13 @@ import { Button } from "../../components/ui/Button";
 import { COMMON_TEXT } from "../../constants/common-text";
 import { ROUTES } from "../../constants/routes";
 import { useAsyncData } from "../../hooks/useAsyncData";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { PackageX } from "lucide-react";
+import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDaySession } from "./electionDaySession";
+
+/** The entitlement key this shell requires. */
+const ELECTION_DAY_MODULE = "election_day";
 
 function FullScreenSpinner() {
   return (
@@ -86,6 +92,23 @@ export function ElectionDayGuard() {
 
   if (sessionResult.status !== "authenticated") {
     return <Navigate to={ROUTES.electionDayLogin} replace />;
+  }
+
+  // A worker can never reach here without the entitlement - `login()` itself
+  // refuses with MODULE_NOT_ENABLED. An Election Owner's session resolves
+  // independently of any module, so the entitlement is checked here, the same
+  // way VoterManagementGuard already does it, and with the same fail-closed
+  // treatment of an absent `modules` (navigation metadata only - every
+  // request is still re-authorized server-side).
+  if (!sessionResult.user.modules?.includes(ELECTION_DAY_MODULE)) {
+    return (
+      <div className="grid min-h-dvh place-items-center bg-surface p-6">
+        <EmptyState
+          icon={PackageX}
+          title={ELECTION_DAY_TEXT.session.errors.moduleNotEnabled}
+        />
+      </div>
+    );
   }
 
   return <Outlet />;

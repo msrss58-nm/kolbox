@@ -14,6 +14,7 @@ import {
 } from "../../services/api/coordinatorAllocationMapping";
 import type { Coordinator } from "../../types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
+import { trustedFetch, type TrustedEndpoints } from "./actionPrincipal";
 
 /**
  * Coordinator/Allocation V3 Frontend Cutover: pure fetch wrappers around the
@@ -41,8 +42,18 @@ import { ELECTION_DAY_TEXT } from "./election-day.constants";
  * domain type - approved response contract.
  */
 
-const COORDINATOR_ALLOCATION_ENDPOINT = "/api/election-day/coordinator-allocation";
-const REAUTH_ENDPOINT = "/api/election-day/reauth";
+/** The Owner equivalents are the shared owner-actions endpoint (same
+ * `{op,...}` POST body, same bare-GET default of `list_coordinators`) and the
+ * Owner step-up endpoint. The four allocation actions are already in
+ * owner-reauth's action allow-list and owner-actions' op table. */
+const COORDINATOR_ALLOCATION_ENDPOINTS: TrustedEndpoints = {
+  worker: "/api/election-day/coordinator-allocation",
+  owner: "/api/election-day/owner-actions",
+};
+const REAUTH_ENDPOINTS: TrustedEndpoints = {
+  worker: "/api/election-day/reauth",
+  owner: "/api/election-day/owner-reauth",
+};
 const REAUTH_ACTION = "coordinator_allocation";
 
 const errors = ELECTION_DAY_TEXT.reauth.trustedUserErrors;
@@ -109,7 +120,7 @@ function errorCodeFromBody(body: unknown): string | undefined {
 export async function reauthForCoordinatorAllocation(password: string): Promise<string> {
   let res: Response;
   try {
-    res = await fetch(REAUTH_ENDPOINT, {
+    res = await trustedFetch(REAUTH_ENDPOINTS, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password, action: REAUTH_ACTION }),
@@ -151,7 +162,7 @@ export async function reauthForCoordinatorAllocation(password: string): Promise<
 export async function fetchCoordinatorsTrusted(): Promise<Coordinator[]> {
   let res: Response;
   try {
-    res = await fetch(COORDINATOR_ALLOCATION_ENDPOINT, { method: "GET" });
+    res = await trustedFetch(COORDINATOR_ALLOCATION_ENDPOINTS, { method: "GET" });
   } catch {
     throw new Error(errors.generic);
   }
@@ -192,7 +203,7 @@ async function postCoordinatorAllocation(
 ): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(COORDINATOR_ALLOCATION_ENDPOINT, {
+    res = await trustedFetch(COORDINATOR_ALLOCATION_ENDPOINTS, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op, ...extra }),

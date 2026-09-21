@@ -13,6 +13,7 @@
  * sees a workspace id, a storage path or a permanent URL.
  */
 import { BudgetApiError, budgetCall, type BudgetPrincipal, type DocumentMime } from "./budgetClient";
+import { getActionPrincipal } from "../election-day/actionPrincipal";
 
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const FILE_ACCEPT = ".pdf,.jpg,.jpeg,.png,.heic,.heif,application/pdf,image/jpeg,image/png,image/heic,image/heif";
@@ -40,7 +41,7 @@ export type UploadTarget =
   | { purpose: "supplier"; supplierId: string; documentTypeId?: string; documentId?: string; title?: string; notes?: string; validUntil?: string }
   | { purpose: "order_form_return"; orderFormVersionId: string; notes?: string };
 
-export async function uploadBudgetFile<T>(target: UploadTarget, file: File, principal: BudgetPrincipal = "worker"): Promise<T> {
+export async function uploadBudgetFile<T>(target: UploadTarget, file: File, principal: BudgetPrincipal = getActionPrincipal()): Promise<T> {
   const mimeType = fileMime(file);
   if (!mimeType) throw new BudgetApiError("UNSUPPORTED_FILE_TYPE", 400);
   if (file.size > MAX_FILE_BYTES) throw new BudgetApiError("FILE_TOO_LARGE", 400);
@@ -71,7 +72,7 @@ function clickLink(href: string, fileName?: string) {
 }
 
 /** Opens (downloads) one stored version through a fresh 60-second link. */
-export async function downloadBudgetDocument(versionId: string, principal: BudgetPrincipal = "worker"): Promise<void> {
+export async function downloadBudgetDocument(versionId: string, principal: BudgetPrincipal = getActionPrincipal()): Promise<void> {
   const r = await budgetCall<{ url: string; fileName: string }>("document_download", { versionId }, principal);
   clickLink(r.url);
 }

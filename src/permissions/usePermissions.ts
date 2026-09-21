@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { useElectionDaySession } from "../features/election-day/electionDaySession";
 import { computePermissions, type PermissionsResult } from "./computePermissions";
+import { isOwnerSessionRoleId } from "./ownerSessionRole";
 import { useRoleCatalogStore } from "./roleCatalogStore";
 
 export type UsePermissionsResult = PermissionsResult;
@@ -38,6 +39,12 @@ export function usePermissions(): UsePermissionsResult {
   const ensureLoaded = useRoleCatalogStore((s) => s.ensureLoaded);
 
   useEffect(() => {
+    // The Election Owner is resolved from the session, not from the catalog
+    // (`computePermissions` returns before it), and the worker role-catalog
+    // endpoint is not theirs to call - so fetching it would fail on every
+    // render and retry forever. The Owner's own role editor reads the catalog
+    // through the Owner endpoint instead.
+    if (isOwnerSessionRoleId(sessionUser?.roleId ?? null)) return;
     if (sessionUser && (catalogStatus === "idle" || catalogStatus === "error")) {
       void ensureLoaded();
     }

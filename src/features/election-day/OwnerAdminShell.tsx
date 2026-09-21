@@ -17,6 +17,8 @@ import type { OwnerAdminContext } from "./ownerAdminContext";
 import { useOwnerRoleManagement } from "./useOwnerRoleManagement";
 import { useOwnerSession } from "./ownerSession";
 import { useOwnerUserManagement } from "./useOwnerUserManagement";
+import { BUDGET_ROUTES, ELECTION_DAY_ROUTES } from "../../constants/routes";
+import { CalendarCheck } from "lucide-react";
 import { useOwnerWorkspaceSummary } from "./useOwnerWorkspaceSummary";
 
 const text = ELECTION_DAY_TEXT.owner.rolesPage;
@@ -32,14 +34,26 @@ const GENERAL_NAV: AdminNavItem[] = [
   { to: ROUTES.electionDayOwnerSettings, label: adminText.nav.settings, icon: Settings },
 ];
 
-/** The Budget module's only Owner-side section. Election Day and Voter
- * Management have no Owner child route of their own today, so they get no
- * group - an empty one would be a fake menu. */
+/** The Budget module's Owner-side sections: its own full surface (the SAME
+ * screens a worker uses - never an Owner copy) plus the Owner-only settings
+ * section. */
 const BUDGET_NAV: AdminNavItem[] = [
+  { to: BUDGET_ROUTES.dashboard, label: adminText.nav.openBudget, icon: Wallet },
   {
     to: ROUTES.electionDayOwnerBudgetSettings,
     label: BUDGET_TEXT.settings.title,
     icon: Wallet,
+  },
+];
+
+/** Election Day has no Owner-only child route - its group is the entry into
+ * the module's own existing surface (dashboard, voters, FILES/upload, rides,
+ * reasons, reports). */
+const ELECTION_DAY_NAV: AdminNavItem[] = [
+  {
+    to: ELECTION_DAY_ROUTES.dashboard,
+    label: adminText.nav.openElectionDay,
+    icon: CalendarCheck,
   },
 ];
 
@@ -82,6 +96,9 @@ export function OwnerAdminShell() {
   // read. Every section's data and mutations stay authorized by the server.
   const navSections: AdminNavSection[] = [
     { label: adminText.nav.generalSection, items: GENERAL_NAV },
+    ...(electionDayEnabled
+      ? [{ label: moduleLabel("election_day"), items: ELECTION_DAY_NAV }]
+      : []),
     ...(enabledModules.some((m) => m.key === "budget")
       ? [{ label: moduleLabel("budget"), items: BUDGET_NAV }]
       : []),

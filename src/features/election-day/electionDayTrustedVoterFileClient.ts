@@ -15,10 +15,24 @@
  */
 
 import type { NewElectionDayVoter } from "../../services/api";
+import { trustedFetch, type TrustedEndpoints } from "./actionPrincipal";
 
-const REAUTH_ENDPOINT = "/api/election-day/reauth";
-const IMPORT_VOTERS_ENDPOINT = "/api/election-day/import-voters";
-const CLEAR_VOTERS_ENDPOINT = "/api/election-day/clear-voters";
+/** Worker and Owner equivalents of the three voter-file endpoints. The Owner
+ * proof actions are the SAME literals ("import_voters"/"clear_voters") the
+ * Owner RPCs hardcode, and both principals converge on the same shared core -
+ * see api/election-day/import-voters.ts. */
+const REAUTH_ENDPOINTS: TrustedEndpoints = {
+  worker: "/api/election-day/reauth",
+  owner: "/api/election-day/owner-reauth",
+};
+const IMPORT_VOTERS_ENDPOINTS: TrustedEndpoints = {
+  worker: "/api/election-day/import-voters",
+  owner: "/api/election-day/import-voters?principal=owner",
+};
+const CLEAR_VOTERS_ENDPOINTS: TrustedEndpoints = {
+  worker: "/api/election-day/clear-voters",
+  owner: "/api/election-day/clear-voters?principal=owner",
+};
 
 export type TrustedReauthResult =
   | { status: "ok"; proof: string }
@@ -31,7 +45,7 @@ async function reauthForAction(
   action: "import_voters" | "clear_voters",
 ): Promise<TrustedReauthResult> {
   try {
-    const res = await fetch(REAUTH_ENDPOINT, {
+    const res = await trustedFetch(REAUTH_ENDPOINTS, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password, action }),
@@ -105,7 +119,7 @@ export async function importVotersTrusted(
       phone: r.phone,
       coordinator: r.coordinator,
     }));
-    const res = await fetch(IMPORT_VOTERS_ENDPOINT, {
+    const res = await trustedFetch(IMPORT_VOTERS_ENDPOINTS, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ voters: mappedVoters, reauthProof }),
@@ -162,7 +176,7 @@ export async function clearVotersTrusted(
   reauthProof: string,
 ): Promise<TrustedClearResult> {
   try {
-    const res = await fetch(CLEAR_VOTERS_ENDPOINT, {
+    const res = await trustedFetch(CLEAR_VOTERS_ENDPOINTS, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reauthProof }),

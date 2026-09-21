@@ -3,7 +3,12 @@ import { COMMON_TEXT } from "../../constants/common-text";
 import { useRoleCatalogStore } from "../../permissions/roleCatalogStore";
 import { api } from "../../services/api";
 import { removeKey } from "../../services/storage/localStore";
+import { OWNER_SESSION_ROLE_ID } from "../../permissions/ownerSessionRole";
+import { ownerAuthClient } from "../../services/supabase/ownerAuthClient";
+import { isOwnerPrincipal, setActionPrincipal } from "./actionPrincipal";
 import { useCoordinatorAllocationReauthProof } from "./coordinatorAllocationReauthProof";
+import { fetchOwnerSession, fetchOwnerWorkspaceModules } from "./electionDayOwnerClient";
+import { useOwnerSession } from "./ownerSession";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDayReauthProof } from "./electionDayReauthProof";
 import {
@@ -133,6 +138,39 @@ function mapLoginFailureMessage(result: SessionClientResult): string {
   }
 }
 
+/**
+ * Resolves the signed-in Election Owner into the same `ServerSessionUser`
+ * shape a worker session produces, so every existing screen, guard and hook
+ * consumes one identity type and nothing downstream needs an Owner branch.
+ *
+ * `modules` carries the workspace's EFFECTIVE entitlements (enabled AND
+ * globally available), which is what decides WHICH module surfaces the Owner
+ * is offered - the same contract, and the same fail-closed treatment of an
+ * absent value, that a worker session already has. Returns null for anything
+ * other than a fully resolved Owner, so the caller falls through to the
+ * normal signed-out path.
+ */
+async function resolveOwnerSessionUser(): Promise<ServerSessionUser | null> {
+  try {
+    const { data } = await ownerAuthClient.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return null;
+    const context = await fetchOwnerSession(token);
+    if (context.status !== "ok") return null;
+    const modules = await fetchOwnerWorkspaceModules(token);
+    if (modules.status !== "ok") return null;
+    return {
+      id: context.context.ownerId,
+      name: data.session?.user.email ?? "",
+      roleId: OWNER_SESSION_ROLE_ID,
+      workspaceId: context.context.workspaceId,
+      modules: modules.data.filter((m) => m.enabled && m.available).map((m) => m.key),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function toStoredUser(user: ServerSessionUser): ElectionDaySessionUser {
   return {
     id: user.id,
@@ -199,6 +237,16 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set, get) 
     if (get().loggingOut) return;
     set({ loggingOut: true });
     try {
+      // An Election Owner driving this shell has no worker cookie to delete -
+      // their session lives in `ownerAuthClient`. Sign THEM out instead of
+      // calling the worker logout endpoint (which would simply 401 and, by
+      // the contract below, correctly refuse to clear `user`).
+      if (isOwnerPrincipal()) {
+        await useOwnerSession.getState().logout();
+        setActionPrincipal("worker");
+        set({ user: null });
+        return;
+      }
       const result = await logoutRequest();
       if (result.status !== "ok") {
         // Security requirement: never report a successful logout - and
@@ -239,8 +287,21 @@ export const useElectionDaySession = create<ElectionDaySessionState>((set, get) 
     clearLegacySession();
     const result = await getSession();
     if (result.status === "authenticated") {
+      setActionPrincipal("worker");
       set({ user: toStoredUser(result.user) });
     } else if (result.status === "unauthenticated") {
+      // No worker cookie. Before treating this as "signed out", check for an
+      // Election Owner session: the Owner reaches the SAME module surfaces
+      // through the SAME screens, driven by `owner-actions.ts` instead of
+      // `actions.ts`. Tried only AFTER the worker path so nothing about the
+      // worker flow changes, and only ever for a fully resolved Owner.
+      const ownerResult = await resolveOwnerSessionUser();
+      if (ownerResult) {
+        setActionPrincipal("owner");
+        set({ user: toStoredUser(ownerResult) });
+        return { status: "authenticated", user: ownerResult };
+      }
+      setActionPrincipal("worker");
       // Coordinator/Allocation V3 Frontend Cutover: a bootstrap-detected
       // session loss (expiry, revocation, or any other server-confirmed
       // "no longer authenticated" outcome) must not leave a client-side-

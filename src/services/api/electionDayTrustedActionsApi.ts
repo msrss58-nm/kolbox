@@ -20,6 +20,10 @@ import type {
   NewRideCoordinator,
   NonVotingReasonUpdate,
 } from "./types";
+import {
+  trustedFetch,
+  type TrustedEndpoints,
+} from "../../features/election-day/actionPrincipal";
 
 /**
  * Multi-Tenant Phase 4B Frontend Cutover: pure fetch wrappers around the
@@ -75,7 +79,13 @@ import type {
  * dependency-free module and is exported.
  */
 
-const ACTIONS_ENDPOINT = "/api/election-day/actions";
+/** The worker and Owner endpoints are equivalent by construction: same op
+ * table, same body shape, same `?op=` GET convention, same error codes. Only
+ * the path and the credential differ - see `actionPrincipal.ts`. */
+const ACTIONS_ENDPOINTS: TrustedEndpoints = {
+  worker: "/api/election-day/actions",
+  owner: "/api/election-day/owner-actions",
+};
 
 /**
  * `election_day_list_voters_v3`'s row shape - unlike `SupabaseElectionDayApi`'s
@@ -270,7 +280,7 @@ function errorCodeFromBody(body: unknown): string | undefined {
 async function postAction(op: string, extra: Record<string, unknown>): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(ACTIONS_ENDPOINT, {
+    res = await trustedFetch(ACTIONS_ENDPOINTS, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op, ...extra }),
@@ -293,7 +303,7 @@ async function getAction(
   const qs = new URLSearchParams({ op, ...query });
   let res: Response;
   try {
-    res = await fetch(`${ACTIONS_ENDPOINT}?${qs.toString()}`, { method: "GET" });
+    res = await trustedFetch(ACTIONS_ENDPOINTS, { method: "GET" }, `?${qs.toString()}`);
   } catch {
     throw new Error(GENERIC_ERROR);
   }

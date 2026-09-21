@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { BUDGET_NAV_ITEMS, BUDGET_ROUTES, type NavItem } from "../../constants/routes";
 import { BudgetApiError, budgetCall, type BudgetSession } from "./budgetClient";
+import { setActionPrincipal } from "../election-day/actionPrincipal";
+import { ownerAuthClient } from "../../services/supabase/ownerAuthClient";
 
 /**
  * Budget Stage 3: the Budget view of the CURRENT PermissionUser session
@@ -25,6 +27,17 @@ interface BudgetSessionState {
   reset: () => void;
 }
 
+/** True when an Election Owner Auth session is actually present - never a
+ * guess, and never consulted before the worker path has been tried. */
+async function ownerSessionAvailable(): Promise<boolean> {
+  try {
+    const { data } = await ownerAuthClient.auth.getSession();
+    return Boolean(data.session?.access_token);
+  } catch {
+    return false;
+  }
+}
+
 export const useBudgetSession = create<BudgetSessionState>((set) => ({
   status: "idle",
   session: null,
@@ -33,7 +46,24 @@ export const useBudgetSession = create<BudgetSessionState>((set) => ({
     try {
       // "probe" answers 200 for a workspace without Budget or a role without
       // budget.view, so asking never produces an error response.
-      const r = await budgetCall<{ session?: BudgetSession; unavailable?: string }>("probe");
+      // A DEEP LINK / reload straight into /budget/* never runs
+      // ElectionDayGuard, so the principal may not have been resolved yet.
+      // The worker probe is tried FIRST and is unchanged; only when there is
+      // no worker session at all is the Election Owner tried, exactly as
+      // `electionDaySession.bootstrap()` does. The server decides both.
+      let r: { session?: BudgetSession; unavailable?: string } | null = null;
+      try {
+        r = await budgetCall<{ session?: BudgetSession; unavailable?: string }>("probe");
+      } catch (workerError) {
+        const workerCode = workerError instanceof BudgetApiError ? workerError.code : "";
+        if (workerCode !== "UNAUTHORIZED" || !(await ownerSessionAvailable())) throw workerError;
+        r = await budgetCall<{ session?: BudgetSession; unavailable?: string }>(
+          "probe",
+          {},
+          "owner",
+        );
+        if (r?.session) setActionPrincipal("owner");
+      }
       if (r?.session) {
         set({ status: "ready", session: r.session });
         return "ready";

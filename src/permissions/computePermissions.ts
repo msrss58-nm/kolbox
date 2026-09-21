@@ -1,4 +1,5 @@
 import { hasPermission } from "./hasPermission";
+import { OWNER_SESSION_ROLE, isOwnerSessionRoleId } from "./ownerSessionRole";
 import type { RoleCatalogStatus } from "./roleCatalogController";
 import { resolveSessionRole } from "./resolveSessionRole";
 import type { Permission, RoleRecord } from "./types";
@@ -42,6 +43,13 @@ export function computePermissions(
   catalogStatus: RoleCatalogStatus,
   roles: readonly RoleRecord[],
 ): PermissionsResult {
+  // The Election Owner is not a catalog role and must not depend on the
+  // catalog loading at all - they are resolved from the session itself and
+  // are unrestricted inside their own workspace. Server-side authorization is
+  // unchanged and still decides every actual request.
+  if (isOwnerSessionRoleId(sessionRoleId)) {
+    return { role: OWNER_SESSION_ROLE, catalogStatus, roles, can: () => true };
+  }
   const role =
     sessionRoleId !== null && catalogStatus === "loaded"
       ? resolveSessionRole(sessionRoleId, roles)

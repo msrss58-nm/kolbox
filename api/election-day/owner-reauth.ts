@@ -45,6 +45,12 @@ const ALLOWED_OWNER_ACTIONS = new Set<string>([
   "create_permission_user",
   "delete_permission_user",
   "reset_permission_user_password",
+  // Owner voter-file access: bound one-to-one to the literals
+  // election_day_import_voters_owner_v3 / election_day_clear_voters_owner_v3
+  // already hardcode. Those RPCs shipped with the Owner wrappers and were
+  // left unwired only because no Owner UI existed yet.
+  "import_voters",
+  "clear_voters",
 ]);
 
 const ALLOWED_BODY_KEYS = new Set<string>(["password", "action"]);

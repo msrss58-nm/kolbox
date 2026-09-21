@@ -9,6 +9,7 @@
  * actor id or permission. Amounts are integer agorot.
  */
 import { useOwnerSession } from "../election-day/ownerSession";
+import { getActionPrincipal } from "../election-day/actionPrincipal";
 
 const BUDGET_ENDPOINT = "/api/budget/actions";
 
@@ -38,7 +39,7 @@ export class BudgetApiError extends Error {
 export async function budgetCall<T>(
   op: string,
   args: Record<string, unknown> = {},
-  principal: BudgetPrincipal = "worker",
+  principal: BudgetPrincipal = getActionPrincipal(),
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (principal === "owner") {
