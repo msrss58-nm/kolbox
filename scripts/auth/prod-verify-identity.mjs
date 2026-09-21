@@ -126,20 +126,23 @@ for (const [label, rel] of [
   counts[label] = cr.includes("/") ? cr.split("/")[1] : "?";
 }
 console.log("   counts:", JSON.stringify(counts));
-// Baseline retargeted after the approved Production cleanup (2026-09-20),
-// which reduced Production to exactly ONE real principal. The old counts
-// (2 workspaces / 3 permission users / 2 election owners / 1422 voters)
-// described the pre-cleanup state and can never hold again.
+// INVARIANTS, not a snapshot. An earlier revision pinned the exact counts
+// left by the 2026-09-20 cleanup (0 workspaces / 0 owners / 0 roles); those
+// held for exactly as long as nobody used the product, and went red the
+// moment an Election Owner was legitimately approved and provisioned a
+// workspace. What must always be true is asserted instead.
 check("D1 exactly one Platform Owner", counts.platform_owners === "1", counts.platform_owners);
-check("D2 exactly one identity-directory row (the Platform Owner's username)",
-  counts.auth_identities === "1", counts.auth_identities);
-check("D3 no workspaces", counts.workspaces === "0", counts.workspaces);
-check("D4 no permission users and no roles",
-  counts.permission_users === "0" && counts.roles === "0",
-  `${counts.permission_users}/${counts.roles}`);
-check("D5 no election owners and no voters",
-  counts.election_owners === "0" && counts.voters === "0",
-  `${counts.election_owners}/${counts.voters}`);
+check("D2 the Platform Owner still holds a directory row",
+  Number(counts.auth_identities) >= 1, counts.auth_identities);
+check("D3 every workspace has exactly one Election Owner",
+  counts.workspaces === counts.election_owners,
+  `${counts.workspaces} workspaces / ${counts.election_owners} owners`);
+check("D4 no permission user exists without a workspace to belong to",
+  counts.workspaces !== "0" || counts.permission_users === "0",
+  `${counts.workspaces}/${counts.permission_users}`);
+check("D5 no voter exists without a workspace to belong to",
+  counts.workspaces !== "0" || counts.voters === "0",
+  `${counts.workspaces}/${counts.voters}`);
 
 section("E. PLATFORM OWNER SIGNS IN WITH PASSWORD ONLY");
 // Mandatory Platform Owner MFA was removed from the active login flow, and the
@@ -152,9 +155,16 @@ const factors = await fetch(`${URL_}/auth/v1/admin/users/${OWNER_AUTH_USER_ID}/f
 let factorList = null;
 try { factorList = await factors.json(); } catch { factorList = null; }
 const factorArray = Array.isArray(factorList) ? factorList : (factorList?.factors ?? null);
-check("E1 the Platform Owner has NO enrolled MFA factor",
-  factors.status === 200 && Array.isArray(factorArray) && factorArray.length === 0,
-  `status=${factors.status} ${JSON.stringify(factorList)}`);
+// What matters is that no VERIFIED factor exists: GoTrue only refuses an
+// aal1 password change ("insufficient_aal") while one does, and only a
+// verified factor could gate a sign-in. An abandoned, unverified enrolment
+// is inert and must not fail this check.
+const verifiedFactors = Array.isArray(factorArray)
+  ? factorArray.filter((f) => f?.status === "verified")
+  : null;
+check("E1 the Platform Owner has no VERIFIED MFA factor (password change stays possible)",
+  factors.status === 200 && verifiedFactors !== null && verifiedFactors.length === 0,
+  `status=${factors.status} ${JSON.stringify(factorArray)}`);
 const resolved = await rpc(SVC, "auth_identity_resolve", {
   p_realm: "platform_owner", p_username: OWNER_USERNAME,
 });
