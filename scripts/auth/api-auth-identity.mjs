@@ -604,10 +604,10 @@ const pPost = (body) =>
   });
 
 let pr = await pPost({
-  op: "create_owner_access",
+  op: "create_owner_access", phone: "0501234567",
   name: "Owner With Username",
   email: `newowner-${stamp}@kolbox.test`,
-  phone: "",
+  phone: "0501234567",
   expiresInDays: 7,
   modules: ["election_day"],
   username: "owner alpha",
@@ -625,20 +625,20 @@ check(
 );
 
 pr = await pPost({
-  op: "create_owner_access",
+  op: "create_owner_access", phone: "0501234567",
   name: "Missing Username",
   email: `nouser-${stamp}@kolbox.test`,
-  phone: "",
+  phone: "0501234567",
   expiresInDays: 7,
   modules: ["election_day"],
 });
 check("P3 create_owner_access WITHOUT a username is refused", pr.statusCode === 400);
 
 pr = await pPost({
-  op: "create_owner_access",
+  op: "create_owner_access", phone: "0501234567",
   name: "Colliding Owner",
   email: `collide-${stamp}@kolbox.test`,
-  phone: "",
+  phone: "0501234567",
   expiresInDays: 7,
   modules: ["election_day"],
   username: "owner alpha",
@@ -672,10 +672,10 @@ check(
 
 // ---- Multi-Entity provisioning ----
 pr = await pPost({
-  op: "provision_multi_entity_owner",
+  op: "provision_multi_entity_owner", phone: "0501234567",
   name: "ME With Username",
   email: `newme-${stamp}@kolbox.test`,
-  phone: "",
+  phone: "0501234567",
   username: "multi alpha",
 });
 check(
@@ -687,10 +687,10 @@ check(
 );
 
 pr = await pPost({
-  op: "provision_multi_entity_owner",
+  op: "provision_multi_entity_owner", phone: "0501234567",
   name: "ME No Username",
   email: `nome-${stamp}@kolbox.test`,
-  phone: "",
+  phone: "0501234567",
 });
 check("P8 provisioning a seat WITHOUT a username is refused", pr.statusCode === 400);
 

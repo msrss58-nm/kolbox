@@ -69,6 +69,10 @@ const pPost = (body, token, origin = ORIGIN) =>
     headers: { ...auth(token), ...(origin ? { origin } : {}) },
     body,
   });
+// A contact phone is REQUIRED now - the console hands the login details over
+// by WhatsApp and has nowhere to send them without one. `extra` can still
+// override it, which is how the negative cases below are expressed.
+const VALID_PHONE = "0501234567";
 const approve = (local, token, extra = {}) =>
   pPost(
     {
@@ -76,6 +80,7 @@ const approve = (local, token, extra = {}) =>
       name: `EO ${local}`,
       email: email(local),
       username: suiteUsername(),
+      phone: VALID_PHONE,
       modules: ["election_day"], // Stage 9: explicit module choice is required
       ...extra,
     },
@@ -187,6 +192,9 @@ let firstPendingId = "";
       name: "x",
       email: `  FRESH@${DOMAIN.toUpperCase()} `,
       username: suiteUsername(),
+      // Valid on purpose: this case must fail on the DUPLICATE ADDRESS, not
+      // on the phone rule, or it would stop testing what it is named after.
+      phone: VALID_PHONE,
       modules: ["election_day"],
     },
     PO,
@@ -410,6 +418,53 @@ section("FAILURE AFTER CREATE - explicit, never silent");
       pendingFor(email("nolink")) !== "",
     JSON.stringify(nl.body),
   );
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+section("PHONE IS REQUIRED - and stored in one canonical form");
+// The console validates too, but the SERVER is the authority: a caller that
+// skips the console is refused here. Every rejection must also create
+// nothing - a half-made approval with no phone is exactly what this prevents.
+{
+  const rowsOf = async () => (await listOp(PO)).body?.approvals ?? [];
+  const before = (await rowsOf()).length;
+
+  const missing = await approve("nophone", PO, { phone: undefined });
+  check("P1 an approval with NO phone is refused (400)", missing.statusCode === 400,
+    String(missing.statusCode));
+
+  const empty = await approve("emptyphone", PO, { phone: "   " });
+  check("P2 a blank phone is refused (400)", empty.statusCode === 400, String(empty.statusCode));
+
+  const junk = await approve("junkphone", PO, { phone: "not-a-number" });
+  check("P3 a non-numeric phone is refused (400)", junk.statusCode === 400, String(junk.statusCode));
+
+  const tooShort = await approve("shortphone", PO, { phone: "0501234" });
+  check("P4 a too-short number is refused (400)", tooShort.statusCode === 400, String(tooShort.statusCode));
+
+  const foreign = await approve("ukphone", PO, { phone: "+44 7700 900123" });
+  check("P5 a non-Israeli number is refused (400)", foreign.statusCode === 400, String(foreign.statusCode));
+
+  const afterRefusals = (await rowsOf()).length;
+  check("P6 none of the refusals created an approval",
+    afterRefusals === before, `${before} -> ${afterRefusals}`);
+
+  // Accepted forms, all stored as the same canonical local number.
+  const intl = await approve("intlphone", PO, { phone: "+972-50-765-4321" });
+  check("P7 an international +972 number is ACCEPTED", intl.statusCode === 201, String(intl.statusCode));
+  const dashed = await approve("dashedphone", PO, { phone: "052-111-2233" });
+  check("P8 a dashed local number is ACCEPTED", dashed.statusCode === 201, String(dashed.statusCode));
+
+  const rows = await rowsOf();
+  const intlRow = rows.find((r) => r.email === email("intlphone"));
+  const dashedRow = rows.find((r) => r.email === email("dashedphone"));
+  check("P9 +972 was normalized to the local 0-prefixed form before storage",
+    intlRow?.phone === "0507654321", JSON.stringify(intlRow?.phone));
+  check("P10 separators were stripped before storage",
+    dashedRow?.phone === "0521112233", JSON.stringify(dashedRow?.phone));
+  check("P11 the list returns the phone, so a later hand-off has a number to use",
+    typeof intlRow?.phone === "string" && intlRow.phone.length > 0);
 }
 
 // ---------------------------------------------------------------------------

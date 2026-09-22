@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { Field, Input } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
+import { isValidIsraeliPhone, normalizeIsraeliPhone } from "../../lib/phone";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import type { MultiEntitySeat } from "./platformOwnerClient";
 
@@ -84,6 +85,12 @@ export function MultiEntityProvisionModal({
       setLocalError(text.missingUsername);
       return false;
     }
+    // REQUIRED, the same rule and the same helpers the Election Owner
+    // approval uses - the two provisioning paths must not drift apart.
+    if (!isValidIsraeliPhone(normalizeIsraeliPhone(phone))) {
+      setLocalError(text.missingPhone);
+      return false;
+    }
     setLocalError(null);
     return true;
   };
@@ -92,8 +99,8 @@ export function MultiEntityProvisionModal({
     onSubmit({
       name: name.trim(),
       email: email.trim(),
-      // Omitted rather than sent empty: the op body allow-list is exact.
-      phone: phone.trim() || undefined,
+      // Canonical form, so what is validated is what is stored.
+      phone: normalizeIsraeliPhone(phone),
       username: username.trim(),
     });
 
@@ -204,7 +211,13 @@ export function MultiEntityProvisionModal({
               maxLength={40}
               disabled={busy}
               autoComplete="off"
+              name="multi-entity-phone"
+              required
+              aria-describedby="kb-me-phone-hint"
             />
+            <p id="kb-me-phone-hint" className="mt-1 text-xs text-slate-400">
+              {text.phoneHint}
+            </p>
           </Field>
 
           {shown && (

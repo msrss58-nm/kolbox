@@ -4517,3 +4517,33 @@ Isolated scratch stack only (108 migrations replayed from empty, Storage on): `a
 ### EXACT NEXT STEP
 
 **Sign in once on the live shared screen as the real Election Owner** (`https://kolbox-auth.vercel.app/login`) and confirm the server routes them into their own workspace's entitled modules. Everything above is verified by machine; the one thing no automated check can stand in for is a real principal completing a real sign-in through the handoff on the deployed surfaces. It needs no code change and no approval beyond the Owner's own credential.
+
+## 2026-09-22 — OWNER PROVISIONING: PHONE REQUIRED (both Owner types) + WhatsApp / e-mail hand-off (Election Owner) — LOCAL ONLY (nothing committed, pushed or deployed; no migration)
+
+### PHONE IS NOW REQUIRED, ON BOTH PROVISIONING PATHS
+
+`create_owner_access` (Election Owner approval) and `provision_multi_entity_owner` (the Multi-Entity seat) both **require** a contact phone. It was previously accepted-but-optional at every layer.
+
+- **The server is the authority.** `api/platform/session.ts` gained `normalizedIsraeliPhone()`, which normalizes (`+972…` / separators / a missing leading `0`) and validates `^0\d{8,9}$`. A missing, blank or implausible number is refused with `400 INVALID_REQUEST` **before** any Auth account or approval row is created, so a rejection leaves nothing behind.
+- **The CANONICAL form is what gets stored** — both `p_phone` call sites now receive the normalized value, never the raw typing. `+972-50-765-4321` and `050-765-4321` both persist as `0507654321`.
+- **The console validates too**, reusing the existing `src/lib/phone.ts` helpers (`normalizeIsraeliPhone` / `isValidIsraeliPhone`) rather than restating the rule. An empty field is additionally stopped by the browser's own `required` constraint before any handler runs.
+- **THE RULE NOW EXISTS IN THREE PLACES** and they must change together: `src/lib/phone.ts` (client), `api/platform/session.ts` (server — `api/` imports nothing from `src/`, so it cannot share the helper), and the coordinator phone migration's SQL block (`INVALID_COORDINATOR_PHONE`, `20260822000000`). Each carries a comment naming the other two.
+
+**NO MIGRATION AND NO SCHEMA CHANGE.** The columns stay nullable. The three existing Production rows that hold `phone = null` (2 pending approvals, 1 `election_owners`) are untouched, are never backfilled, and are never read as mandatory — the requirement applies only to NEW provisioning.
+
+### HANDING THE LOGIN DETAILS OVER — Election Owner only
+
+The approval success panel now offers two actions beside the one-time link: **שליחה בוואטסאפ** and **שליחה באימייל**.
+
+- Both are plain links opened in the operator's OWN app — WhatsApp via the existing `whatsAppHref()` helper, e-mail via `mailto:` only. **No transactional e-mail provider was added, and none exists in this project.** No new package, env var, API route or Vercel Function.
+- Both bodies come from ONE pure builder, `src/features/platform-owner/ownerLoginDetailsMessage.ts`, so the two messages cannot drift. The message carries the Owner's name, their login username, the hard-coded shared-login URL, the one-time activation link, the server-returned expiry, and an explicit statement that **the link is personal and single-use**.
+- **The activation link travels inside the `wa.me` URL by explicit approval.** It is a credential, and this is the one place in the system where one is deliberately put in a URL: it can reach the operator's own browser history. `rel="noopener noreferrer"` keeps it out of any `Referer`, the link stays single-use and still expires, and the on-screen copy states that the system neither sends nor verifies delivery — the same rule the Budget order-form hand-off already follows.
+- **Multi-Entity delivery actions were deliberately NOT added.** That flow returns no expiry, and the approved message requires one; inventing expiry data was out of scope.
+
+### VERIFICATION (local, scratch stack; nothing committed)
+
+`api-stage8` **61/0** (P1–P11: missing / blank / non-numeric / too-short / non-Israeli all 400 and create nothing; `+972` and dashed forms accepted and stored normalized) · `ui-stage8` **57/0**, up from 40 (U2a–e phone enforcement, U3a–k both hrefs and every message fact, M1b the same rule on the Multi-Entity seat) · `api-stage9` **96/0** · `api-auth-identity` **66/0** · `stage5/api-real-local` **120/0** · `stage5/ui-real-local` **31/0** · `stage7/ui-stage7` **82/0**. Typecheck, build, `git diff --check` clean; eslint **0 errors**. Protected 15 untouched at +138/−45.
+
+### PRE-EXISTING BREAKAGE, CONFIRMED NOT CAUSED HERE
+
+`stage6/api-stage6.mjs` and `stage8d/api-stage8d.mjs` fail, and **already failed at `f000678` before this work**: neither passes the `username` that both provisioning ops have required since `566ec04`. Proven rather than asserted — each was run from a pristine `HEAD` worktree and from the current tree against the same stack; the outputs are byte-identical after normalizing UUIDs and paths (stage6: `TypeError: Invalid URL` at `api-stage6.mjs:214:44`, 0 passes both runs; stage8d: `signIn failed for a synthetic user` at `api-stage8d.mjs:123:23`, 1 pass both runs). Adding the now-required phone to their call sites was correct but does not rescue them. **Fixing them is a separate, unapproved task.**

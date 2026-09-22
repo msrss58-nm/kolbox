@@ -243,6 +243,9 @@ async function approveViaUi(name, addr) {
   await f
     .locator('input[name="owner-approval-username"]')
     .fill(`s8ui owner ${approvalSeq}`);
+  // A contact phone is REQUIRED now - without it the form refuses and no
+  // success panel ever appears.
+  await f.locator('input[name="approve-owner-phone"]').fill("050-123-4567");
   // Stage 9: the module choice is explicit and required.
   await f.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
   await f.getByRole("button", { name: "אישור ויצירת קישור" }).click();
@@ -272,6 +275,42 @@ try {
   await shot(page, "01-console-empty-390");
 
   section("APPROVE -> LIST; DUPLICATE / FOREIGN / LEFTOVER ACCOUNT");
+
+  // -------------------------------------------------------------------------
+  // A contact phone is REQUIRED. Asserted before the happy path, so a form
+  // that silently stopped enforcing it could not be hidden by a later success.
+  {
+    await page.getByRole("button", { name: "אישור בעלים חדש" }).click();
+    const f = approvalForm();
+    await f.waitFor({ timeout: 10000 });
+    await f.getByLabel("שם הבעלים").fill("בדיקת טלפון");
+    await f.getByLabel("אימייל").fill(email("phonecheck"));
+    await f.locator('input[name="owner-approval-username"]').fill("s8ui phone check");
+    await f.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
+
+    const phoneInput = f.locator('input[name="approve-owner-phone"]');
+    await f.getByRole("button", { name: "אישור ויצירת קישור" }).click();
+    // An empty REQUIRED field never reaches the submit handler: the browser's
+    // own constraint validation stops it first. That is the real mechanism
+    // here, so it is what gets asserted - the app-level message below covers
+    // a filled-but-implausible number, which native validation cannot judge.
+    check("U2a an approval with NO phone cannot be submitted at all",
+      await phoneInput.evaluate((el) => el.validity.valueMissing === true));
+    check("U2b ... and no approval was created - no success panel appeared",
+      (await page.getByText("הבעלים אושר").count()) === 0);
+
+    await f.locator('input[name="approve-owner-phone"]').fill("12345");
+    await f.getByRole("button", { name: "אישור ויצירת קישור" }).click();
+    check("U2c an implausible number is refused too",
+      await f.getByText("יש להזין מספר טלפון ישראלי תקין")
+        .waitFor({ timeout: 8000 }).then(() => true, () => false));
+    check("U2d still nothing created",
+      (await page.getByText("הבעלים אושר").count()) === 0);
+    check("U2e the field is marked required for assistive tech",
+      (await f.locator('input[name="approve-owner-phone"]').getAttribute("required")) !==
+        null);
+  }
+
   await approveViaUi("בעלים ראשון", email("eo1"));
   await page.getByText("הבעלים אושר").waitFor({ timeout: 15000 });
   const link1 = await ltrLinkIn(page, "/election-day/owner-set-password");
@@ -285,6 +324,49 @@ try {
     (await row(email("eo1")).innerText()).includes("ממתינה להרשמה"),
   );
   await shot(page, "02-approved-390");
+
+  // -------------------------------------------------------------------------
+  // HANDING THE LOGIN DETAILS OVER. Two links, prepared in the operator's own
+  // apps - the system sends nothing. Both are asserted on their real hrefs
+  // rather than on the button existing, because an href that dropped the
+  // username or the link would still render a perfectly good-looking button.
+  const send = page.locator('[data-testid="owner-login-details-send"]');
+  await send.waitFor({ timeout: 10000 });
+  const waHref = await send.locator('[data-testid="send-whatsapp"]').getAttribute("href");
+  const mailHref = await send.locator('[data-testid="send-email"]').getAttribute("href");
+
+  check("U3a both hand-off actions are offered once a link exists",
+    typeof waHref === "string" && typeof mailHref === "string");
+  check("U3b WhatsApp targets the approved number, normalized to 972 form",
+    (waHref ?? "").startsWith("https://wa.me/972501234567?text="),
+    (waHref ?? "").slice(0, 46));
+  check("U3c e-mail is a mailto: to the approved address - no provider, no network",
+    (mailHref ?? "").startsWith(`mailto:${encodeURIComponent(email("eo1"))}?subject=`),
+    (mailHref ?? "").slice(0, 60));
+
+  // The SAME message in both, carrying every fact the recipient needs.
+  const waMsg = decodeURIComponent((waHref ?? "").split("?text=")[1] ?? "");
+  const mailMsg = decodeURIComponent((mailHref ?? "").split("&body=")[1] ?? "");
+  check("U3d the two messages are identical - one definition, not two",
+    waMsg.length > 0 && waMsg === mailMsg);
+  for (const [id, needle, label] of [
+    ["U3e", "בעלים ראשון", "the Owner's name"],
+    ["U3f", "s8ui owner 1", "their login username"],
+    // Hard-coded in src/app/origins.ts on purpose - a cross-origin
+    // destination must not be repointable by config, so it is the real
+    // address even in this suite.
+    ["U3g", "https://kolbox-auth.vercel.app/login", "the shared login URL"],
+    ["U3h", link1, "the one-time activation link"],
+    ["U3i", "אישי וחד-פעמי", "the personal / one-time warning"],
+  ]) {
+    check(`${id} the message carries ${label}`, waMsg.includes(needle),
+      needle.slice(0, 50));
+  }
+  check("U3j the message states the expiry the server returned",
+    /בתוקף עד/.test(waMsg), waMsg.slice(-90).replace(/\s+/g, " "));
+  check("U3k neither action leaks a Referer carrying the link",
+    (await send.locator('[data-testid="send-whatsapp"]').getAttribute("rel")) ===
+      "noopener noreferrer");
 
   await page.getByRole("button", { name: "אישור בעלים נוסף" }).click();
   check(
@@ -395,8 +477,9 @@ try {
   const co = await pPost({
     op: "create_owner_access",
     name: "בעלים שהשלים",
-    email: email("eo-done"), username: suiteUsername(),
+    email: email("eo-done"),
     username: suiteUsername(),
+    phone: "0509876543",
     modules: ["election_day"],
   });
   const doneUser = (await usersWith(email("eo-done")))[0];
@@ -509,6 +592,14 @@ try {
   // The seat holder's LOGIN username is required: the server claims their
   // identity-directory row in the same request.
   await dialog.locator('input[name="multi-entity-username"]').fill("me seat one");
+  // The seat's contact phone is REQUIRED, the same rule the Election Owner
+  // approval uses - proven here before it is filled.
+  await dialog.getByRole("button", { name: "הקצאת בעל רב-מערכות" }).click();
+  check("M1b the Multi-Entity seat cannot be provisioned without a phone either",
+    await dialog
+      .locator('input[name="multi-entity-phone"]')
+      .evaluate((el) => el.validity.valueMissing === true));
+  await dialog.locator('input[name="multi-entity-phone"]').fill("054-222-3344");
   await dialog.getByRole("button", { name: "הקצאת בעל רב-מערכות" }).click();
   await page.getByText("קישור לקביעת סיסמה").waitFor({ timeout: 15000 });
   const dest = await page.locator('[data-testid="multi-entity-destination"]').innerText();
@@ -542,6 +633,7 @@ try {
   // it classifies the e-mail, so reusing a taken one would mask the
   // EMAIL_ALREADY_REGISTERED this check is actually about.
   await dialog.locator('input[name="multi-entity-username"]').fill("me seat dup");
+  await dialog.locator('input[name="multi-entity-phone"]').fill("054-222-3344");
   await dialog.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();
   await page.getByRole("button", { name: "החלפה", exact: true }).click();
   await page.getByText("כבר משויכת לחשבון קיים").waitFor({ timeout: 15000 });
@@ -563,6 +655,7 @@ try {
   await dialog.getByLabel("שם מלא").fill("מחליף");
   await dialog.getByLabel("אימייל").fill(email("me2"));
   await dialog.locator('input[name="multi-entity-username"]').fill("me seat one");
+  await dialog.locator('input[name="multi-entity-phone"]').fill("054-222-3344");
   await dialog.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();
   await page.getByRole("button", { name: "החלפה", exact: true }).click();
   await page.getByText("שם המשתמש תפוס").waitFor({ timeout: 15000 });

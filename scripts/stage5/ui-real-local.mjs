@@ -101,7 +101,7 @@ const pPost = (body) =>
   });
 
 process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = BASE;
-const prov = await pPost({ op: "provision_multi_entity_owner", name: "בעל רב-מערכות בדיקה", email: email("me") , username: suiteUsername() });
+const prov = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "בעל רב-מערכות בדיקה", email: email("me") , username: suiteUsername() });
 const link = prov.body?.activationLink ?? "";
 check("S1 provisioning returned a link on the Multi-Entity origin", link.startsWith(`${BASE}/multi-entity/set-password?`));
 
@@ -198,7 +198,7 @@ try {
   check("U10 unassignment reflected when the tab becomes visible again", true);
 
   section("SEAT REPLACEMENT -> FORBIDDEN -> LOGOUT");
-  const rep = await pPost({ op: "provision_multi_entity_owner", name: "מחליף", email: email("me2") , username: suiteUsername() });
+  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "מחליף", email: email("me2") , username: suiteUsername() });
   check("U11 seat replaced", rep.statusCode === 201 && rep.body?.replaced === true);
   await page.getByRole("button", { name: /רענון/ }).click();
   await page.getByText("אין הרשאת גישה").waitFor({ timeout: 10000 });

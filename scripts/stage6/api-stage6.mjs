@@ -207,7 +207,7 @@ const puControl = await callHandler(handlers.electionSession, {
 
 // The Multi-Entity seat, provisioned through the REAL Platform op, activated
 // through its real one-time link, then elevated with TOTP.
-const prov = await pPost({ op: "provision_multi_entity_owner", name: "S6 Seat", email: email("me") }, PO);
+const prov = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "S6 Seat", email: email("me") }, PO);
 const meId = prov.body?.seatAuthUserId;
 const meLink = prov.body?.activationLink ?? "";
 const meSetup = anon();
@@ -476,7 +476,7 @@ section("REVOCATION + SEAT REPLACEMENT");
   const again = await signIn(email("me"), mePw);
   ME = await verifyTotp(again.client, meFactor.factorId, meFactor.secret);
 
-  const rep = await pPost({ op: "provision_multi_entity_owner", name: "S6 Seat Two", email: email("me2") }, PO);
+  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "S6 Seat Two", email: email("me2") }, PO);
   check("RV2 seat replaced through the real Platform op", rep.statusCode === 201 && rep.body?.replaced === true);
   check("RV2 replaced holder's still-valid aal2 token -> 401 on aggregates", (await aggList(ME)).statusCode === 401);
   check("RV2 ... and 401 on workspace-aggregates", (await aggOne(ME, WS.Beta.id)).statusCode === 401);

@@ -154,7 +154,7 @@ const VOTER_IDS = psql(`select string_agg(id::text, ',') from public.election_da
 // Seat: provisioned through the real Platform op, activated through its real
 // one-time link, TOTP enrolled here (the UI enrollment flow is Stage 5's).
 process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = BASE;
-const prov = await pPost({ op: "provision_multi_entity_owner", name: "בעל רב-מערכות S7", email: email("me") , username: suiteUsername() });
+const prov = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "בעל רב-מערכות S7", email: email("me") , username: suiteUsername() });
 const setup = anon();
 await setup.auth.verifyOtp({ token_hash: new URL(prov.body.activationLink).searchParams.get("token_hash"), type: "recovery" });
 const mePw = randomPassword();
@@ -495,7 +495,7 @@ try {
 
   // -------------------------------------------------------------------------
   section("SEAT REPLACEMENT -> FORBIDDEN");
-  const rep = await pPost({ op: "provision_multi_entity_owner", name: "מחליף S7", email: email("me2") , username: suiteUsername() });
+  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "מחליף S7", email: email("me2") , username: suiteUsername() });
   check("RP1 seat replaced through the real Platform op", rep.statusCode === 201 && rep.body?.replaced === true);
   await refreshBtn().click();
   await page.getByText("אין הרשאת גישה").waitFor({ timeout: 15000 });

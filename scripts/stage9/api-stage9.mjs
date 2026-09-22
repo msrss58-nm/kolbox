@@ -183,7 +183,7 @@ check("SETUP Platform Owner aal2 ready", !!PO && !!PO_AAL1);
 async function onboardOwner(label, modules) {
   const addr = email(label);
   const appr = await pPost(
-    { op: "create_owner_access", name: `S9 ${label}`, email: addr, modules, username: suiteUsername() },
+    { op: "create_owner_access", phone: "0501234567", name: `S9 ${label}`, email: addr, modules, username: suiteUsername() },
     PO,
   );
   const c = anon();
@@ -206,25 +206,25 @@ const modulesOf = (wsId) =>
 // ---------------------------------------------------------------------------
 section("A. APPROVAL WITH EXPLICIT MODULES");
 {
-  const r1 = await pPost({ op: "create_owner_access", name: "no modules", email: email("nomod") , username: suiteUsername() }, PO);
+  const r1 = await pPost({ op: "create_owner_access", phone: "0501234567", name: "no modules", email: email("nomod") , username: suiteUsername() }, PO);
   check("A1 approval WITHOUT modules -> 400 INVALID_MODULES", r1.statusCode === 400 && r1.body?.error === "INVALID_MODULES", `${r1.statusCode}`);
-  const r2 = await pPost({ op: "create_owner_access", name: "empty", email: email("emptymod"), modules: [] , username: suiteUsername() }, PO);
+  const r2 = await pPost({ op: "create_owner_access", phone: "0501234567", name: "empty", email: email("emptymod"), modules: [] , username: suiteUsername() }, PO);
   check("A2 approval with an EMPTY module list -> 400 INVALID_MODULES", r2.statusCode === 400 && r2.body?.error === "INVALID_MODULES");
-  const r3 = await pPost({ op: "create_owner_access", name: "bad", email: email("badmod"), modules: ["not_a_module"] , username: suiteUsername() }, PO);
+  const r3 = await pPost({ op: "create_owner_access", phone: "0501234567", name: "bad", email: email("badmod"), modules: ["not_a_module"] , username: suiteUsername() }, PO);
   check("A3 approval with an UNKNOWN module -> 400 INVALID_MODULES", r3.statusCode === 400 && r3.body?.error === "INVALID_MODULES");
   check("A4 none of the refused approvals created an Auth user or an approval row",
     (await usersWith(email("nomod"))).length === 0 &&
       (await usersWith(email("emptymod"))).length === 0 &&
       (await usersWith(email("badmod"))).length === 0 &&
       psql(`select count(*) from public.election_workspace_pending_owner_access where email in ('${email("nomod")}','${email("emptymod")}','${email("badmod")}')`) === "0");
-  const r4 = await pPost({ op: "create_owner_access", name: "junk", email: email("junk"), modules: ["Bad Key!"] , username: suiteUsername() }, PO);
+  const r4 = await pPost({ op: "create_owner_access", phone: "0501234567", name: "junk", email: email("junk"), modules: ["Bad Key!"] , username: suiteUsername() }, PO);
   check("A5 a syntactically invalid key is refused before any DB work (400)", r4.statusCode === 400);
   // CONTRACT CHANGE: mandatory Platform Owner MFA was removed from the active
   // login flow (PLATFORM_OWNER_MFA_REQUIRED = false), so an aal1 Platform
   // Owner is the normal signed-in state and IS admitted. Authority still
   // comes only from the platform_owners row - the stranger/Owner-token
   // refusals elsewhere in this suite are unchanged.
-  const r5 = await pPost({ op: "create_owner_access", name: "aal1", email: email("aal1"), modules: ["election_day"] , username: suiteUsername() }, PO_AAL1);
+  const r5 = await pPost({ op: "create_owner_access", phone: "0501234567", name: "aal1", email: email("aal1"), modules: ["election_day"] , username: suiteUsername() }, PO_AAL1);
   check("A6 aal1 Platform Owner CAN approve (password-only sign-in)", r5.statusCode === 201,
     `status=${r5.statusCode}`);
 }
@@ -485,7 +485,7 @@ section("G. PLATFORM OWNER ENTITLEMENT READ / EDIT");
   check("G4 every refused edit left workspace B's entitlements unchanged", modulesOf(B.wsId) === "budget,election_day");
   const noOrigin = await callHandler(H.platformSession, { method: "POST", url: "/api/platform/session", headers: auth(PO), body: { op: "set_workspace_modules", workspaceId: B.wsId, modules: ["budget"] } });
   check("G5 an edit without the Platform Origin -> 403", noOrigin.statusCode === 403);
-  const pend = await pPost({ op: "create_owner_access", name: "S9 pending", email: email("pending"), modules: ["voter_management", "election_day"] , username: suiteUsername() }, PO);
+  const pend = await pPost({ op: "create_owner_access", phone: "0501234567", name: "S9 pending", email: email("pending"), modules: ["voter_management", "election_day"] , username: suiteUsername() }, PO);
   const list = await pGet("/api/platform/session?op=owner_access", PO);
   const row = list.body?.approvals?.find((x) => x.pending_id === pend.body?.pendingId);
   check("G6 the approvals list shows the requested modules of a pending approval", JSON.stringify(row?.requested_modules) === '["election_day","voter_management"]');
@@ -588,7 +588,7 @@ section("K. LEGACY APPROVAL WITHOUT MODULES FAILS CLOSED");
 // ---------------------------------------------------------------------------
 section("L. MULTI-ENTITY: A WORKSPACE WITHOUT ELECTION DAY IS UNAVAILABLE, NO COUNTS");
 {
-  const me = await pPost({ op: "provision_multi_entity_owner", name: "S9 Seat", email: email("me"), username: suiteUsername() }, PO);
+  const me = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "S9 Seat", email: email("me"), username: suiteUsername() }, PO);
   const setup = anon();
   await setup.auth.verifyOtp({ token_hash: new URL(me.body?.activationLink).searchParams.get("token_hash"), type: "recovery" });
   const mePw = randomPassword();

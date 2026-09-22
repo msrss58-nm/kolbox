@@ -181,7 +181,7 @@ section("PLATFORM PATH REGRESSION (shared endpoint)");
   check("PL7 stranger aal2 -> 401 (GET)", (await pGet("/api/platform/session", STRANGER)).statusCode === 401);
   check("PL7 stranger aal2 -> 401 (POST)", (await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, STRANGER)).statusCode === 401);
   const pendingEmail = email("pending-eo");
-  const co = await pPost({ op: "create_owner_access", name: "Pending EO", email: pendingEmail, username: suiteUsername(), modules: ["election_day"] }, PO);
+  const co = await pPost({ op: "create_owner_access", phone: "0501234567", name: "Pending EO", email: pendingEmail, username: suiteUsername(), modules: ["election_day"] }, PO);
   const coLink = typeof co.body?.activationLink === "string" ? co.body.activationLink : "";
   check("PL8 create_owner_access -> 201 and its link STILL targets the Election Owner screen", co.statusCode === 201 && coLink.startsWith(`${ORIGIN}/election-day/owner-set-password?`), `status=${co.statusCode}`);
   check("PL9 assign before a seat exists -> 409 MULTI_ENTITY_OWNER_NOT_PROVISIONED", (await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, PO)).body?.error === "MULTI_ENTITY_OWNER_NOT_PROVISIONED");
@@ -194,7 +194,7 @@ let me0Id;
 let me1Id;
 let me1Link;
 {
-  const r = await pPost({ op: "provision_multi_entity_owner", name: "Me Zero", email: email("me0") , username: suiteUsername()}, PO);
+  const r = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Me Zero", email: email("me0") , username: suiteUsername()}, PO);
   me0Id = r.body?.seatAuthUserId;
   const link = r.body?.activationLink ?? "";
   check("PV1 first provision -> 201 with the exact response contract", r.statusCode === 201 && keys(r.body) === CONTRACT_KEYS, keys(r.body));
@@ -202,20 +202,20 @@ let me1Link;
   check("PV1 link targets /multi-entity/set-password on the local fallback origin", link.startsWith(`${ORIGIN}/multi-entity/set-password?`) && new URL(link).searchParams.get("type") === "recovery" && !!new URL(link).searchParams.get("token_hash"));
   check("PV1 link never targets the Election Owner screen", !link.includes("/election-day/"));
 
-  const dup = await pPost({ op: "provision_multi_entity_owner", name: "Me Zero", email: email("me0") , username: suiteUsername()}, PO);
+  const dup = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Me Zero", email: email("me0") , username: suiteUsername()}, PO);
   check("PV2 duplicate email -> 409 EMAIL_ALREADY_REGISTERED", dup.statusCode === 409 && dup.body?.error === "EMAIL_ALREADY_REGISTERED", String(dup.statusCode));
 
   // Production fail-closed: no configured Multi-Entity origin -> refuse BEFORE createUser.
   process.env.VERCEL_ENV = "production";
   const prodEmail = email("prod-unset");
-  const pr = await pPost({ op: "provision_multi_entity_owner", name: "Prod", email: prodEmail , username: suiteUsername()}, PO, "https://kolbox-platform.vercel.app");
+  const pr = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Prod", email: prodEmail , username: suiteUsername()}, PO, "https://kolbox-platform.vercel.app");
   delete process.env.VERCEL_ENV;
   check("PV3 production + unset KOLBOX_MULTI_ENTITY_APP_BASE_URL -> 500 SERVER_CONFIG_MISSING", pr.statusCode === 500 && pr.body?.error === "SERVER_CONFIG_MISSING", String(pr.statusCode));
   check("PV3 ... and NO Auth user was created", (await userByEmail(prodEmail)) === null);
 
   // Configured origin (trailing slash stripped) + replacement contract.
   process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = "https://me.example.test/";
-  const rep = await pPost({ op: "provision_multi_entity_owner", name: "Me One", email: email("me1") , username: suiteUsername()}, PO);
+  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Me One", email: email("me1") , username: suiteUsername()}, PO);
   delete process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL;
   me1Id = rep.body?.seatAuthUserId;
   me1Link = rep.body?.activationLink ?? "";
@@ -232,14 +232,14 @@ let me1Link;
 
   // Mint failure -> compensating delete, no durable row, no orphan listed.
   setFaults({ rpc: { platform_record_provisioning_auth_mint: () => ({ data: null, error: { message: "boom" } }) } });
-  const mf = await pPost({ op: "provision_multi_entity_owner", name: "Mint Fail", email: runEmail("mintfail") , username: suiteUsername()}, PO);
+  const mf = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Mint Fail", email: runEmail("mintfail") , username: suiteUsername()}, PO);
   clearFaults();
   check("PV6 mint failure -> 500 SERVER_ERROR, no orphan warning", mf.statusCode === 500 && mf.body?.error === "SERVER_ERROR" && !mf.body?.warning, JSON.stringify(mf.body));
   check("PV6 compensating delete removed the minted account", (await userByEmail(runEmail("mintfail"))) === null);
 
   // Seat failure + CONFIRMED cleanup -> terminal audit row, nothing pending.
   setFaults({ rpc: { platform_provision_multi_entity_owner: () => ({ data: null, error: { message: "IDENTITY_ALREADY_PRINCIPAL" } }) } });
-  const sf = await pPost({ op: "provision_multi_entity_owner", name: "Seat Fail", email: runEmail("seatfail") , username: suiteUsername()}, PO);
+  const sf = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Seat Fail", email: runEmail("seatfail") , username: suiteUsername()}, PO);
   clearFaults();
   check("PV7 seat failure -> mapped 409 IDENTITY_ALREADY_PRINCIPAL", sf.statusCode === 409 && sf.body?.error === "IDENTITY_ALREADY_PRINCIPAL" && !sf.body?.warning);
   check("PV7 confirmed cleanup deleted the account", (await userByEmail(runEmail("seatfail"))) === null);
@@ -254,7 +254,7 @@ let me1Link;
       getUserById: (id) => ({ data: { user: { id } }, error: null }),
     },
   });
-  const uc = await pPost({ op: "provision_multi_entity_owner", name: "Unconfirmed", email: runEmail("unconfirmed") , username: suiteUsername()}, PO);
+  const uc = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Unconfirmed", email: runEmail("unconfirmed") , username: suiteUsername()}, PO);
   clearFaults();
   const orphanId = uc.body?.orphanedAuthUserId;
   check("PV8 unconfirmed cleanup -> original code + AUTH_CLEANUP_INCOMPLETE + orphan id", uc.statusCode === 500 && uc.body?.error === "SERVER_ERROR" && uc.body?.warning === "AUTH_CLEANUP_INCOMPLETE" && UUID_RE.test(orphanId ?? ""));
@@ -273,7 +273,7 @@ let me1Link;
       platform_record_provisioning_orphan_cleanup: () => ({ data: null, error: { message: "audit down" } }),
     },
   });
-  const aw = await pPost({ op: "provision_multi_entity_owner", name: "Audit Fail", email: runEmail("auditfail") , username: suiteUsername()}, PO);
+  const aw = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Audit Fail", email: runEmail("auditfail") , username: suiteUsername()}, PO);
   clearFaults();
   check("PV9 audit-write failure -> AUTH_CLEANUP_AUDIT_WRITE_FAILED, accountDeleted true, auditRecorded false", aw.body?.warning === "AUTH_CLEANUP_AUDIT_WRITE_FAILED" && aw.body?.accountDeleted === true && aw.body?.auditRecorded === false && !("orphanedAuthUserId" in (aw.body ?? {})));
   st = (await pGet("/api/platform/session?op=multi_entity_state", PO)).body;
@@ -428,8 +428,8 @@ section("ROLE ISOLATION (with positive controls)");
   check("RI1 ME token -> Platform default GET 401", (await pGet("/api/platform/session", ME)).statusCode === 401);
   check("RI1 ME token -> Platform multi_entity_state 401", (await pGet("/api/platform/session?op=multi_entity_state", ME)).statusCode === 401);
   const opBodies = [
-    { op: "create_owner_access", name: "x", email: email("x1") , username: suiteUsername()},
-    { op: "provision_multi_entity_owner", name: "x", email: email("x2") , username: suiteUsername()},
+    { op: "create_owner_access", phone: "0501234567", name: "x", email: email("x1") , username: suiteUsername()},
+    { op: "provision_multi_entity_owner", phone: "0501234567", name: "x", email: email("x2") , username: suiteUsername()},
     { op: "assign_workspace", workspaceId: WS.Gamma.id },
     { op: "unassign_workspace", workspaceId: WS.Beta.id },
     { op: "purge_replaced_auth_user", previousAuthUserId: crypto.randomUUID() },
@@ -464,7 +464,7 @@ section("SEAT REPLACEMENT (stale seat) + PURGE + LINK FAILURE");
 let me2Id;
 {
   setFaults({ admin: { generateLink: () => ({ data: null, error: { message: "link down" } }) } });
-  const rep = await pPost({ op: "provision_multi_entity_owner", name: "Me Two", email: email("me2") , username: suiteUsername()}, PO);
+  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Me Two", email: email("me2") , username: suiteUsername()}, PO);
   clearFaults();
   me2Id = rep.body?.seatAuthUserId;
   check("RP1 link-generation failure -> 201, seat written, activationLink null", rep.statusCode === 201 && rep.body?.activationLink === null && rep.body?.replaced === true && rep.body?.previousAuthUserId === me1Id);

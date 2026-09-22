@@ -9,6 +9,8 @@ import {
   platformApproveOwnerError,
 } from "./platform-owner.constants";
 import { OneTimeLinkBox } from "./OneTimeLinkBox";
+import { OwnerLoginDetailsActions } from "./OwnerLoginDetailsActions";
+import { isValidIsraeliPhone, normalizeIsraeliPhone } from "../../lib/phone";
 import {
   createOwnerAccess,
   type CreatedOwnerAccess,
@@ -53,9 +55,20 @@ export function OwnerApprovalDialog({
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedOwnerAccess | null>(null);
+  /** Exactly what was APPROVED, captured at success. The form inputs are
+   * still on screen behind this panel and could be edited; the message must
+   * describe the approval that actually happened, not whatever is currently
+   * typed. Component memory only - never persisted or logged. */
+  const [approved, setApproved] = useState<{
+    name: string;
+    email: string;
+    phone: string;
+    username: string;
+  } | null>(null);
 
   const reset = () => {
     setCreated(null);
+    setApproved(null);
     setName("");
     setEmail("");
     setPhone("");
@@ -83,6 +96,14 @@ export function OwnerApprovalDialog({
       setError(text.missingFields);
       return;
     }
+    // REQUIRED now: the login details are handed over by WhatsApp, and there
+    // is nowhere to send them without a number. Normalized first, so the
+    // value that is validated is the value that gets stored and dialled.
+    const normalizedPhone = normalizeIsraeliPhone(phone);
+    if (!isValidIsraeliPhone(normalizedPhone)) {
+      setError(text.missingPhone);
+      return;
+    }
     if (modules.size === 0) {
       setError(text.modulesRequired);
       return;
@@ -105,7 +126,7 @@ export function OwnerApprovalDialog({
       const result = await createOwnerAccess(accessToken, {
         name: trimmedName,
         email: trimmedEmail,
-        phone: phone.trim() || undefined,
+        phone: normalizedPhone,
         modules: [...modules],
         username: username.trim(),
       });
@@ -126,6 +147,12 @@ export function OwnerApprovalDialog({
         onChanged();
         return;
       }
+      setApproved({
+        name: trimmedName,
+        email: trimmedEmail,
+        phone: normalizedPhone,
+        username: username.trim(),
+      });
       setCreated(result.access);
       onChanged();
     } finally {
@@ -207,7 +234,13 @@ export function OwnerApprovalDialog({
               onChange={(e) => setPhone(e.target.value)}
               maxLength={40}
               autoComplete="off"
+              name="approve-owner-phone"
+              required
+              aria-describedby="kb-approve-phone-hint"
             />
+            <p id="kb-approve-phone-hint" className="mt-1 text-xs text-slate-400">
+              {text.phoneHint}
+            </p>
           </Field>
 
           <fieldset className="space-y-2" data-testid="approval-modules">
@@ -275,6 +308,18 @@ export function OwnerApprovalDialog({
               <p className="text-xs font-semibold text-slate-700">{text.linkLabel}</p>
               <OneTimeLinkBox link={created.activationLink} />
               <p className="text-xs text-slate-500">{text.linkHint}</p>
+              {approved && (
+                <OwnerLoginDetailsActions
+                  details={{
+                    name: approved.name,
+                    username: approved.username,
+                    activationLink: created.activationLink,
+                    expiresAt: created.expiresAt,
+                  }}
+                  phone={approved.phone}
+                  email={approved.email}
+                />
+              )}
             </div>
           ) : (
             <p role="alert" className="text-sm text-opponent">

@@ -255,7 +255,9 @@ export const PLATFORM_OWNER_TEXT = {
       "יצירת גישה לבעלים של מערכת בחירות חדשה. מערכת הבחירות עצמה תיווצר על ידי הבעלים בכניסה הראשונה.",
     nameLabel: "שם הבעלים",
     emailLabel: "אימייל",
-    phoneLabel: "טלפון (לא חובה)",
+    phoneLabel: "טלפון",
+    phoneHint: "מספר ישראלי. משמש לשליחת פרטי הכניסה בוואטסאפ.",
+    missingPhone: "יש להזין מספר טלפון ישראלי תקין",
     /** Stage 9: explicit module entitlement choice. */
     modulesLabel: "מודולים למערכת",
     modulesHint:
@@ -277,6 +279,16 @@ export const PLATFORM_OWNER_TEXT = {
     expiresAt: (iso: string) => `תוקף ההרשאה עד ${new Date(iso).toLocaleString("he-IL")}`,
     copy: "העתקה",
     copied: "הועתק",
+    /** The two hand-off actions. Both open the operator's OWN app with the
+     * message prepared - nothing is sent by the system, and the copy says so
+     * rather than implying a delivery guarantee it cannot make. */
+    send: {
+      label: "שליחת פרטי הכניסה",
+      whatsapp: "שליחה בוואטסאפ",
+      email: "שליחה באימייל",
+      hint: "הפעולה פותחת אצלכם את וואטסאפ או את תוכנת הדואר עם ההודעה מוכנה. המערכת אינה שולחת ואינה מאמתת מסירה.",
+      emailSubject: "פרטי הכניסה שלך לקולבוקס",
+    },
     another: "אישור בעלים נוסף",
     done: "סיום",
     errors: {
@@ -477,7 +489,9 @@ export const PLATFORM_OWNER_TEXT = {
         "יצירת חשבון ללא סיסמה והפקת קישור חד-פעמי לקביעת סיסמה. הסיסמה נבחרת על ידי בעל רב-המערכות בלבד.",
       nameLabel: "שם מלא",
       emailLabel: "אימייל",
-      phoneLabel: "טלפון (לא חובה)",
+      phoneLabel: "טלפון",
+      phoneHint: "מספר ישראלי.",
+      missingPhone: "יש להזין מספר טלפון ישראלי תקין",
       /** The seat holder's LOGIN username for /login/multi-entity-owner.
        * Required: without a directory identity the holder could never sign in. */
       usernameLabel: "שם משתמש לכניסה",

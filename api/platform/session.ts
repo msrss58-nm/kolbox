@@ -109,6 +109,31 @@ const MULTI_ENTITY_SET_PASSWORD_PATH = "/multi-entity/set-password";
 //
 // create_owner_access's list is byte-for-byte the keys the single-op version
 // accepted, so its request contract is unchanged.
+/**
+ * A contact phone, normalized to the canonical local Israeli form, or null
+ * when it is not a plausible Israeli number.
+ *
+ * This restates src/lib/phone.ts's `normalizeIsraeliPhone` +
+ * `isValidIsraeliPhone` rather than importing them: `api/` is a separate
+ * bundle that imports nothing from `src/`, so the rule has to exist on both
+ * sides of that boundary. The same duplication already exists in SQL, in the
+ * coordinator phone migration (INVALID_COORDINATOR_PHONE). If one copy
+ * changes, all three must.
+ *
+ * The SERVER is the authority: the console validates too, but a caller that
+ * skips the console is refused here.
+ */
+function normalizedIsraeliPhone(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+  const local =
+    digits.startsWith("972") && digits.length === 12
+      ? `0${digits.slice(3)}`
+      : digits.length === 9 && !digits.startsWith("0")
+        ? `0${digits}`
+        : digits;
+  return /^0\d{8,9}$/.test(local) ? local : null;
+}
+
 const POST_OP_KEYS: Record<string, readonly string[]> = {
   // Stage 9: `modules` (the explicit module entitlement choice) is required.
   // `username` is the Election Owner's LOGIN username for /login/election-owner.
@@ -596,7 +621,12 @@ async function handleCreateOwnerAccess(
   const username = str(body.username).trim();
   const expiresInDaysRaw = body.expiresInDays;
 
-  if (!name || !email || !looksLikeEmail(email) || !username) {
+  // A contact phone is REQUIRED now: the console offers to hand the new Owner
+  // their login details over WhatsApp, and there is nothing to send them to
+  // without one. Existing rows that predate this keep their null - nothing
+  // backfills them and nothing reads them as mandatory.
+  const normalizedPhone = normalizedIsraeliPhone(phone);
+  if (!name || !email || !looksLikeEmail(email) || !username || !normalizedPhone) {
     sendError(res, 400, "INVALID_REQUEST");
     return;
   }
@@ -776,7 +806,7 @@ async function handleCreateOwnerAccess(
       p_auth_user_id: authUserId,
       p_name: name,
       p_email: email,
-      p_phone: phone || null,
+      p_phone: normalizedPhone,
       p_expires_in_days: expiresInDays,
       p_modules: modules,
     },
@@ -1046,7 +1076,9 @@ async function handleProvisionMultiEntityOwner(
   const phone = str(body.phone);
   const meUsername = str(body.username).trim();
 
-  if (!name || !email || !looksLikeEmail(email) || !meUsername) {
+  // Required here too, so the two provisioning paths cannot drift apart.
+  const meNormalizedPhone = normalizedIsraeliPhone(phone);
+  if (!name || !email || !looksLikeEmail(email) || !meUsername || !meNormalizedPhone) {
     sendError(res, 400, "INVALID_REQUEST");
     return;
   }
@@ -1163,7 +1195,7 @@ async function handleProvisionMultiEntityOwner(
       p_auth_user_id: authUserId,
       p_name: name,
       p_email: email,
-      p_phone: phone || null,
+      p_phone: meNormalizedPhone,
     },
   );
 
