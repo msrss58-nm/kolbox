@@ -55,26 +55,13 @@ export const AUTH_REALM_SCREENS = {
 
 export type AuthRealmKey = keyof typeof AUTH_REALM_SCREENS;
 
-/** The target-origin confirmation screen. It performs NO second
- * authentication - it only confirms the resolved identity before a session is
- * created, so a session swap becomes visible and refusable. */
+/** Leg 2's copy. There is no longer a confirmation screen: the handoff
+ * completes automatically, so the only strings left are the FAIL-CLOSED ones
+ * shown when no session could be created and the visitor must start again.
+ * The former confirmation copy - title, subtitle, Continue/Cancel and the
+ * identity labels - was deleted with the screen rather than left to rot. */
 export const AUTH_CONFIRM_TEXT = {
-  title: "אישור כניסה",
-  subtitle: "ודאו שאלו הפרטים שלכם לפני הכניסה למערכת",
-  continueAction: "המשך",
-  cancelAction: "ביטול",
-  cancelled: "הכניסה בוטלה",
-  cancelledHint: "לא נוצרה התחברות. אפשר להתחיל מחדש ממסך הכניסה.",
   expired: "פג תוקף הבקשה",
   expiredHint: "הבקשה אינה זמינה יותר. התחילו מחדש ממסך הכניסה.",
   backToEntry: "חזרה למסך הכניסה",
-  principalLabel: "סוג משתמש",
-  contextLabel: "מערכת",
-  identityLabel: "מזוהים בתור",
-  realmNames: {
-    worker: "משתמש מערכת",
-    election_owner: "בעלי מערכת בחירות",
-    platform_owner: "בעלי הפלטפורמה",
-    multi_entity_owner: "בעלי מספר מערכות",
-  } as Record<string, string>,
 } as const;

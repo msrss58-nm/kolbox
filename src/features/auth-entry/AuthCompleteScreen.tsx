@@ -1,27 +1,46 @@
-import { useCallback, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
+import { AuthBrandLayout } from "../../components/AuthBrandLayout";
 import { LogoMark } from "../../components/Logo";
-import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { useAsyncData } from "../../hooks/useAsyncData";
-import { AUTH_CONFIRM_TEXT } from "./authEntry.constants";
-import { completeHandoff, readTxnInfo } from "./authBrokerClient";
+import { AUTH_CONFIRM_TEXT, AUTH_ENTRY_TEXT } from "./authEntry.constants";
+import { completeHandoff } from "./authBrokerClient";
 
 const text = AUTH_CONFIRM_TEXT;
 
 /**
- * The target-origin confirmation - leg 2 of the handoff, and the control that
- * actually closes login CSRF / session swapping.
+ * Leg 2 of the handoff, on the target origin - and the ONLY path that mints a
+ * session.
  *
- * It performs NO second authentication: credentials were entered once, on the
- * auth origin. It only shows the resolved identity and requires an explicit,
- * user-activated Continue before any session exists. That is what makes a
- * swapped sign-in visible and refusable - no mechanical binding can, because
- * an attacker who can script the auth origin can drive every automatic step.
+ * IT PERFORMS NO SECOND AUTHENTICATION, and now asks for nothing at all: the
+ * credential was entered once, on the auth origin, and this step completes
+ * automatically. It used to render a Continue/Cancel confirmation showing the
+ * resolved identity. That was a deliberate anti-login-CSRF control and its
+ * removal is a deliberate product decision - see the note on what does and
+ * does not still protect this exchange.
  *
- * The transaction itself is proven by this origin's own `__Host-` HttpOnly
- * cookie, which no script on any origin can read or write, and which the auth
- * origin can never manufacture. This screen never sees it.
+ * WHAT STILL PROTECTS LEG 2, unchanged and entirely server-side:
+ *   - the transaction is proven by THIS origin's own `__Host-kb_auth_txn`
+ *     HttpOnly cookie, which no script on any origin can read or write and
+ *     which the auth origin can never manufacture;
+ *   - leg 1 accepted the code only from the configured auth origin, as a
+ *     genuine cross-site `form_post`, and consumed it atomically - it is
+ *     single-use and lives 90 s;
+ *   - the row is re-checked for expiry and prior consumption on every read;
+ *   - the session is minted by the server, for the realm the DIRECTORY
+ *     resolved, never one the client named.
+ * This component changes none of that: the server contract is byte-identical
+ * and `api/platform/_authBroker.ts` was not touched.
+ *
+ * WHAT WAS GIVEN UP, stated plainly: the confirmation was the one control
+ * that survived a SCRIPTED auth origin, because an attacker who can run
+ * script there can drive every automatic step - including this one. It is
+ * worth being honest that its marginal value was narrow: an attacker able to
+ * execute script on the credential page can simply read the password as it
+ * is typed, so they never needed a session swap in the first place. The auth
+ * origin's strict CSP (`default-src 'none'; script-src 'self'`, no
+ * `unsafe-inline`, no `unsafe-eval`, no third-party asset) remains the
+ * control that keeps that scenario out of reach.
  *
  * `verifyOtp` is injected per surface, because each realm must establish its
  * aal1 session in ITS OWN isolated client's storage; MFA then runs afterwards
@@ -32,54 +51,44 @@ export function AuthCompleteScreen({
 }: {
   verifyOtp?: (tokenHash: string) => Promise<boolean>;
 }) {
-  const fetchInfo = useCallback(() => readTxnInfo(), []);
-  const { data: info, loading } = useAsyncData(fetchInfo);
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<"cancelled" | "failed" | null>(null);
+  const [failed, setFailed] = useState(false);
+  // The handoff is SINGLE-USE. `StrictMode` double-invokes effects in
+  // development, and a second call would consume an already-consumed
+  // transaction and fail a sign-in that had actually succeeded.
+  const started = useRef(false);
 
-  const decide = async (action: "continue" | "cancel") => {
-    setBusy(true);
-    const result = await completeHandoff(action);
-    if (result.status === "cancelled") {
-      setOutcome("cancelled");
-      setBusy(false);
-      return;
-    }
-    if (result.status === "failed") {
-      setOutcome("failed");
-      setBusy(false);
-      return;
-    }
-    if (result.status === "owner") {
-      // Establishes an aal1 session in THIS origin's isolated client. The
-      // existing guard then renders the existing MFA enrol/challenge screens.
-      const ok = verifyOtp ? await verifyOtp(result.tokenHash) : false;
-      if (!ok) {
-        setOutcome("failed");
-        setBusy(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void (async () => {
+      const result = await completeHandoff("continue");
+      if (result.status !== "session" && result.status !== "owner") {
+        // Fail closed and visibly: no session was created, and the only way
+        // onward is to start again from the entry.
+        setFailed(true);
         return;
       }
-    }
-    // A full navigation, so every guard re-runs from a clean state.
-    window.location.replace(result.redirect);
-  };
+      if (result.status === "owner") {
+        // Establishes an aal1 session in THIS origin's isolated client. The
+        // existing guard then renders the existing MFA enrol/challenge flow.
+        const ok = verifyOtp ? await verifyOtp(result.tokenHash) : false;
+        if (!ok) {
+          setFailed(true);
+          return;
+        }
+      }
+      // A full navigation, so every guard re-runs from a clean state.
+      window.location.replace(result.redirect);
+    })();
+  }, [verifyOtp]);
 
-  if (loading && info === null) {
-    return (
-      <div className="grid min-h-dvh place-items-center bg-surface">
-        <LogoMark className="size-12 animate-pulse" />
-      </div>
-    );
-  }
-
-  if (outcome !== null || info === null) {
-    const cancelled = outcome === "cancelled";
+  if (failed) {
     return (
       <div className="grid min-h-dvh place-items-center bg-surface p-6">
         <EmptyState
           icon={ShieldCheck}
-          title={cancelled ? text.cancelled : text.expired}
-          hint={cancelled ? text.cancelledHint : text.expiredHint}
+          title={text.expired}
+          hint={text.expiredHint}
           action={
             <a
               href="/"
@@ -93,66 +102,15 @@ export function AuthCompleteScreen({
     );
   }
 
+  // A transitional state, not a decision: nothing here is clickable and
+  // nothing waits for the user. Rendered in the same branded shell as the
+  // entry and the leg-1 bridge, so the whole sign-in reads as one screen.
   return (
-    <div className="grid min-h-dvh place-items-center bg-surface p-6">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="flex justify-center">
-          <LogoMark className="size-14" />
-        </div>
-
-        <div className="space-y-1 text-center">
-          <h2 className="text-2xl font-extrabold text-slate-800">{text.title}</h2>
-          <p className="text-sm text-slate-500">{text.subtitle}</p>
-        </div>
-
-        {/* A minimal identity summary - enough to spot a swap, and nothing
-            more. No email in the clear, no id, no token, no handoff code. */}
-        <dl
-          className="space-y-3 rounded-2xl bg-white p-4 ring-1 ring-slate-200"
-          data-testid="auth-confirm-identity"
-        >
-          <div className="flex items-baseline justify-between gap-3">
-            <dt className="text-xs font-bold text-slate-400">{text.identityLabel}</dt>
-            <dd className="min-w-0 truncate text-sm font-bold text-slate-800" dir="ltr">
-              {info.displayName}
-            </dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-3">
-            <dt className="text-xs font-bold text-slate-400">{text.principalLabel}</dt>
-            <dd className="text-sm text-slate-700">
-              {text.realmNames[info.realm] ?? info.realm}
-            </dd>
-          </div>
-          {info.displayContext && (
-            <div className="flex items-baseline justify-between gap-3">
-              <dt className="text-xs font-bold text-slate-400">{text.contextLabel}</dt>
-              <dd className="min-w-0 truncate text-sm text-slate-700">
-                {info.displayContext}
-              </dd>
-            </div>
-          )}
-        </dl>
-
-        <div className="flex flex-col gap-2">
-          <Button
-            size="lg"
-            className="w-full"
-            loading={busy}
-            onClick={() => void decide("continue")}
-          >
-            {text.continueAction}
-          </Button>
-          <Button
-            variant="secondary"
-            size="lg"
-            className="w-full"
-            disabled={busy}
-            onClick={() => void decide("cancel")}
-          >
-            {text.cancelAction}
-          </Button>
-        </div>
+    <AuthBrandLayout>
+      <div className="space-y-4 text-center animate-fade-in">
+        <LogoMark className="mx-auto size-12 animate-pulse" />
+        <p className="text-sm text-slate-600">{AUTH_ENTRY_TEXT.continuing}</p>
       </div>
-    </div>
+    </AuthBrandLayout>
   );
 }
