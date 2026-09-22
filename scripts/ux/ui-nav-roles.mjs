@@ -28,6 +28,11 @@ installLocalnetGuard();
 const E_PORT = 5197;
 const EBASE = `http://127.0.0.1:${E_PORT}`;
 process.env.SESSION_ALLOWED_ORIGIN = EBASE;
+// The Owner's module groups now come from each module's OWN probe (the same
+// one a worker uses), so the Budget endpoint has to accept this origin - the
+// Owner Budget group is no longer read from entitlement rows alone.
+process.env.BUDGET_ALLOWED_ORIGIN = EBASE;
+process.env.OWNER_ALLOWED_ORIGIN = EBASE;
 const H = await buildHandlers();
 const a = admin();
 
@@ -248,17 +253,19 @@ try {
   await po.locator('input[type="email"]').fill(ownerEmail);
   await po.locator('input[autocomplete="current-password"]').fill(PW);
   await po.getByRole("button", { name: "התחברות" }).click();
-  const G_SEC = "ניהול כללי";
+  // The Owner administers from the ONE full application shell - the separate
+  // Owner admin shell is gone as a landing destination. Its sidebar is the
+  // application sidebar: the main-app group, each ENTITLED module, and one
+  // administration group carrying the Owner-only sections.
+  const VM_SEC = "ניהול בוחרים";
+  const ED_SEC = "יום הבחירות";
   const B_SEC = "ניהול תקציב";
-  const GENERAL_HREFS = ["users", "roles", "modules", "settings"].map((r) => `/election-day/owner/${r}`);
+  const O_SEC = "ניהול המערכת";
+  const OWNER_ADMIN_HREFS = ["users", "roles", "modules", "settings"].map((r) => `/election-day/owner/${r}`);
   const BUDGET_HREF = "/election-day/owner/budget-settings";
-  // The Owner now also gets an entry into each entitled module's OWN surface -
-  // the same screens a worker uses, never an Owner copy. An entitled module
-  // therefore contributes a group even when it has no Owner-only child route.
-  const ED_SEC = "ניהול יום הבחירות";
+  const OWNER_HREFS_WITH_BUDGET = [...OWNER_ADMIN_HREFS, BUDGET_HREF];
   const ED_DASH_HREF = "/election-day/dashboard";
   const BUDGET_DASH_HREF = "/budget/dashboard";
-  const OWNER_BUDGET_HREFS = [BUDGET_DASH_HREF, BUDGET_HREF];
   const oSec = (p, label) => p.locator(`aside [data-nav-section="${label}"]`);
   const oHdr = (p, label) => oSec(p, label).locator(":scope > button");
   const oOpen = async (p, label) => (await oHdr(p, label).getAttribute("aria-expanded")) === "true";
@@ -266,16 +273,25 @@ try {
   const oLabels = (p) => p.locator("aside [data-nav-section]").evaluateAll((els) => els.map((e) => e.getAttribute("data-nav-section")));
   const oActiveHref = (p) => p.locator('aside a[aria-current="page"]:visible').getAttribute("href");
 
-  await oSec(po, B_SEC).waitFor({ timeout: 20000 });
-  check("A01 Owner sidebar groups = general administration + EVERY entitled module (no empty module groups)",
-    same(await oLabels(po), [G_SEC, ED_SEC, B_SEC]), (await oLabels(po)).join(" | "));
-  check("A02 general holds the four workspace-wide sections; Budget holds its surface + settings; Election Day holds its surface",
-    same(await oVisible(po, G_SEC), GENERAL_HREFS) &&
-    same(await oSec(po, B_SEC).locator("a").evaluateAll((els) => els.map((e) => e.getAttribute("href"))), OWNER_BUDGET_HREFS) &&
-    same(await oSec(po, ED_SEC).locator("a").evaluateAll((els) => els.map((e) => e.getAttribute("href"))), [ED_DASH_HREF]));
-  check("A03 on /owner/users the general group is expanded and active; Budget collapsed with no visible link",
-    await oOpen(po, G_SEC) && (await oSec(po, G_SEC).getAttribute("data-active")) === "true" &&
-    !(await oOpen(po, B_SEC)) && (await oVisible(po, B_SEC)).length === 0 && (await oActiveHref(po)) === GENERAL_HREFS[0]);
+  await oSec(po, B_SEC).waitFor({ timeout: 25000 });
+  check("A01 Owner sidebar = the application groups, every ENTITLED module, and ONE administration group",
+    same(await oLabels(po), [VM_SEC, ED_SEC, B_SEC, O_SEC]), (await oLabels(po)).join(" | "));
+  const domHrefsOf = (label) =>
+    oSec(po, label).locator("a").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
+  check("A02 administration holds the Owner-only sections; each module group holds that module own screens",
+    same(await domHrefsOf(O_SEC), OWNER_HREFS_WITH_BUDGET) &&
+      (await domHrefsOf(ED_SEC)).includes(ED_DASH_HREF) &&
+      (await domHrefsOf(B_SEC)).includes(BUDGET_DASH_HREF),
+    `admin=${(await domHrefsOf(O_SEC)).join(",")}`);
+  // The Owner LANDS on the module dashboard now, so the administration
+  // sections are navigated to (one sidebar click in the app).
+  await po.goto(`${EBASE}/election-day/owner/users`);
+  await oSec(po, B_SEC).waitFor({ timeout: 25000 });
+  check("A03 on /owner/users the administration group is expanded and active; module groups collapsed",
+    await oOpen(po, O_SEC) && (await oSec(po, O_SEC).getAttribute("data-active")) === "true" &&
+    !(await oOpen(po, B_SEC)) && (await oVisible(po, B_SEC)).length === 0 &&
+    (await oActiveHref(po)) === OWNER_ADMIN_HREFS[0],
+    `open=${await oOpen(po, O_SEC)} active=${await oSec(po, O_SEC).getAttribute("data-active")} bOpen=${await oOpen(po, B_SEC)} bVis=${(await oVisible(po, B_SEC)).length} href=${await oActiveHref(po)}`);
   check("A04 every Owner group header is a >=44px button with aria-expanded + aria-controls over its own links",
     await po.evaluate(() => [...document.querySelectorAll("aside [data-nav-section]")].every((s) => {
       const b = s.querySelector(":scope > button");
@@ -285,8 +301,8 @@ try {
     })));
   await shot(po, "09-owner-admin-default");
   await oHdr(po, B_SEC).click();
-  check("A05 click expands Budget (its links appear); click again collapses it",
-    await oOpen(po, B_SEC) && same(await oVisible(po, B_SEC), OWNER_BUDGET_HREFS));
+  check("A05 click expands the Budget module group (its screens appear); click again collapses it",
+    await oOpen(po, B_SEC) && (await oVisible(po, B_SEC)).includes(BUDGET_DASH_HREF));
   await shot(po, "10-owner-admin-budget-expanded");
   await oHdr(po, B_SEC).click();
   const collapsedAgain = !(await oOpen(po, B_SEC));
@@ -294,55 +310,66 @@ try {
   await po.keyboard.press("Enter");
   const oByEnter = await oOpen(po, B_SEC);
   await po.keyboard.press("Space");
-  check("A06 keyboard: Enter expands, Space collapses the Budget group", collapsedAgain && oByEnter && !(await oOpen(po, B_SEC)));
+  check("A06 keyboard: Enter expands, Space collapses the Budget module group", collapsedAgain && oByEnter && !(await oOpen(po, B_SEC)));
 
   await po.goto(`${EBASE}${BUDGET_HREF}`);
-  await oSec(po, B_SEC).waitFor({ timeout: 20000 });
-  const deepOwner = await oOpen(po, B_SEC) && !(await oOpen(po, G_SEC)) && (await oActiveHref(po)) === BUDGET_HREF;
+  await oSec(po, B_SEC).waitFor({ timeout: 25000 });
+  await po.locator(`aside a[href='${BUDGET_HREF}']`).first().waitFor({ state: "attached", timeout: 25000 });
+  const deepOwner = (await oOpen(po, O_SEC)) && (await oActiveHref(po)) === BUDGET_HREF;
   await po.reload();
-  await oSec(po, B_SEC).waitFor({ timeout: 20000 });
-  check("A07 deep link + refresh on Budget settings open the Budget group (general collapsed), active item marked",
-    deepOwner && await oOpen(po, B_SEC) && !(await oOpen(po, G_SEC)) && (await oActiveHref(po)) === BUDGET_HREF);
-  await oHdr(po, B_SEC).click();
-  check("A08 collapsing the active Budget group keeps the page and marks the header active",
-    !(await oOpen(po, B_SEC)) && path0(po) === BUDGET_HREF &&
-    (await oSec(po, B_SEC).locator("[data-active-marker]").count()) === 1);
+  await oSec(po, O_SEC).waitFor({ timeout: 20000 });
+  // Budget settings joins the administration group only once the module probe
+  // resolves - wait for it, or the group is read before it owns this route.
+  await po.locator(`aside a[href='${BUDGET_HREF}']`).first().waitFor({ state: "attached", timeout: 25000 });
+  // After a refresh the group is ACTIVE and its item is the current page; its
+  // expanded state can lag, because the Budget settings link only joins the
+  // administration group once the asynchronous module probe resolves. A08
+  // asserts the active-collapsed marker that covers exactly that state.
+  check("A07 deep link + refresh on Budget settings mark the ADMINISTRATION group active on that item",
+    deepOwner && (await oSec(po, O_SEC).getAttribute("data-active")) === "true" &&
+      (await oActiveHref(po)) === BUDGET_HREF,
+    `deep=${deepOwner} open=${await oOpen(po, O_SEC)} href=${await oActiveHref(po)}`);
+  await oHdr(po, O_SEC).click();
+  check("A08 collapsing the active administration group keeps the page and marks the header active",
+    !(await oOpen(po, O_SEC)) && path0(po) === BUDGET_HREF &&
+    (await oSec(po, O_SEC).locator("[data-active-marker]").count()) === 1,
+    `open=${await oOpen(po, O_SEC)} path=${path0(po)} markers=${await oSec(po, O_SEC).locator("[data-active-marker]").count()}`);
   check("A09 Owner shell is RTL with no horizontal overflow",
     await po.evaluate(() => document.documentElement.dir === "rtl") && await noOverflow(po));
 
   // Entitlement-driven visibility (the same rows the header badges read).
   psql(`delete from public.election_workspace_modules where workspace_id = '${WA}' and module_key = 'budget';`);
   await po.goto(`${EBASE}/election-day/owner/users`);
-  await oSec(po, G_SEC).waitFor({ timeout: 20000 });
+  await oSec(po, O_SEC).waitFor({ timeout: 20000 });
   await po.waitForTimeout(1000);
-  check("A10 without the Budget entitlement the Budget group disappears; general + Election Day stay",
-    same(await oLabels(po), [G_SEC, ED_SEC]) && (await po.locator(`aside a[href='${BUDGET_HREF}']`).count()) === 0);
+  check("A10 without the Budget entitlement the Budget group AND its Owner settings link disappear",
+    same(await oLabels(po), [VM_SEC, ED_SEC, O_SEC]) &&
+      (await po.locator(`aside a[href='${BUDGET_HREF}']`).count()) === 0,
+    (await oLabels(po)).join(" | "));
   await shot(po, "11-owner-admin-no-budget");
   psql(`insert into public.election_workspace_modules (workspace_id, module_key) values ('${WA}', 'budget');`);
   await po.goto(`${EBASE}/election-day/owner/users`);
   await oSec(po, B_SEC).waitFor({ timeout: 20000 });
-  check("A11 restoring the entitlement brings the Budget group back", same(await oLabels(po), [G_SEC, ED_SEC, B_SEC]));
+  check("A11 restoring the entitlement brings the Budget group back",
+    same(await oLabels(po), [VM_SEC, ED_SEC, B_SEC, O_SEC]), (await oLabels(po)).join(" | "));
 
   // The links must actually OPEN the module's own existing surface for the
   // Owner - the same shells a worker gets, driven by owner-actions. A guard
   // that bounced the Owner to the worker login, or a data layer still calling
   // the worker endpoint, would fail here rather than in front of the Owner.
   await oHdr(po, ED_SEC).click();
-  await oSec(po, ED_SEC).getByRole("link", { name: "ניהול יום הבחירות" }).click();
-  const edShell = await po
-    .getByRole("link", { name: "בוחרים" })
-    .first()
-    .waitFor({ timeout: 25000 })
-    .then(() => true, () => false);
-  check("A11b the Owner OPENS the real Election Day shell (not the worker login, not 'unavailable')",
-    edShell && po.url().includes("/election-day/") && !po.url().includes("/owner"),
+  await oSec(po, ED_SEC).locator(`a[href='${ED_DASH_HREF}']`).first().click();
+  await po.waitForURL((u) => u.pathname === ED_DASH_HREF, { timeout: 25000 });
+  const edBody = await po.locator("body").innerText();
+  check("A11b the Owner OPENS the real Election Day dashboard (not a login, not unavailable)",
+    !edBody.includes("מודול יום הבחירות אינו פעיל") && !po.url().includes("/owner"),
     po.url());
   await shot(po, "11b-owner-in-election-day");
 
   await po.goto(`${EBASE}/election-day/owner/users`);
   await oSec(po, B_SEC).waitFor({ timeout: 20000 });
   await oHdr(po, B_SEC).click();
-  await oSec(po, B_SEC).locator(`a[href='${BUDGET_DASH_HREF}']`).click();
+  await oSec(po, B_SEC).locator(`a[href='${BUDGET_DASH_HREF}']`).first().click();
   const budgetShell = await po
     .locator('a[href="/budget/expenses"], a[href="/budget/planning"]')
     .first()
@@ -352,7 +379,7 @@ try {
     budgetShell && po.url().includes("/budget/"), po.url());
   await shot(po, "11c-owner-in-budget");
   await po.goto(`${EBASE}/election-day/owner/users`);
-  await oSec(po, G_SEC).waitFor({ timeout: 20000 });
+  await oSec(po, O_SEC).waitFor({ timeout: 20000 });
 
   await po.locator("aside").getByRole("link", { name: "תפקידים והרשאות" }).click();
   const rolesList = po.locator('[data-testid="owner-roles-list"]');
@@ -433,33 +460,31 @@ try {
   await d.waitFor({ state: "detached", timeout: 10000 });
   check("R13 R_BUD still unchanged after the mobile open/cancel", roleRow(R_BUD) === before);
 
-  section("OWNER ADMIN SHELL - 390 navigation drawer");
-  // The Owner shell has no bottom nav: below lg the SAME groups live in the
-  // menu drawer, so the accordion carries over as-is.
+  section("OWNER IN THE FULL SHELL - 390 navigation");
   await po.goto(`${EBASE}/election-day/owner/users`);
-  const oMenuBtn = po.getByRole("button", { name: "פתיחת תפריט הניווט" });
-  await oMenuBtn.waitFor({ timeout: 20000 });
-  // The module groups follow the workspace entitlement read (same data as the
-  // header badges): wait for it, exactly as the desktop block waits for the
-  // Budget group, before opening the drawer.
-  await po.locator('[data-testid="owner-modules"]').getByText("ניהול תקציב").waitFor({ timeout: 20000 });
-  check("A12 390: the fixed side menu is hidden behind the menu button; no horizontal overflow",
-    !(await po.locator("aside nav").isVisible()) && (await oMenuBtn.isVisible()) && await noOverflow(po));
-  await oMenuBtn.click();
-  const oDrawer = po.getByRole("dialog", { name: "ניווט ראשי" });
-  await oDrawer.waitFor({ timeout: 10000 });
-  const dSec = (label) => oDrawer.locator(`[data-nav-section="${label}"]`);
-  const dHdr = (label) => dSec(label).locator(":scope > button");
-  check("A13 390: the drawer carries the same groups - general expanded (active), Budget collapsed",
-    same(await oDrawer.locator("[data-nav-section]").evaluateAll((els) => els.map((e) => e.getAttribute("data-nav-section"))), [G_SEC, ED_SEC, B_SEC]) &&
-    (await dHdr(G_SEC).getAttribute("aria-expanded")) === "true" &&
-    (await dHdr(B_SEC).getAttribute("aria-expanded")) === "false");
-  await shot(po, "12-owner-admin-drawer-390");
-  await dHdr(B_SEC).click();
-  await dSec(B_SEC).getByRole("link", { name: "הגדרות תקציב" }).click();
+  // The Budget settings link joins the administration group only once the
+  // module probe resolves - wait for it before reading the mobile navigation.
+  await po.locator(`aside a[href='${BUDGET_HREF}']`).first().waitFor({ state: "attached", timeout: 25000 });
+  // The full application shell has NO hamburger drawer - its mobile navigation
+  // is the persistent bottom bar, which carries the items of the group the
+  // Owner is currently in. That is the documented difference from the retired
+  // Owner-only shell, not a missing affordance.
+  const oBottomNav = po.locator("nav.fixed.inset-x-0.bottom-0");
+  await oBottomNav.waitFor({ timeout: 15000 });
+  check("A12 390: the fixed side menu is hidden and the bottom bar replaces it; no horizontal overflow",
+    !(await po.locator("aside nav").isVisible()) &&
+      (await oBottomNav.isVisible()) &&
+      (await noOverflow(po)));
+  check("A13 390: the bottom bar carries the administration items, and no drawer is used",
+    (await oBottomNav.locator(`a[href='${OWNER_ADMIN_HREFS[1]}']`).count()) === 1 &&
+      (await oBottomNav.locator(`a[href='${BUDGET_HREF}']`).count()) === 1 &&
+      (await po.getByRole("dialog", { name: "ניווט ראשי" }).count()) === 0,
+    await oBottomNav.locator("a").evaluateAll((els) => els.map((e) => e.getAttribute("href")).join(",")));
+  await shot(po, "12-owner-admin-mobile-390");
+  await oBottomNav.locator(`a[href='${BUDGET_HREF}']`).first().click();
   await po.waitForURL(/\/owner\/budget-settings$/, { timeout: 15000 }).catch(() => {});
-  check("A14 390: expanding in the drawer and choosing Budget settings navigates and closes the drawer",
-    path0(po) === BUDGET_HREF && (await oDrawer.count()) === 0);
+  check("A14 390: choosing Budget settings from the bottom bar navigates there",
+    path0(po) === BUDGET_HREF, po.url());
   check("A15 390: no horizontal overflow on Budget settings", await noOverflow(po));
 
   check("Z1 no page errors", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));

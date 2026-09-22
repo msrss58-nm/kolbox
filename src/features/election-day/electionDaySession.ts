@@ -54,6 +54,10 @@ export interface ElectionDaySessionUser {
    * endpoint's response - never consulted by the permission engine or any
    * authorization decision on the frontend (see CLAUDE.md). */
   workspaceId: string;
+  /** The workspace's EFFECTIVE modules, as the server reported them.
+   * Navigation metadata only, fail-closed when absent - every module
+   * re-checks its own entitlement server-side on every request. */
+  modules?: readonly string[];
 }
 
 interface ElectionDaySessionState {
@@ -177,6 +181,7 @@ function toStoredUser(user: ServerSessionUser): ElectionDaySessionUser {
     name: user.name,
     roleId: user.roleId,
     workspaceId: user.workspaceId,
+    modules: user.modules,
   };
 }
 

@@ -215,8 +215,11 @@ try {
   await po.locator('input[autocomplete="current-password"]').fill(PW);
   await po.getByRole("button", { name: "התחברות" }).click();
   // Owner sidebar accordion: the Budget module section starts collapsed.
-  await po.getByRole("button", { name: "ניהול תקציב" }).first().waitFor({ timeout: 20000 });
-  await po.getByRole("button", { name: "ניהול תקציב" }).first().click();
+  // The Owner-only Budget settings section lives in the ADMINISTRATION
+  // group of the full application shell now - the "ניהול תקציב" group holds
+  // the Budget module own screens.
+  await po.getByRole("button", { name: "ניהול המערכת" }).first().waitFor({ timeout: 25000 });
+  await po.getByRole("button", { name: "ניהול המערכת" }).first().click();
   await po.getByRole("link", { name: "הגדרות תקציב" }).first().click();
   check("U18 Owner sees the category a delegated user created", await waitText(po, "שילוט UI", 20000));
   await shot(po, "03-owner-budget-settings");

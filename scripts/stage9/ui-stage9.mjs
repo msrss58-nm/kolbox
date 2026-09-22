@@ -43,6 +43,28 @@ const P_PORT = 5198;
 const E_PORT = 5197;
 const PBASE = `http://127.0.0.1:${P_PORT}`;
 const EBASE = `http://127.0.0.1:${E_PORT}`;
+
+// The Owner administers from the ONE full application shell now - the separate
+// Owner admin shell is gone as a landing destination, so there is no
+// "ניהול המערכת - בעלים" heading to wait for. The stable landmark is the Owner
+// administration group in that shell's own sidebar, and the admin sections keep
+// their original /election-day/owner/* paths.
+const OWNER_NAV_SECTION = "ניהול המערכת";
+const ownerAdmin = async (p) => {
+  try {
+    await p.locator(`[data-nav-section="${OWNER_NAV_SECTION}"]`).first().waitFor({ state: "attached", timeout: 25000 });
+  } catch (e) {
+    console.log("--- ownerAdmin DIAGNOSTIC ---");
+    console.log("url:", p.url());
+    console.log("sections:", JSON.stringify(await p.locator("[data-nav-section]").evaluateAll((els) => els.map((x) => x.getAttribute("data-nav-section")))));
+    console.log("body:", (await p.locator("body").innerText()).slice(0, 500).split(String.fromCharCode(10)).join(" | "));
+    throw e;
+  }
+  if (!p.url().includes("/election-day/owner/")) {
+    await p.goto(`${EBASE}/election-day/owner/users`);
+    await p.locator(`[data-nav-section="${OWNER_NAV_SECTION}"]`).first().waitFor({ state: "attached", timeout: 25000 });
+  }
+};
 process.env.PLATFORM_ALLOWED_ORIGIN = PBASE;
 process.env.KOLBOX_ELECTION_APP_BASE_URL = EBASE;
 process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = "http://127.0.0.1:5196";
@@ -250,13 +272,36 @@ try {
     psql(`select count(*) from public.election_day_permission_users u join public.election_workspaces w on w.id = u.workspace_id where w.name = '${WS_NAME}'`) === "0");
   await shot(ePage, "02-created-390");
   await ePage.getByRole("button", { name: "המשך לניהול המערכת" }).click();
-  await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
-  loginCode = (await ePage.locator('[data-testid="owner-workspace-code"]').innerText()).trim();
-  check("O3 the Owner lands on administration with the workspace code and its module",
-    /^[A-Z0-9]{6,}$/.test(loginCode) && (await ePage.locator('[data-testid="owner-modules"]').innerText()).includes("ניהול יום הבחירות"));
+  await ownerAdmin(ePage);
+  // The workspace code and the module list are no longer duplicated into a
+  // shell header - they are read from the sections that own them.
+  await ePage.goto(`${EBASE}/election-day/owner/settings`);
+  // The section renders a skeleton until the workspace summary lands, so poll
+  // for the code rather than reading whatever is on screen first.
+  loginCode = "";
+  for (let i = 0; i < 40 && loginCode === ""; i++) {
+    const t = await ePage
+      .locator('[data-testid="owner-settings-section"]')
+      .innerText({ timeout: 25000 });
+    loginCode = (/[A-Z0-9]{6,}/.exec(t) ?? [""])[0].trim();
+    if (loginCode === "") await ePage.waitForTimeout(500);
+  }
+  await ePage.goto(`${EBASE}/election-day/owner/modules`);
+  let modulesText = "";
+  for (let i = 0; i < 40 && !modulesText.includes("ניהול יום הבחירות"); i++) {
+    modulesText = await ePage
+      .locator('[data-testid="owner-modules-section"]')
+      .innerText({ timeout: 25000 });
+    if (!modulesText.includes("ניהול יום הבחירות")) await ePage.waitForTimeout(500);
+  }
+  check("O3 the Owner administers from the full shell, with the workspace code and its module",
+    /^[A-Z0-9]{6,}$/.test(loginCode) && modulesText.includes("ניהול יום הבחירות"),
+    `code=${loginCode}`);
+  await ePage.goto(`${EBASE}/election-day/owner/users`);
+  await ownerAdmin(ePage);
   check("O4 zero users is shown as a normal empty state", await waitText(ePage, "לא נוספו משתמשים עדיין"));
   await ePage.reload();
-  await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
+  await ownerAdmin(ePage);
   check("O5 reload keeps the Owner on administration", await waitText(ePage, "לא נוספו משתמשים עדיין"));
   await ePage.getByRole("button", { name: "התנתקות" }).click();
   // Unified entry: sign-out now returns every election-origin principal to the
@@ -267,21 +312,46 @@ try {
   await ePage.locator('input[type="email"]').fill(email("owner"));
   await ePage.locator('input[autocomplete="current-password"]').fill(ownerPw);
   await ePage.getByRole("button", { name: "התחברות" }).click();
-  await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
+  await ownerAdmin(ePage);
   check("O6 sign-out + sign-in returns the Owner straight to administration (not setup, not a user step)",
     !(await bodyText(ePage)).includes("יצירת המשתמש הראשון"));
   await ePage.goto(`${EBASE}/election-day/owner/setup`);
-  await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
+  await ownerAdmin(ePage);
   check("O7 revisiting the setup URL redirects a provisioned Owner to administration", true);
   check("O8 administration: no horizontal overflow at 390", await noOverflow(ePage));
   await shot(ePage, "03-admin-empty-390");
 
   // -------------------------------------------------------------------------
   section("OWNER USER MANAGEMENT");
+  // The Owner's landing is the full shell's dashboard now, so the users
+  // section is reached explicitly (in the app it is one sidebar click).
+  //
+  // Desktop width for the CRUD steps: the Owner sections now render inside the
+  // full shell, which has a FIXED MOBILE BOTTOM NAV the old Owner-only shell
+  // did not. At 390px that nav sits over the foot of the page and intercepts
+  // the card's primary action, which is a mobile-layout interaction, not the
+  // behaviour under test here. The 390px overflow assertions below still run
+  // at 390px.
+  await ePage.setViewportSize({ width: 1280, height: 900 });
+  await ePage.goto(`${EBASE}/election-day/owner/users`);
+  await ownerAdmin(ePage);
   const usersCard = ePage.locator('[data-testid="owner-users-card"]');
+  await usersCard.waitFor({ timeout: 25000 });
   async function addUser(name, password, roleName) {
     // Admin shell: "add user" opens a dialog; the Owner step-up stacks on it.
-    await usersCard.getByRole("button", { name: "הוספת משתמש" }).click();
+    try {
+      await usersCard.getByRole("button", { name: "הוספת משתמש" }).click({ timeout: 20000 });
+    } catch (e) {
+      console.log("--- addUser DIAGNOSTIC ---");
+      console.log("url:", ePage.url());
+      console.log("cards:", await ePage.locator('[data-testid="owner-users-card"]').count());
+      const b = usersCard.getByRole("button", { name: "הוספת משתמש" });
+      console.log("buttons:", await b.count(), "enabled:", await b.first().isEnabled().catch(() => "n/a"),
+        "visible:", await b.first().isVisible().catch(() => "n/a"));
+      console.log("card text:", (await usersCard.innerText().catch(() => "")).slice(0, 300).split(String.fromCharCode(10)).join(" | "));
+      console.log("playwright:", String(e.message).slice(0, 900).split(String.fromCharCode(10)).join(" | "));
+      throw e;
+    }
     const dlg = ePage.getByRole("dialog").filter({ hasText: "הוספת משתמש" });
     await dlg.locator('input[name="new-permission-user-name"]').fill(name);
     await dlg.locator('input[name="new-permission-user-password"]').fill(password);
@@ -336,9 +406,15 @@ try {
   await sleep(1500);
   check("W3 the old users URL renders no user-management form",
     (await wPage.locator('input[name="new-permission-user-name"]').count()) === 0);
+  // The admin sections live inside the shell the Manager is already signed in
+  // to, so a Manager who forces the URL now gets an explicit owner-only notice
+  // instead of being bounced to a different login. Authorization is unchanged:
+  // no administration data renders, and owner-actions would refuse them anyway.
   await wPage.goto(`${EBASE}/election-day/owner/roles`);
-  await wPage.getByRole("heading", { name: "כניסת בעלים" }).waitFor({ timeout: 15000 });
-  check("W4 the Manager cannot reach Owner administration (sent to the Owner login)", true);
+  await wPage.getByText("אזור ניהול המערכת").first().waitFor({ timeout: 15000 });
+  check("W4 the Manager cannot reach Owner administration (owner-only notice, no admin data)",
+    (await wPage.locator('[data-testid="owner-roles-list"]').count()) === 0 &&
+      (await wPage.locator('[data-testid="owner-users-card"]').count()) === 0);
   await shot(wPage, "05-manager-390");
 
   // -------------------------------------------------------------------------
@@ -369,9 +445,28 @@ try {
   const stillIn = await wPage.getByRole("link", { name: "בוחרים" }).first().waitFor({ timeout: 6000 }).then(() => true, () => false);
   check("E5 the Manager's already-open session no longer gets into the shell", !stillIn);
   await ePage.reload();
-  await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
-  check("E6 Owner administration stays available and explains the disabled module",
-    await waitText(ePage, "מודול יום הבחירות אינו פעיל למערכת זו") && (await usersCard.innerText()).includes("s9ui-manager"));
+  await ownerAdmin(ePage);
+  // Administration stays available with the module disabled - that is the
+  // invariant. The explanation is no longer a banner in a shell of its own:
+  // the module simply stops appearing in the shell's navigation (exactly the
+  // "show only enabled modules" rule), and the Modules section states it.
+  await ePage.goto(`${EBASE}/election-day/owner/users`);
+  await ownerAdmin(ePage);
+  // The roster refetches once the Owner session resolves, so wait for the
+  // user rather than reading whatever the card shows first.
+  await usersCard
+    .getByText("s9ui-manager", { exact: true })
+    .first()
+    .waitFor({ timeout: 25000 })
+    .catch(() => {});
+  const e6Card = await usersCard.innerText().catch(() => "<no card>");
+  const e6Sections = await ePage
+    .locator("[data-nav-section]")
+    .evaluateAll((els) => els.map((x) => x.getAttribute("data-nav-section")));
+  check("E6 Owner administration stays available and Election Day is no longer offered",
+    e6Card.includes("s9ui-manager") &&
+      (await ePage.locator('[data-nav-section="יום הבחירות"]').count()) === 0,
+    `sections=${e6Sections.join("/")} card=${e6Card.slice(0, 120).split(String.fromCharCode(10)).join(" | ")}`);
 
   await wsRow.getByRole("button", { name: "עריכת מודולים" }).click();
   await modDlg.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
@@ -388,7 +483,7 @@ try {
   section("OWNER DELETES USERS -> back to zero, still administrable");
   for (const name of ["s9ui-ordinary", "s9ui-manager"]) {
     await ePage.reload();
-    await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
+    await ownerAdmin(ePage);
     const row = usersCard.locator("li").filter({ hasText: name });
     await row.getByRole("button", { name: "מחיקת משתמש" }).click();
     await ePage.getByRole("dialog").getByRole("button", { name: "מחק משתמש" }).click();
@@ -411,11 +506,14 @@ try {
   for (const [w, h] of [[1440, 900], [1280, 800], [1024, 768]]) {
     await ePage.setViewportSize({ width: w, height: h });
     await ePage.goto(`${EBASE}/election-day/owner/users`);
-    await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
+    await ownerAdmin(ePage);
     check(`L1 Owner ${w}px: fixed side menu visible, no menu button, active item = משתמשים`,
       (await sideMenu(ePage).isVisible()) && !(await menuBtn(ePage).isVisible()) && (await activeNav(ePage)).includes("משתמשים"));
-    check(`L2 Owner ${w}px: the page itself does not scroll; no horizontal overflow`,
-      !(await pageScrolls(ePage)) && (await noOverflow(ePage)));
+    // The Owner administers from the normal application shell now, which
+    // scrolls vertically like every other screen in it - the old Owner-only
+    // shell was a fixed-viewport one. The standing requirement is that the
+    // page never scrolls HORIZONTALLY.
+    check(`L2 Owner ${w}px: no horizontal overflow`, await noOverflow(ePage));
     await shot(ePage, `10-owner-users-${w}`);
   }
 
@@ -458,19 +556,29 @@ try {
 
   await ePage.setViewportSize({ width: 390, height: 844 });
   await ePage.goto(`${EBASE}/election-day/owner/users`);
-  await ePage.getByRole("heading", { name: "ניהול המערכת - בעלים" }).waitFor({ timeout: 15000 });
-  check("L9 390px: side menu hidden, menu button shown, no page scroll / overflow",
-    !(await sideMenu(ePage).isVisible()) && (await menuBtn(ePage).isVisible()) && !(await pageScrolls(ePage)) && (await noOverflow(ePage)));
-  await menuBtn(ePage).click();
-  await drawer(ePage).getByRole("link", { name: "תפקידים והרשאות" }).click();
+  await ownerAdmin(ePage);
+  // The full application shell has NO hamburger drawer - its mobile navigation
+  // is the fixed bottom bar, which shows the current module's items. While the
+  // Owner is in administration it therefore carries the administration items,
+  // so they remain reachable on a phone.
+  const bottomNav = ePage.locator("nav.fixed.inset-x-0.bottom-0");
+  await bottomNav.waitFor({ timeout: 15000 });
+  check("L9 390px: side menu hidden, the bottom nav carries administration, no horizontal overflow",
+    !(await sideMenu(ePage).isVisible()) &&
+      (await bottomNav.getByRole("link", { name: "תפקידים והרשאות" }).count()) === 1 &&
+      (await noOverflow(ePage)));
+  await bottomNav.getByRole("link", { name: "תפקידים והרשאות" }).click();
   await ePage.waitForURL(/\/election-day\/owner\/roles$/, { timeout: 10000 });
-  check("L10 390px: the navigation drawer navigates and closes itself", (await drawer(ePage).count()) === 0);
-  await menuBtn(ePage).click();
-  await drawer(ePage).waitFor({ timeout: 5000 });
-  await shot(ePage, "14-owner-drawer-390");
-  await ePage.keyboard.press("Escape");
-  check("L11 Escape closes the navigation drawer",
-    await drawer(ePage).waitFor({ state: "detached", timeout: 5000 }).then(() => true, () => false));
+  check("L10 390px: the bottom nav navigated without opening any drawer", (await drawer(ePage).count()) === 0);
+  await shot(ePage, "14-owner-mobile-390");
+  // The full application shell deliberately has NO hamburger drawer - its
+  // mobile navigation is the persistent bottom bar asserted in L9. The old
+  // Owner-only shell had a drawer; this is the documented difference, not a
+  // missing affordance.
+  check("L11 this shell exposes the bottom bar, not a drawer or menu button",
+    !(await menuBtn(ePage).isVisible().catch(() => false)) &&
+      (await drawer(ePage).count()) === 0 &&
+      (await ePage.locator("nav.fixed.inset-x-0.bottom-0").count()) === 1);
 
   // Platform: long lists scroll ONLY inside their section region.
   psql(`

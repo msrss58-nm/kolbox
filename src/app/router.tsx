@@ -48,21 +48,24 @@ import { OwnerBudgetSettingsSection } from "../features/budget/OwnerBudgetSettin
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { ElectionDayDashboardPage } from "../features/election-day/ElectionDayDashboardPage";
 import { ElectionDayFilesPage } from "../features/election-day/ElectionDayFilesPage";
-import { ElectionDayGuard } from "../features/election-day/ElectionDayGuard";
+import {
+  ElectionDayGuard,
+  ElectionDayIndexRedirect,
+  ElectionDayModuleGate,
+} from "../features/election-day/ElectionDayGuard";
 import { ElectionDayLoginScreen } from "../features/election-day/ElectionDayLoginScreen";
 import { ElectionDayReasonsPage } from "../features/election-day/ElectionDayReasonsPage";
 import { ElectionDayReportsPage } from "../features/election-day/ElectionDayReportsPage";
 import { ElectionDayRidesPage } from "../features/election-day/ElectionDayRidesPage";
 import { ElectionDayShell } from "../features/election-day/ElectionDayShell";
 import { ElectionDayVotersPage } from "../features/election-day/ElectionDayVotersPage";
-import { OwnerAdminShell } from "../features/election-day/OwnerAdminShell";
+import { OwnerAdminOutlet } from "../features/election-day/OwnerAdminOutlet";
 import {
   OwnerModulesSection,
   OwnerRolesSection,
   OwnerSettingsSection,
   OwnerUsersSection,
 } from "../features/election-day/OwnerAdminSections";
-import { OwnerAuthGuard } from "../features/election-day/OwnerAuthGuard";
 import { OwnerLoginScreen } from "../features/election-day/OwnerLoginScreen";
 import { OwnerSetPasswordScreen } from "../features/election-day/OwnerSetPasswordScreen";
 import { OwnerSetupPage } from "../features/election-day/OwnerSetupPage";
@@ -410,31 +413,6 @@ const electionRoutes: RouteObject[] = [
   },
   { path: ROUTES.electionDayOwnerSetup, element: <OwnerSetupPage /> },
   {
-    // Phase 3C Roles Mutations: the Election Owner route tree - its own
-    // independent guard (OwnerAuthGuard), deliberately NOT nested under
-    // ElectionDayGuard (a PermissionUser session) or AuthGuard (the main
-    // app's Supabase Auth) - see ownerSession.ts's own doc comment for why
-    // these three identities must stay structurally independent.
-    element: <OwnerAuthGuard />,
-    children: [
-      {
-        // Owner administration shell - fixed side navigation, one child route
-        // per section (relative paths == ROUTES.electionDayOwner* constants;
-        // `roles` keeps the pre-shell /election-day/owner/roles path valid).
-        path: ROUTES.electionDayOwnerAdmin,
-        element: <OwnerAdminShell />,
-        children: [
-          { index: true, element: <Navigate to="users" replace /> },
-          { path: "users", element: <OwnerUsersSection /> },
-          { path: "roles", element: <OwnerRolesSection /> },
-          { path: "modules", element: <OwnerModulesSection /> },
-          { path: "settings", element: <OwnerSettingsSection /> },
-          { path: "budget-settings", element: <OwnerBudgetSettingsSection /> },
-        ],
-      },
-    ],
-  },
-  {
     // Voter Management - the legacy Supabase campaign identity (AuthGuard +
     // `profiles.role`) is retired here. These routes now resolve through the
     // SAME workspace PermissionUser session as Election Day and Budget, and
@@ -468,13 +446,39 @@ const electionRoutes: RouteObject[] = [
       {
         element: <ElectionDayShell />,
         children: [
-          { index: true, element: <Navigate to="dashboard" replace /> },
-          { path: "dashboard", element: <ElectionDayDashboardPage /> },
-          { path: "voters", element: <ElectionDayVotersPage /> },
-          { path: "files", element: <ElectionDayFilesPage /> },
-          { path: "rides", element: <ElectionDayRidesPage /> },
-          { path: "reasons", element: <ElectionDayReasonsPage /> },
-          { path: "reports", element: <ElectionDayReportsPage /> },
+          { index: true, element: <ElectionDayIndexRedirect /> },
+          {
+            // The module's own screens, behind the `election_day` entitlement.
+            // The gate sits HERE, not in front of the shell, so an Owner whose
+            // workspace is entitled to nothing can still reach the
+            // administration sections below.
+            element: <ElectionDayModuleGate />,
+            children: [
+              { path: "dashboard", element: <ElectionDayDashboardPage /> },
+              { path: "voters", element: <ElectionDayVotersPage /> },
+              { path: "files", element: <ElectionDayFilesPage /> },
+              { path: "rides", element: <ElectionDayRidesPage /> },
+              { path: "reasons", element: <ElectionDayReasonsPage /> },
+              { path: "reports", element: <ElectionDayReportsPage /> },
+            ],
+          },
+          {
+            // Owner administration - the SAME sections, now rendered inside
+            // the one full shell instead of a second one of their own. Their
+            // paths are unchanged (`/election-day/owner/*`), so every existing
+            // link, deep link and retained test target still resolves.
+            // `OwnerAdminOutlet` provides their shared context and refuses a
+            // worker; the server is still the authority on every request.
+            element: <OwnerAdminOutlet />,
+            children: [
+              { path: "owner", element: <Navigate to="users" replace /> },
+              { path: "owner/users", element: <OwnerUsersSection /> },
+              { path: "owner/roles", element: <OwnerRolesSection /> },
+              { path: "owner/modules", element: <OwnerModulesSection /> },
+              { path: "owner/settings", element: <OwnerSettingsSection /> },
+              { path: "owner/budget-settings", element: <OwnerBudgetSettingsSection /> },
+            ],
+          },
         ],
       },
     ],

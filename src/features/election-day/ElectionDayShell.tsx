@@ -26,6 +26,10 @@ import { OverdueReminderStack } from "./OverdueReminderStack";
 import { roleDisplayName } from "./roleDisplayName";
 import { useCountdown } from "./useCountdown";
 import { useElectionDay, type ElectionDayHook } from "./useElectionDay";
+import { Blocks, Settings, ShieldCheck, Users, Wallet } from "lucide-react";
+import { useLocation } from "react-router";
+import { isOwnerSessionRoleId } from "../../permissions/ownerSessionRole";
+const ownerNav = ELECTION_DAY_TEXT.owner.admin.nav;
 
 /** Every page under `/election-day/*` reads shared data/mutations through
  * this - `useElectionDay()` is called exactly once, here, so navigating
@@ -79,6 +83,7 @@ export function ElectionDayShell() {
       toast.error(err instanceof Error ? err.message : COMMON_TEXT.genericError);
     }
   };
+  const location = useLocation();
   const { can } = usePermissions();
 
   const visibleNavItems = useMemo(() => getVisibleElectionDayNavItems(can), [can]);
@@ -95,12 +100,75 @@ export function ElectionDayShell() {
     [budgetStatus, budgetSession],
   );
 
+  // The Election Owner administers the workspace from THIS shell - there is no
+  // second one. Their sections are one more group in the sidebar the shell
+  // already renders, so nothing about the navigation is duplicated. Workers
+  // never see it, and the sections are Owner-only server-side regardless.
+  const isOwner = isOwnerSessionRoleId(sessionUser?.roleId ?? null);
+
+  // Which module groups appear is ENTITLEMENT-driven, not permission-driven.
+  // That distinction only matters for the Owner: their permissions are
+  // unrestricted by definition, so keying Election Day off `can()` alone would
+  // keep offering the module after it was disabled. A worker cannot hold a
+  // session without the entitlement at all (`login()` refuses), so their nav is
+  // decided by the permission engine exactly as before.
+  const showElectionDay = isOwner
+    ? (sessionUser?.modules?.includes("election_day") ?? false)
+    : visibleNavItems.length > 0;
+
+  // The mobile bottom bar already shows only the CURRENT module (see AppShell)
+  // and this shell has no drawer, so while the Owner is inside their
+  // administration sections the bar carries those - otherwise they would be
+  // reachable only from the desktop sidebar.
+  const onOwnerAdminRoute = location.pathname.startsWith(
+    `${ROUTES.electionDayOwnerAdmin}/`,
+  );
+  const ownerItems = useMemo(
+    () =>
+      isOwner
+        ? [
+            { to: ROUTES.electionDayOwnerUsers, label: ownerNav.users, icon: Users },
+            {
+              to: ROUTES.electionDayOwnerRoles,
+              label: ownerNav.roles,
+              icon: ShieldCheck,
+            },
+            { to: ROUTES.electionDayOwnerModules, label: ownerNav.modules, icon: Blocks },
+            {
+              to: ROUTES.electionDayOwnerSettings,
+              label: ownerNav.settings,
+              icon: Settings,
+            },
+            ...(budgetItems.length > 0
+              ? [
+                  {
+                    to: ROUTES.electionDayOwnerBudgetSettings,
+                    label: BUDGET_TEXT.settings.title,
+                    icon: Wallet,
+                  },
+                ]
+              : []),
+          ]
+        : [],
+    [isOwner, budgetItems.length],
+  );
+
   const electionDaySections = useMemo(
     () => [
-      { label: ELECTION_DAY_NAV_SECTION_LABEL, items: visibleNavItems },
-      ...(budgetItems.length > 0 ? [{ label: BUDGET_NAV_SECTION_LABEL, items: budgetItems }] : []),
+      // Only a module the workspace is actually entitled to contributes a
+      // group: Election Day's own items come from the permission engine (empty
+      // for an unentitled workspace), Budget's from its own probe.
+      ...(showElectionDay
+        ? [{ label: ELECTION_DAY_NAV_SECTION_LABEL, items: visibleNavItems }]
+        : []),
+      ...(budgetItems.length > 0
+        ? [{ label: BUDGET_NAV_SECTION_LABEL, items: budgetItems }]
+        : []),
+      ...(ownerItems.length > 0
+        ? [{ label: ELECTION_DAY_TEXT.owner.admin.nav.ownerSection, items: ownerItems }]
+        : []),
     ],
-    [visibleNavItems, budgetItems],
+    [showElectionDay, visibleNavItems, budgetItems, ownerItems],
   );
 
   // Looks up against `allContacts` (unfiltered/unpaginated), not the Voters
@@ -119,12 +187,19 @@ export function ElectionDayShell() {
       navItems={NAV_ITEMS}
       navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
       sections={electionDaySections}
-      mobileNavItems={visibleNavItems}
+      mobileNavItems={
+        onOwnerAdminRoute && ownerItems.length > 0 ? ownerItems : visibleNavItems
+      }
       footer={
         sessionUser
           ? {
               name: sessionUser.name,
-              subtitle: roleDisplayName(sessionUser.roleId, electionDay.roles),
+              // The Owner's sentinel role id is not a catalog row, so looking
+              // it up would read "תפקיד לא ידוע". Their standing is fixed, and
+              // this is the label the Owner admin shell already used.
+              subtitle: isOwner
+                ? ELECTION_DAY_TEXT.owner.admin.accountRole
+                : roleDisplayName(sessionUser.roleId, electionDay.roles),
               onLogout: logout,
             }
           : undefined
@@ -142,16 +217,27 @@ export function ElectionDayShell() {
             </Link>
           </div>
         )}
-        <PageHeader
-          title={ELECTION_DAY_TEXT.title}
-          subtitle={ELECTION_DAY_TEXT.subtitle}
-        />
+        {/* The Owner's administration sections share this shell but are NOT
+            the Election Day module: they must not be titled after it, and
+            must not carry its countdown - which offers a deadline for a
+            module the workspace may not even be entitled to. The sections
+            keep the heading the old Owner admin shell gave them. */}
+        {onOwnerAdminRoute ? (
+          <PageHeader title={ELECTION_DAY_TEXT.owner.rolesPage.title} />
+        ) : (
+          <>
+            <PageHeader
+              title={ELECTION_DAY_TEXT.title}
+              subtitle={ELECTION_DAY_TEXT.subtitle}
+            />
 
-        <CountdownHeader
-          deadline={electionDay.deadline}
-          parts={countdownParts}
-          onSetDeadline={(iso) => void electionDay.setElectionDayDeadline(iso)}
-        />
+            <CountdownHeader
+              deadline={electionDay.deadline}
+              parts={countdownParts}
+              onSetDeadline={(iso) => void electionDay.setElectionDayDeadline(iso)}
+            />
+          </>
+        )}
 
         <Outlet context={shellContext} />
       </div>

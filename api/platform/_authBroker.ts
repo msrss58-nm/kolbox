@@ -523,7 +523,11 @@ async function handleTxn(
 
 function landingFor(realm: string): string {
   if (realm === "worker") return "/election-day";
-  if (realm === "election_owner") return "/election-day/owner";
+  // The Election Owner lands in the SAME full shell a worker does. That route
+  // resolves to the module dashboard when the workspace is entitled to
+  // Election Day, and to the Owner's administration sections otherwise - so
+  // there is one landing destination, not a separate Owner one.
+  if (realm === "election_owner") return "/election-day";
   if (realm === "platform_owner") return "/platform";
   return "/multi-entity";
 }

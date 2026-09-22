@@ -190,8 +190,11 @@ async function ownerLogin(p) {
   await p.locator('input[autocomplete="current-password"]').fill(PW);
   await p.getByRole("button", { name: "התחברות" }).click();
   // Owner sidebar accordion: the Budget module section starts collapsed.
-  await p.getByRole("button", { name: "ניהול תקציב" }).first().waitFor({ timeout: 20000 });
-  await p.getByRole("button", { name: "ניהול תקציב" }).first().click();
+  // The Owner-only Budget settings section lives in the ADMINISTRATION
+  // group of the full application shell now - the "ניהול תקציב" group holds
+  // the Budget module own screens.
+  await p.getByRole("button", { name: "ניהול המערכת" }).first().waitFor({ timeout: 25000 });
+  await p.getByRole("button", { name: "ניהול המערכת" }).first().click();
   await p.getByRole("link", { name: "הגדרות תקציב" }).first().click();
   await p.getByTestId("budget-export-card").waitFor({ timeout: 20000 });
 }
