@@ -26,7 +26,7 @@ import { OverdueReminderStack } from "./OverdueReminderStack";
 import { roleDisplayName } from "./roleDisplayName";
 import { useCountdown } from "./useCountdown";
 import { useElectionDay, type ElectionDayHook } from "./useElectionDay";
-import { Blocks, Settings, ShieldCheck, Users, Wallet } from "lucide-react";
+import { Settings, ShieldCheck, Users, Wallet } from "lucide-react";
 import { useLocation } from "react-router";
 import { isOwnerSessionRoleId } from "../../permissions/ownerSessionRole";
 const ownerNav = ELECTION_DAY_TEXT.owner.admin.nav;
@@ -119,11 +119,19 @@ export function ElectionDayShell() {
   // The mobile bottom bar already shows only the CURRENT module (see AppShell)
   // and this shell has no drawer, so while the Owner is inside their
   // administration sections the bar carries those - otherwise they would be
-  // reachable only from the desktop sidebar.
+  // reachable only from the desktop sidebar. It carries ALL of them, not the
+  // owning menu's slice: on a phone these four are one short list, and
+  // splitting them would strand Budget settings with no way back.
   const onOwnerAdminRoute = location.pathname.startsWith(
     `${ROUTES.electionDayOwnerAdmin}/`,
   );
-  const ownerItems = useMemo(
+  // THERE IS NO SEPARATE ADMINISTRATION MENU. The Owner's workspace-wide
+  // sections belong to the module they administer: users, roles and settings
+  // sit at the foot of the Election Day menu, and Budget settings at the foot
+  // of the Budget menu. Modules is gone as an item - its content is now part
+  // of the settings screen, because "which modules do we have" is a fact
+  // about the workspace, not a place to go.
+  const ownerElectionDayItems = useMemo(
     () =>
       isOwner
         ? [
@@ -133,43 +141,65 @@ export function ElectionDayShell() {
               label: ownerNav.roles,
               icon: ShieldCheck,
             },
-            { to: ROUTES.electionDayOwnerModules, label: ownerNav.modules, icon: Blocks },
             {
               to: ROUTES.electionDayOwnerSettings,
               label: ownerNav.settings,
               icon: Settings,
             },
-            ...(budgetItems.length > 0
-              ? [
-                  {
-                    to: ROUTES.electionDayOwnerBudgetSettings,
-                    label: BUDGET_TEXT.settings.title,
-                    icon: Wallet,
-                  },
-                ]
-              : []),
+          ]
+        : [],
+    [isOwner],
+  );
+
+  // Only when the workspace actually has Budget: an Owner with no Budget
+  // entitlement has no Budget menu to hang it on, and a settings link for a
+  // module they do not own would be an orphan.
+  const ownerBudgetItems = useMemo(
+    () =>
+      isOwner && budgetItems.length > 0
+        ? [
+            {
+              to: ROUTES.electionDayOwnerBudgetSettings,
+              label: BUDGET_TEXT.settings.title,
+              icon: Wallet,
+            },
           ]
         : [],
     [isOwner, budgetItems.length],
   );
 
-  const electionDaySections = useMemo(
-    () => [
-      // Only a module the workspace is actually entitled to contributes a
-      // group: Election Day's own items come from the permission engine (empty
-      // for an unentitled workspace), Budget's from its own probe.
-      ...(showElectionDay
-        ? [{ label: ELECTION_DAY_NAV_SECTION_LABEL, items: visibleNavItems }]
-        : []),
-      ...(budgetItems.length > 0
-        ? [{ label: BUDGET_NAV_SECTION_LABEL, items: budgetItems }]
-        : []),
-      ...(ownerItems.length > 0
-        ? [{ label: ELECTION_DAY_TEXT.owner.admin.nav.ownerSection, items: ownerItems }]
-        : []),
-    ],
-    [showElectionDay, visibleNavItems, budgetItems, ownerItems],
+  // Every owner-administration destination, in one list, for the phone bar
+  // only - see `mobileNavItems` below for why it is not split there.
+  const ownerItems = useMemo(
+    () => [...ownerElectionDayItems, ...ownerBudgetItems],
+    [ownerElectionDayItems, ownerBudgetItems],
   );
+
+  const electionDaySections = useMemo(() => {
+    // The module's own screens appear only when the workspace is entitled to
+    // it; the Owner's administration items appear regardless, because an
+    // Owner whose workspace is entitled to nothing must still be able to
+    // administer it. The group is rendered when it has anything at all.
+    const electionDayItems = [
+      ...(showElectionDay ? visibleNavItems : []),
+      ...ownerElectionDayItems,
+    ];
+    const budgetGroupItems = [...budgetItems, ...ownerBudgetItems];
+    return [
+      ...(electionDayItems.length > 0
+        ? [{ label: ELECTION_DAY_NAV_SECTION_LABEL, items: electionDayItems }]
+        : []),
+      ...(budgetGroupItems.length > 0
+        ? [{ label: BUDGET_NAV_SECTION_LABEL, items: budgetGroupItems }]
+        : []),
+    ];
+  }, [
+    showElectionDay,
+    visibleNavItems,
+    budgetItems,
+    ownerElectionDayItems,
+    ownerBudgetItems,
+  ]);
 
   // Looks up against `allContacts` (unfiltered/unpaginated), not the Voters
   // screen's own filtered/paginated view - a voter opened from elsewhere

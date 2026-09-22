@@ -223,8 +223,8 @@ try {
   // The Owner-only Budget settings section lives in the ADMINISTRATION
   // group of the full application shell now - the "ניהול תקציב" group holds
   // the Budget module own screens.
-  await po.getByRole("button", { name: "ניהול המערכת" }).first().waitFor({ timeout: 25000 });
-  await po.getByRole("button", { name: "ניהול המערכת" }).first().click();
+  await po.getByRole("button", { name: "ניהול תקציב" }).first().waitFor({ timeout: 25000 });
+  await po.getByRole("button", { name: "ניהול תקציב" }).first().click();
   await po.getByRole("link", { name: "הגדרות תקציב" }).first().click();
   check("G04 Owner settings (the second consumer of the shared panel) show the same types + category rule",
     await seen(po.getByTestId("document-types").getByText("אישור עירייה UI"), 20000) && await seen(po.getByTestId("rule-categories").getByText("אירועים UI")));

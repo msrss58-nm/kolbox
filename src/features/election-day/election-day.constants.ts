@@ -1253,8 +1253,6 @@ export const ELECTION_DAY_TEXT = {
         /** Header for the workspace-wide group in the Owner sidebar; each
          * entitled module with its own Owner section gets its own group. */
         generalSection: "ניהול כללי",
-        /** The Owner administration group inside the full shell's sidebar. */
-        ownerSection: "ניהול המערכת",
         /** The Owner's entry into a module's own full surface - the SAME
          * screens a worker uses, not an Owner copy of them. Shown only for a
          * module the workspace is actually entitled to. */

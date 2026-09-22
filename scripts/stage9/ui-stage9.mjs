@@ -49,7 +49,7 @@ const EBASE = `http://127.0.0.1:${E_PORT}`;
 // "ניהול המערכת - בעלים" heading to wait for. The stable landmark is the Owner
 // administration group in that shell's own sidebar, and the admin sections keep
 // their original /election-day/owner/* paths.
-const OWNER_NAV_SECTION = "ניהול המערכת";
+const OWNER_NAV_SECTION = "ניהול יום בחירות";
 const ownerAdmin = async (p) => {
   try {
     await p.locator(`[data-nav-section="${OWNER_NAV_SECTION}"]`).first().waitFor({ state: "attached", timeout: 25000 });
@@ -463,9 +463,10 @@ try {
   const e6Sections = await ePage
     .locator("[data-nav-section]")
     .evaluateAll((els) => els.map((x) => x.getAttribute("data-nav-section")));
-  check("E6 Owner administration stays available and Election Day is no longer offered",
+  check("E6 Owner administration stays available and the Election Day SCREENS are no longer offered",
     e6Card.includes("s9ui-manager") &&
-      (await ePage.locator('[data-nav-section="יום הבחירות"]').count()) === 0,
+      (await ePage.locator('aside a[href="/election-day/dashboard"]').count()) === 0 &&
+      (await ePage.locator('aside a[href$="/owner/users"]').count()) === 1,
     `sections=${e6Sections.join("/")} card=${e6Card.slice(0, 120).split(String.fromCharCode(10)).join(" | ")}`);
 
   await wsRow.getByRole("button", { name: "עריכת מודולים" }).click();
@@ -528,10 +529,13 @@ try {
 
   await ePage.goto(`${EBASE}/election-day/owner/modules`);
   await ePage.locator('[data-module="election_day"]').waitFor({ timeout: 15000 });
-  check("L4 direct link to Modules: Election Day shown as enabled, read-only, nav item active",
+  check("L4 the retired Modules path redirects into Settings, which now carries the read-only module list",
+    new URL(ePage.url()).pathname === "/election-day/owner/settings" &&
     (await ePage.locator('[data-module="election_day"]').innerText()).includes("פעיל") &&
     (await ePage.locator('[data-testid="owner-modules-section"] button').count()) === 0 &&
-    (await activeNav(ePage)).includes("מודולים"));
+    (await activeNav(ePage)).includes("הגדרות") &&
+    (await ePage.locator('aside a[href$="/owner/modules"]').count()) === 0,
+    ePage.url());
   await shot(ePage, "12-owner-modules-1280");
 
   await ePage.goto(`${EBASE}/election-day/owner/settings`);

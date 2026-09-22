@@ -193,8 +193,8 @@ async function ownerLogin(p) {
   // The Owner-only Budget settings section lives in the ADMINISTRATION
   // group of the full application shell now - the "ניהול תקציב" group holds
   // the Budget module own screens.
-  await p.getByRole("button", { name: "ניהול המערכת" }).first().waitFor({ timeout: 25000 });
-  await p.getByRole("button", { name: "ניהול המערכת" }).first().click();
+  await p.getByRole("button", { name: "ניהול תקציב" }).first().waitFor({ timeout: 25000 });
+  await p.getByRole("button", { name: "ניהול תקציב" }).first().click();
   await p.getByRole("link", { name: "הגדרות תקציב" }).first().click();
   await p.getByTestId("budget-export-card").waitFor({ timeout: 20000 });
 }
@@ -228,7 +228,7 @@ try {
   check("N01 'ניהול תקציב' menu = exactly the approved six, in order (דשבורד, תקציב ותכנון, הוצאות, ספקים, דוחות, הגדרות)",
     JSON.stringify(budgetHrefs) === JSON.stringify(BUDGET_ROUTES) &&
     (await pa.locator("aside nav").getByText("ניהול תקציב", { exact: true }).count()) === 1, budgetHrefs.join(" "));
-  check("N02 the Election Day section is shown too (both modules entitled)", (await pa.locator("aside nav").getByText("יום הבחירות").count()) >= 1);
+  check("N02 the Election Day section is shown too (both modules entitled)", (await pa.locator("aside nav").getByText("ניהול יום בחירות").count()) >= 1);
   let dead = [];
   for (const route of BUDGET_ROUTES) {
     await pa.locator(`aside a[href="${route}"]`).click();
@@ -276,7 +276,7 @@ try {
   await workerLogin(pb, CODE_B, "b-full");
   await pb.waitForURL(/\/budget\/dashboard/, { timeout: 20000 }).catch(() => {});
   check("E02 Budget only: lands on the dashboard; no Election Day section", path0(pb) === "/budget/dashboard" &&
-    (await pb.locator("aside nav").getByText("יום הבחירות").count()) === 0);
+    (await pb.locator("aside nav").getByText("ניהול יום בחירות").count()) === 0);
   await pb.goto(`${BASE}/election-day/dashboard`);
   await pb.waitForTimeout(2500);
   check("E03 Budget only: an Election Day URL never shows Election Day data (lands on its sign-in - documented residual)",

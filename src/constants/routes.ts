@@ -197,8 +197,13 @@ export const VOTER_MANAGEMENT_NAV_SECTION_LABEL = "ניהול בוחרים";
 /** Section label for Election Day's nav items wherever they're rendered as a
  * labeled group (UX v3.1 - both `AppLayout`'s main sidebar and
  * `ElectionDayShell`'s own sidebar use this same section, see
- * `getVisibleElectionDayNavItems`). */
-export const ELECTION_DAY_NAV_SECTION_LABEL = "יום הבחירות";
+ * `getVisibleElectionDayNavItems`).
+ *
+ * Named to match its two siblings - `ניהול בוחרים` and `ניהול תקציב` - so the
+ * three top-level menus read as one set. This group also carries the Election
+ * Owner's administration items (users, roles, settings), which is why it is
+ * the workspace's management menu rather than the module's own name. */
+export const ELECTION_DAY_NAV_SECTION_LABEL = "ניהול יום בחירות";
 
 /** Election Day's own nav items - drives `ElectionDayShell`'s section AND
  * (UX v3.1) the matching section inside the main app sidebar. Every item is

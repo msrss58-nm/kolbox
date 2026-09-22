@@ -122,7 +122,7 @@ try {
   // Section labels live in the sidebar <nav>; the footer (outside it) repeats the module title.
   const navB = pb.locator("aside nav");
   check("U02 Budget-only sidebar: 'ניהול תקציב' section, no Election Day section",
-    (await navB.getByText("ניהול תקציב", { exact: true }).count()) === 1 && (await navB.getByText("יום הבחירות").count()) === 0);
+    (await navB.getByText("ניהול תקציב", { exact: true }).count()) === 1 && (await navB.getByText("ניהול יום בחירות").count()) === 0);
   await shot(pb, "01-budget-only-expenses");
 
   const pa = await newPage();
@@ -131,7 +131,7 @@ try {
   const asideA = pa.locator("aside");
   const hasBudgetSection = await asideA.getByText("ניהול תקציב").first().waitFor({ timeout: 15000 }).then(() => true, () => false);
   check("U03 Election Day + Budget worker: both sections, Budget below Election Day", hasBudgetSection &&
-    (await asideA.getByText("יום הבחירות").count()) >= 1);
+    (await asideA.getByText("ניהול יום בחירות").count()) >= 1);
   // Module accordion: inside Election Day the Budget section starts collapsed.
   await asideA.getByRole("button", { name: "ניהול תקציב" }).click();
   await asideA.getByRole("link", { name: "הוצאות" }).click();
@@ -218,8 +218,8 @@ try {
   // The Owner-only Budget settings section lives in the ADMINISTRATION
   // group of the full application shell now - the "ניהול תקציב" group holds
   // the Budget module own screens.
-  await po.getByRole("button", { name: "ניהול המערכת" }).first().waitFor({ timeout: 25000 });
-  await po.getByRole("button", { name: "ניהול המערכת" }).first().click();
+  await po.getByRole("button", { name: "ניהול תקציב" }).first().waitFor({ timeout: 25000 });
+  await po.getByRole("button", { name: "ניהול תקציב" }).first().click();
   await po.getByRole("link", { name: "הגדרות תקציב" }).first().click();
   check("U18 Owner sees the category a delegated user created", await waitText(po, "שילוט UI", 20000));
   await shot(po, "03-owner-budget-settings");

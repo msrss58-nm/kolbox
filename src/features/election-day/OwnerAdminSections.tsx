@@ -5,7 +5,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { moduleLabel } from "../../constants/labels";
 import { cn } from "../../lib/utils";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
-import { useOwnerAdmin } from "./ownerAdminContext";
+import { useOwnerAdmin, type OwnerAdminContext } from "./ownerAdminContext";
 import { PermissionUsersPanel } from "./PermissionUsersPanel";
 import { RoleManagementPanel } from "./RoleManagementPanel";
 
@@ -82,17 +82,24 @@ function SummaryState({
   return <>{children}</>;
 }
 
-/** Modules: the workspace's entitlements - informational for the Owner. The
- * Platform Owner alone assigns modules; nothing here can change them. */
-export function OwnerModulesSection() {
-  const { workspace } = useOwnerAdmin();
+/** The workspace's module entitlements - informational for the Owner. The
+ * Platform Owner alone assigns modules; nothing here can ever change them,
+ * which is why this is no longer a destination of its own: it is a FACT about
+ * the workspace, and facts about the workspace belong on the settings screen.
+ *
+ * Rendered there as a titled block rather than its own `AdminSection`, and it
+ * keeps the `owner-modules-section` test id so every existing reference to
+ * this content still finds it. `summary`/`error`/`reload` are passed in from
+ * the settings screen, so the whole admin area still makes ONE workspace
+ * request, not two. */
+function ModulesBlock({ workspace }: { workspace: OwnerAdminContext["workspace"] }) {
   const { summary, error, reload } = workspace;
   return (
-    <AdminSection
-      testId="owner-modules-section"
-      title={text.modulesTitle}
-      description={adminText.modules.description}
-    >
+    <section data-testid="owner-modules-section" className="space-y-3">
+      <div>
+        <h3 className="text-sm font-extrabold text-slate-800">{text.modulesTitle}</h3>
+        <p className="mt-1 text-xs text-slate-500">{adminText.modules.description}</p>
+      </div>
       <SummaryState error={error} onRetry={reload} loading={!summary}>
         <div className="max-w-2xl space-y-3">
           <AdminListFrame>
@@ -128,7 +135,7 @@ export function OwnerModulesSection() {
           <p className="text-xs text-slate-500">{adminText.modules.readOnlyNote}</p>
         </div>
       </SummaryState>
-    </AdminSection>
+    </section>
   );
 }
 
@@ -201,6 +208,13 @@ export function OwnerSettingsSection() {
           </dl>
         </AdminListFrame>
       </SummaryState>
+      {/* Modules used to be a menu item of its own. It is read-only - only the
+          Platform Owner can change an entitlement - so it belongs with the
+          other read-only facts about this workspace rather than behind a
+          separate click. */}
+      <div className="mt-8">
+        <ModulesBlock workspace={workspace} />
+      </div>
     </AdminSection>
   );
 }

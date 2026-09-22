@@ -61,7 +61,6 @@ import { ElectionDayShell } from "../features/election-day/ElectionDayShell";
 import { ElectionDayVotersPage } from "../features/election-day/ElectionDayVotersPage";
 import { OwnerAdminOutlet } from "../features/election-day/OwnerAdminOutlet";
 import {
-  OwnerModulesSection,
   OwnerRolesSection,
   OwnerSettingsSection,
   OwnerUsersSection,
@@ -474,7 +473,13 @@ const electionRoutes: RouteObject[] = [
               { path: "owner", element: <Navigate to="users" replace /> },
               { path: "owner/users", element: <OwnerUsersSection /> },
               { path: "owner/roles", element: <OwnerRolesSection /> },
-              { path: "owner/modules", element: <OwnerModulesSection /> },
+              // Modules is no longer a destination - its content moved into
+              // the settings screen. The path stays and redirects, so an old
+              // bookmark or link lands somewhere real instead of a no-match.
+              {
+                path: "owner/modules",
+                element: <Navigate to={ROUTES.electionDayOwnerSettings} replace />,
+              },
               { path: "owner/settings", element: <OwnerSettingsSection /> },
               { path: "owner/budget-settings", element: <OwnerBudgetSettingsSection /> },
             ],
