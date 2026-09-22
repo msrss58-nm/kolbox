@@ -4469,3 +4469,51 @@ The Election Owner's separate administration shell is gone as a landing destinat
 ### EXACT NEXT STEP
 
 **Push `master` to `origin` — and nothing else in the same action.** A push auto-deploys all four Vercel surfaces from this one branch, so it is the whole rollout for this change; it needs explicit approval, no migration (this change has none), and a post-deploy `/api/health` check that all four origins report the new commit. Do **not** bundle login-model work, CONTRACT of the legacy per-origin logins, Voter Management, or the Platform Owner MFA decision into it — each is its own approval.
+
+## 2026-09-22 — FINAL LOGIN MODEL: TWO SCREENS, SERVER-RESOLVED PRINCIPAL — LIVE (migration `20260925000000` applied; commit `566ec04` on all four surfaces)
+
+**The model.** There are now exactly **two** login screens, both on the auth origin:
+
+- `/login/platform-owner` — the Platform Owner, who administers the platform itself; their credential is never posted to the endpoint tenants use.
+- `/login` — **the shared screen**, titled simply **"התחברות"**, for the Election Owner, the Multi-Entity Owner, Managers and ordinary users alike. Username + password, and nothing else: **no system code, no realm chooser, no workspace chooser, no e-mail field.**
+
+**Nothing about the principal comes from the request any more** — not from a selector, not from a workspace, not from a system code, and no longer from the route either. The shared screen posts to one op (`auth_op=login`) that states no realm. The server resolves the principal from `auth_identities` and decides both the target origin and the landing path: Election Owner → `/election-day` (which resolves to the modules the Platform Owner entitled, else their administration sections), Multi-Entity Owner → `/multi-entity`, Manager/PermissionUser → `/election-day` (or `/budget` when Budget-only), with the workspace derived server-side from the actor's own row.
+
+**Ambiguity is refused, never guessed.** Choosing a realm by precedence would let whoever registered first decide whose password is checked; trying each realm's password in turn would turn one submit into several credential attempts. Refusing is the only answer that keeps "exactly one credential-bearing call per submit" true — and it is what made the migration below mandatory rather than optional.
+
+**ONE namespace, enforced in the database.** `20260925000000_auth_identity_shared_login_uniqueness.sql` adds a partial unique index on `lower(normalize(username, NFC))` over the three shared realms, and widens `auth_identity_assign` / `auth_identity_suggest_username` to evaluate that namespace. Without it, an administrator could hand an Election Owner a username a worker already held: each could still sign in on their own old screen, but on one shared screen that pair is ambiguous, so **both would be silently locked out with no error at the moment the collision was created.** `platform_owner` keeps its own namespace — it has its own screen, so its username cannot create an ambiguous lookup. The pre-existing per-realm index is kept, not dropped.
+
+**Collision format (approved product decision):** `אלי כהן` → `אלי כהן2` → `אלי כהן3` → `אלי כהן4`. The suffix is appended **directly, with no separator**. This deliberately differs from `20260924030000`, which inserted a single space; that migration is applied to Production and was left byte-identical, so this replacement is the only definition that matters.
+
+**Retired, but not broken:** `/login/users`, `/login/election-owner` and `/login/multi-entity-owner` and their three broker ops and rewrites are gone. The three paths still resolve, as redirects to the shared screen, so links already sent to Owners keep working; they carry no credential field of their own.
+
+**Preserved and re-proven:** the two-leg handoff, `__Host-` HttpOnly cookies, the Origin checks, the single generic 401, the 400 ms response floor, the strict auth-origin CSP, tenant isolation, and the current MFA state (Platform Owner MFA still off by flag; Multi-Entity still `aal2`). Rate limiting moved to a per-screen identifier bucket evaluated **before** the directory is consulted, so the limiter cannot be probed for whether a username exists.
+
+### Production rollout record (2026-09-22)
+
+Order was **DB first, then push**, because a push auto-deploys all four surfaces and the shared screen is not sound without the invariant.
+
+- **Pre-flight (read-only).** Production held 2 directory rows (`platform_owner` 1, `election_owner` 1), 1 shared-realm row, **0 collisions** — the index could build cleanly. Note the estate is no longer the post-cleanup singleton: a real Election Owner and workspace have since been provisioned (**1 workspace / 1 Election Owner / 3 roles / 0 permission users / 0 voters**).
+- **Dry run** listed exactly one migration and nothing else. **Applied:** `20260925000000`.
+- **Post-apply:** **108 migrations, 0 drift, 0 pending**, newest `20260925000000`.
+- **Invariant proven ON PRODUCTION, not inferred** (8/0, zero writes): a `worker` suggestion now sees the Election Owner's name (so the namespace really is global), the offered variant is `base2` with **no space**, a `multi_entity_owner` suggestion agrees, the `platform_owner` namespace is still separate, an unheld name is returned unchanged, and both replaced functions remain unreachable with the anon key (404).
+- **No business data changed:** the counts are byte-identical before and after — `{workspaces:1, permission_users:0, roles:3, election_owners:1, platform_owners:1, voters:0, auth_identities:2}`.
+- **Push:** `72b2e3e..566ec04`, normal push, no force. All four surfaces then served `566ec04` with correct surface identity (`election` / `platform` / `multi_entity` / `auth`), each `/api/health` 200.
+
+### Post-deploy verification on Production (read-only)
+
+- **Login surfaces + security, 21/0** (`scripts/auth/prod-verify-login-surfaces.mjs`): only the two login ops authenticate; the three retired ops no longer authenticate anything; **all failures byte-identical**, so no realm is distinguishable; a real username with a wrong password is indistinguishable from an unknown one; a system code in the body -> **400**; a recovery-email field -> **400**; a foreign Origin -> **403**; `GET` -> **405**; the login ops answer **only** on the auth deployment (404 on election, platform and multi-entity), so the deployment gate is intact; the legacy direct worker route is still alive, as designed.
+- **The deployed login model in a real browser, 20/0** (navigation only, no credential ever submitted): the shared screen's heading is exactly **"התחברות"**; username + password and nothing else; **no system-code field, no realm chooser, no workspace chooser, no e-mail field**; the screen names no principal type at all; exactly one form with one submit; the Platform Owner screen is the second and last one; all three retired realm URLs land on `/login` with a single form; `frame-ancestors 'none'` + `X-Frame-Options: DENY`; the strict CSP meta is unchanged (`default-src 'none'`, no `unsafe-*`, `form-action` limited to the three application origins); no uncaught page errors.
+
+### Local verification behind the change
+
+Isolated scratch stack only (108 migrations replayed from empty, Storage on): `api-auth-identity` **66/0**, `ui-auth-visual` **65/0**, `api-stage9` **85/0**, `ui-stage9` **63/0**, `ui-nav-roles` **56/0**, `ui-stage8` **40/0**, `ui-budget` **23/0**. Build clean, eslint **0 errors**, strict standalone `api/` typecheck **0 errors**, `git diff --check` clean. The 15 protected scripts were never staged and stayed at exactly **+138/−45**.
+
+### Still open (each its own approval)
+
+- **The legacy per-origin direct logins are deliberately still alive** — `kolbox-gamma/login` still renders a system-code form, and `/platform/login`, `/multi-entity/login` and `/election-day/owner-login` still resolve. Retiring them is the CONTRACT, and it is blocked on two **protected** scripts (`drive-bootstrap`, `drive-permissions`) that assert `/election-day/login` as a real screen, three UI suites that authenticate through those forms, and the absence of any retained end-to-end suite exercising the cross-origin handoff to replace them.
+- Voter Management remains inert by construction; Platform Owner MFA remains off by flag.
+
+### EXACT NEXT STEP
+
+**Sign in once on the live shared screen as the real Election Owner** (`https://kolbox-auth.vercel.app/login`) and confirm the server routes them into their own workspace's entitled modules. Everything above is verified by machine; the one thing no automated check can stand in for is a real principal completing a real sign-in through the handoff on the deployed surfaces. It needs no code change and no approval beyond the Owner's own credential.
