@@ -211,13 +211,17 @@ export function EntryScreen() {
           {ENTRY_TEXT.ownersLabel}
         </p>
         <div className="flex flex-col gap-1.5">
-          <button
-            type="button"
-            onClick={() => void navigate(ROUTES.electionDayOwnerLogin)}
-            className="flex min-h-11 w-full items-center justify-center rounded-xl px-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+          {/* The Election Owner signs in on the SHARED screen, like every
+              other principal except the Platform Owner - it is the only one
+              that resolves a username. It used to point at a per-origin
+              e-mail form, which is the odd one out this removes. */}
+          <a
+            href={KOLBOX_ORIGIN_URLS.sharedLogin}
+            className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
           >
             {ENTRY_TEXT.electionOwner}
-          </button>
+            <ExternalLink className="size-3.5 shrink-0" aria-hidden />
+          </a>
           <a
             href={KOLBOX_ORIGIN_URLS.login}
             className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"

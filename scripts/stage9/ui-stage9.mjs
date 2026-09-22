@@ -27,6 +27,7 @@ import {
   psql,
   randomPassword,
   section,
+  seedOwnerSession,
   signIn,
   sleep,
   tally,
@@ -229,6 +230,10 @@ try {
   check("P2 the approval form offers the 3 catalogued modules, none pre-selected", boxes === 3 && anyChecked === 0, `${boxes}/${anyChecked}`);
   await form.getByLabel("שם הבעלים").fill("בעלים ניסוי");
   await form.getByLabel("אימייל").fill(email("owner"));
+  // A contact phone is REQUIRED, and an empty one is stopped by the browser
+  // itself - before the submit handler that reports the module error runs.
+  // It is filled here so P3 still tests the MODULE rule it is named after.
+  await form.locator('input[name="approve-owner-phone"]').fill("050-123-4567");
   await form.getByRole("button", { name: "אישור ויצירת קישור" }).click();
   check("P3 submitting with NO module is refused in the form", await waitText(page, "יש לבחור לפחות מודול אחד", 5000));
   check("P4 ... and nothing was created server-side", psql(`select count(*) from public.election_workspace_pending_owner_access where email = '${email("owner")}'`) === "0");
@@ -256,11 +261,12 @@ try {
   await pw.nth(1).fill(ownerPw);
   await ePage.getByRole("button", { name: "שמירת סיסמה" }).click();
   await ePage.getByText("הסיסמה נשמרה").waitFor({ timeout: 15000 });
-  await ePage.getByRole("button", { name: "מעבר להתחברות" }).click();
-  await ePage.getByRole("heading", { name: "כניסת בעלים" }).waitFor({ timeout: 15000 });
-  await ePage.locator('input[type="email"]').fill(email("owner"));
-  await ePage.locator('input[autocomplete="current-password"]').fill(ownerPw);
-  await ePage.getByRole("button", { name: "התחברות" }).click();
+  // The per-origin Owner login is retired: an Owner signs in by USERNAME on
+  // the shared screen, which this single-host suite cannot run. A real Owner
+  // session is seeded instead - the same state that screen would have left -
+  // so everything downstream exercises exactly what it did before.
+  await seedOwnerSession(ePage, EBASE, email("owner"), ownerPw);
+  await ePage.goto(`${EBASE}/election-day`);
   await ePage.getByText("הקמת מערכת הבחירות").first().waitFor({ timeout: 20000 });
 
   // --- SECOND-LOGIN REGRESSION (approved Owner, not provisioned yet) -------
@@ -292,6 +298,64 @@ try {
   check("O0c ... and never passes THROUGH a login screen on the way",
     !seen.some((u) => u.includes("owner-login") || u === "/election-day/login" || u === "/login"),
     seen.join(" -> "));
+
+  // -------------------------------------------------------------------------
+  // THE RETIRED PER-ORIGIN OWNER LOGIN. It asked for an e-mail, and an
+  // Election Owner signs in with a USERNAME - which the browser's own
+  // type="email" validation rejects outright. The route now bounces to the
+  // one screen that can resolve a username.
+  {
+    const rp = await newPage();
+    const attempted = [];
+    // The destination is the REAL auth origin, so the navigation is captured
+    // and aborted rather than followed - a suite must never leave the stack.
+    await rp.route("**://kolbox-auth.vercel.app/**", async (route) => {
+      attempted.push(route.request().url());
+      await route.abort();
+    });
+    // SAMPLED, not snapshotted. This page redirects itself the moment it
+    // mounts, so a single read taken afterwards lands on a torn-down document
+    // and would report "no e-mail field" for the emptiest of reasons. Sampling
+    // from before the navigation until after it proves what was ACTUALLY
+    // rendered - and a re-introduced e-mail field could not slip through in
+    // the gap.
+    const samples = [];
+    const sampler = setInterval(() => {
+      void rp
+        .evaluate(() => ({
+          emails: document.querySelectorAll('input[type="email"]').length,
+          passwords: document.querySelectorAll('input[type="password"]').length,
+          sharedLinks: Array.from(document.querySelectorAll("a")).filter(
+            (a) => a.getAttribute("href") === "https://kolbox-auth.vercel.app/login",
+          ).length,
+        }))
+        .then((x) => samples.push(x))
+        .catch(() => {});
+    }, 60);
+    await rp.goto(`${EBASE}/election-day/owner-login`).catch(() => {});
+    await rp.waitForTimeout(3000);
+    clearInterval(sampler);
+    const maxOf = (k) => samples.reduce((m, x) => Math.max(m, x[k]), 0);
+    check("O0e the retired Owner login never renders an e-mail or password field",
+      samples.length > 0 && maxOf("emails") === 0 && maxOf("passwords") === 0,
+      `n=${samples.length} emails=${maxOf("emails")} pw=${maxOf("passwords")}`);
+    check("O0f ... it bounces to the SHARED login, which is what resolves a username",
+      attempted.some((u) => u.startsWith("https://kolbox-auth.vercel.app/login")),
+      attempted.join(" | ") || "<no navigation attempted>");
+    check("O0g ... and rendered the same destination as a plain link, for a blocked redirect",
+      maxOf("sharedLinks") >= 1, `n=${samples.length} links=${maxOf("sharedLinks")}`);
+
+    // The entry screen's Election Owner option must point at the same place,
+    // not back at the retired route.
+    await rp.goto(`${EBASE}/`);
+    await rp.waitForTimeout(1500);
+    const realms = rp.locator('[data-testid="entry-realms"]');
+    check("O0h the entry screen sends the Election Owner to the shared login too",
+      (await realms.locator('a[href="https://kolbox-auth.vercel.app/login"]').count()) >= 1 &&
+        (await realms.locator('button').count()) === 0,
+      `links=${await realms.locator("a").count()} buttons=${await realms.locator("button").count()}`);
+    await rp.close();
+  }
 
   // Continue the lifecycle from setup regardless of what the checks found, so
   // a regression reports the three results above instead of cascading.
@@ -352,11 +416,16 @@ try {
   // Unified entry: sign-out now returns every election-origin principal to the
   // one KOLBOX entry screen, which offers the Owner realm one click away.
   await ePage.getByRole("heading", { name: "כניסה לקולבוקס" }).waitFor({ timeout: 15000 });
-  await ePage.getByRole("button", { name: "בעלי מערכת בחירות" }).click();
-  await ePage.getByRole("heading", { name: "כניסת בעלים" }).waitFor({ timeout: 15000 });
-  await ePage.locator('input[type="email"]').fill(email("owner"));
-  await ePage.locator('input[autocomplete="current-password"]').fill(ownerPw);
-  await ePage.getByRole("button", { name: "התחברות" }).click();
+  // The Owner realm is now a LINK to the shared login, like the other two
+  // owner realms beside it - not a button into a per-origin e-mail form.
+  check("O5b the entry screen offers the Owner the shared login, not an e-mail form",
+    (await ePage
+      .locator('[data-testid="entry-realms"] a[href="https://kolbox-auth.vercel.app/login"]')
+      .count()) >= 1);
+  // Signing back in happens through that shared screen, which this one-host
+  // suite cannot run; a real session is seeded instead.
+  await seedOwnerSession(ePage, EBASE, email("owner"), ownerPw);
+  await ePage.goto(`${EBASE}/election-day`);
   await ownerAdmin(ePage);
   check("O6 sign-out + sign-in returns the Owner straight to administration (not setup, not a user step)",
     !(await bodyText(ePage)).includes("יצירת המשתמש הראשון"));

@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { buildHandlers } from "../stage5/buildHandlers.mjs";
 import { startLocalServer } from "../stage5/localServer.mjs";
-import { admin, check, installLocalnetGuard, loadStack, psql, section, tally } from "../stage5/lib.mjs";
+import { admin, check, installLocalnetGuard, loadStack, psql, section, seedOwnerSession, tally } from "../stage5/lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const outDir = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), "kolbox-budget-ui"));
@@ -209,11 +209,9 @@ try {
 
   section("OWNER: Budget settings (the same single store)");
   const po = await newPage();
-  await po.goto(`${EBASE}/election-day/owner-login`);
-  await po.getByRole("heading", { name: "כניסת בעלים" }).waitFor({ timeout: 15000 });
-  await po.locator('input[type="email"]').fill(ownerEmail);
-  await po.locator('input[autocomplete="current-password"]').fill(PW);
-  await po.getByRole("button", { name: "התחברות" }).click();
+  // Retired per-origin Owner login - seed a real Owner session instead.
+  await seedOwnerSession(po, EBASE, ownerEmail, PW);
+  await po.goto(`${EBASE}/election-day`);
   // Owner sidebar accordion: the Budget module section starts collapsed.
   // The Owner-only Budget settings section lives in the ADMINISTRATION
   // group of the full application shell now - the "ניהול תקציב" group holds

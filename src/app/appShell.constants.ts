@@ -6,6 +6,12 @@ export const APP_SHELL_TEXT = {
   platformMovedTitle: "מסך בעל הפלטפורמה עבר לכתובת חדשה",
   platformMovedBody: "מעבירים אתכם לכתובת החדשה…",
   platformMovedLink: "מעבר לכתובת החדשה",
+  // Shown by PlatformOriginRedirect while it bounces the retired per-origin
+  // Election Owner login to the ONE shared login screen. An Election Owner
+  // signs in with a username, and only the shared screen can resolve one.
+  ownerLoginMovedTitle: "הכניסה לבעלים עברה למסך הכניסה המשותף",
+  ownerLoginMovedBody: "מעבירים אתכם למסך הכניסה - התחברו עם שם משתמש וסיסמה…",
+  ownerLoginMovedLink: "מעבר למסך הכניסה",
   // Shown by VoterManagementGuard when the signed-in workspace is not
   // entitled to the Voter Management module.
   voterManagementUnavailableTitle: "ניהול בוחרים אינו זמין",

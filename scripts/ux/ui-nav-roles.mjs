@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { buildHandlers } from "../stage5/buildHandlers.mjs";
 import { startLocalServer } from "../stage5/localServer.mjs";
-import { admin, check, installLocalnetGuard, loadStack, psql, section, tally } from "../stage5/lib.mjs";
+import { admin, check, installLocalnetGuard, loadStack, psql, section, seedOwnerSession, tally } from "../stage5/lib.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const outDir = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), "kolbox-ux-nav-roles"));
@@ -248,11 +248,11 @@ try {
 
   section("OWNER - admin shell unchanged; grouped role editor");
   const po = await newPage();
-  await po.goto(`${EBASE}/election-day/owner-login`);
-  await po.getByRole("heading", { name: "כניסת בעלים" }).waitFor({ timeout: 15000 });
-  await po.locator('input[type="email"]').fill(ownerEmail);
-  await po.locator('input[autocomplete="current-password"]').fill(PW);
-  await po.getByRole("button", { name: "התחברות" }).click();
+  // The per-origin Owner login is retired - an Owner signs in by USERNAME on
+  // the shared screen, which this single-surface suite does not run. A real
+  // Owner session is seeded instead; everything after this is unchanged.
+  await seedOwnerSession(po, EBASE, ownerEmail, PW);
+  await po.goto(`${EBASE}/election-day`);
   // THREE top-level menus, and no administration menu at all: the Owner's
   // workspace-wide sections live at the foot of the module they administer -
   // users/roles/settings under Election Day, Budget settings under Budget.

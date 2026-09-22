@@ -141,6 +141,37 @@ export async function signIn(email, password) {
   return { client, token: data.session.access_token };
 }
 
+/**
+ * Puts a REAL Election Owner session into a page's own storage, so a suite
+ * does not need a login FORM to drive Owner screens.
+ *
+ * The per-origin Owner login was retired: an Owner signs in with a username,
+ * and only the shared login on the auth deployment can resolve one - which a
+ * single-surface suite does not run. The session written here is genuine (a
+ * real signInWithPassword against the scratch stack), so every guard, token
+ * refresh and server call behaves exactly as it does for a human; only the
+ * typing is skipped.
+ *
+ * Writes DIRECTLY to the page's storage rather than through addInitScript, so
+ * it can be called again after a sign-out to re-establish a session. An init
+ * script would stack up and silently resurrect a session the test had just
+ * signed out of, which is the opposite of what these suites assert.
+ *
+ * `base` is the election origin under test; the page is parked on a cheap
+ * always-served route of that origin so storage for it can be written, and
+ * the caller navigates wherever it needs afterwards.
+ */
+export async function seedOwnerSession(page, base, email, password) {
+  const { client } = await signIn(email, password);
+  const { data } = await client.auth.getSession();
+  if (!data.session) throw new Error("seedOwnerSession: no session to seed");
+  await page.goto(`${base}/election-day/login`, { waitUntil: "domcontentloaded" });
+  await page.evaluate(
+    ([key, value]) => window.localStorage.setItem(key, value),
+    ["kb-owner-auth-token", JSON.stringify(data.session)],
+  );
+}
+
 /** Enroll + verify a TOTP factor on an aal1 client; returns the aal2 token and
  * the secret (kept in memory only). Retries across a 30 s window boundary. */
 export async function enrollTotp(client, friendlyName) {

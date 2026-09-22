@@ -41,12 +41,42 @@ const PLATFORM_ORIGIN_URLS = {
   console: KOLBOX_ORIGIN_URLS.console,
   login: KOLBOX_ORIGIN_URLS.login,
   setPassword: KOLBOX_ORIGIN_URLS.setPassword,
+  /** The retired per-origin Election Owner login bounces here. Same
+   * key-addressed contract as the three above - a destination derived from
+   * the address bar remains structurally impossible. */
+  sharedLogin: KOLBOX_ORIGIN_URLS.sharedLogin,
+} as const;
+
+/** Per-destination copy: a bounced Platform URL and a bounced Owner login are
+ * two different messages, and neither should be told in the other's words. */
+const REDIRECT_TEXT = {
+  console: {
+    title: APP_SHELL_TEXT.platformMovedTitle,
+    body: APP_SHELL_TEXT.platformMovedBody,
+    link: APP_SHELL_TEXT.platformMovedLink,
+  },
+  login: {
+    title: APP_SHELL_TEXT.platformMovedTitle,
+    body: APP_SHELL_TEXT.platformMovedBody,
+    link: APP_SHELL_TEXT.platformMovedLink,
+  },
+  setPassword: {
+    title: APP_SHELL_TEXT.platformMovedTitle,
+    body: APP_SHELL_TEXT.platformMovedBody,
+    link: APP_SHELL_TEXT.platformMovedLink,
+  },
+  sharedLogin: {
+    title: APP_SHELL_TEXT.ownerLoginMovedTitle,
+    body: APP_SHELL_TEXT.ownerLoginMovedBody,
+    link: APP_SHELL_TEXT.ownerLoginMovedLink,
+  },
 } as const;
 
 export type PlatformOriginTarget = keyof typeof PLATFORM_ORIGIN_URLS;
 
 export function PlatformOriginRedirect({ target }: { target: PlatformOriginTarget }) {
   const href = PLATFORM_ORIGIN_URLS[target];
+  const copy = REDIRECT_TEXT[target];
 
   useEffect(() => {
     // `replace`, not `assign`: the old-origin URL must not stay in session
@@ -59,15 +89,13 @@ export function PlatformOriginRedirect({ target }: { target: PlatformOriginTarge
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-sm">
-        <h1 className="text-lg font-semibold text-slate-900">
-          {APP_SHELL_TEXT.platformMovedTitle}
-        </h1>
-        <p className="mt-2 text-sm text-slate-500">{APP_SHELL_TEXT.platformMovedBody}</p>
+        <h1 className="text-lg font-semibold text-slate-900">{copy.title}</h1>
+        <p className="mt-2 text-sm text-slate-500">{copy.body}</p>
         <a
           href={href}
           className="mt-4 inline-block text-sm font-medium text-sky-600 underline"
         >
-          {APP_SHELL_TEXT.platformMovedLink}
+          {copy.link}
         </a>
       </div>
     </div>

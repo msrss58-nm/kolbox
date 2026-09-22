@@ -65,7 +65,6 @@ import {
   OwnerSettingsSection,
   OwnerUsersSection,
 } from "../features/election-day/OwnerAdminSections";
-import { OwnerLoginScreen } from "../features/election-day/OwnerLoginScreen";
 import { OwnerSetPasswordScreen } from "../features/election-day/OwnerSetPasswordScreen";
 import { OwnerSetupPage } from "../features/election-day/OwnerSetupPage";
 import { ImportPage } from "../features/import/ImportPage";
@@ -423,7 +422,15 @@ const electionRoutes: RouteObject[] = [
       />
     ),
   },
-  { path: ROUTES.electionDayOwnerLogin, element: <OwnerLoginScreen /> },
+  // RETIRED. This screen asked for an e-mail, and an Election Owner signs in
+  // with a USERNAME - which only the shared login can resolve, because the
+  // identity directory is reachable from the auth deployment alone. A
+  // bookmark therefore bounces to the one screen that can actually sign them
+  // in, rather than presenting a field their username is rejected by.
+  {
+    path: ROUTES.electionDayOwnerLogin,
+    element: <PlatformOriginRedirect target="sharedLogin" />,
+  },
   // Stage 3B - both routes are deliberately OUTSIDE OwnerAuthGuard.
   // owner-set-password is reached from a one-time activation link by
   // someone who has no session at all yet (the link is the proof, verified
