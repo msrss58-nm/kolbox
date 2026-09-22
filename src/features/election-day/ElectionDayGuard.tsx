@@ -3,12 +3,11 @@ import { Navigate, Outlet, useOutletContext } from "react-router";
 import { LogoMark } from "../../components/Logo";
 import { Button } from "../../components/ui/Button";
 import { COMMON_TEXT } from "../../constants/common-text";
-import { ROUTES } from "../../constants/routes";
 import { useAsyncData } from "../../hooks/useAsyncData";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { PackageX } from "lucide-react";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
-import { useElectionDaySession } from "./electionDaySession";
+import { resolveSignedOutDestination, useElectionDaySession } from "./electionDaySession";
 
 /** The entitlement key this shell requires. */
 const ELECTION_DAY_MODULE = "election_day";
@@ -91,10 +90,39 @@ export function ElectionDayGuard() {
   }
 
   if (sessionResult.status !== "authenticated") {
-    return <Navigate to={ROUTES.electionDayLogin} replace />;
+    return <SignedOutRedirect />;
   }
 
   return <Outlet />;
+}
+
+/**
+ * Where to send someone who reached `/election-day` without a workspace
+ * session.
+ *
+ * "No workspace session" is NOT the same as "not signed in". An Election
+ * Owner who has been approved but has not provisioned their workspace yet is
+ * fully authenticated - they simply have no `election_owners` row for
+ * `resolveOwnerSessionUser` to resolve, so the bootstrap above reports them
+ * as unauthenticated. Sending them to a login screen asked them to type
+ * credentials a SECOND time, moments after the shared login had already
+ * authenticated them, and the only way onward from there was the legacy
+ * Owner login. Their real next step is provisioning.
+ *
+ * The check is a live server call against the Owner's own token, never a
+ * cached flag, and it grants nothing: the setup page re-resolves the
+ * provisioning state itself and every write is re-authorized server-side.
+ * Anything other than a confirmed pending Owner falls through to the login
+ * screen exactly as before, so this cannot become a bypass.
+ */
+function SignedOutRedirect() {
+  const resolve = useCallback(() => resolveSignedOutDestination(), []);
+  const { data: destination } = useAsyncData(resolve);
+  // Held until the answer arrives rather than redirecting to the login screen
+  // and correcting afterwards - a visible bounce through a credential form is
+  // the whole defect this exists to remove.
+  if (destination === null) return <FullScreenSpinner />;
+  return <Navigate to={destination} replace />;
 }
 
 /**

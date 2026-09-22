@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { COMMON_TEXT } from "../../constants/common-text";
+import { ROUTES } from "../../constants/routes";
 import { useRoleCatalogStore } from "../../permissions/roleCatalogStore";
 import { api } from "../../services/api";
 import { removeKey } from "../../services/storage/localStore";
@@ -7,7 +8,11 @@ import { OWNER_SESSION_ROLE_ID } from "../../permissions/ownerSessionRole";
 import { ownerAuthClient } from "../../services/supabase/ownerAuthClient";
 import { isOwnerPrincipal, setActionPrincipal } from "./actionPrincipal";
 import { useCoordinatorAllocationReauthProof } from "./coordinatorAllocationReauthProof";
-import { fetchOwnerSession, fetchOwnerWorkspaceModules } from "./electionDayOwnerClient";
+import {
+  fetchOwnerProvisioningState,
+  fetchOwnerSession,
+  fetchOwnerWorkspaceModules,
+} from "./electionDayOwnerClient";
 import { useOwnerSession } from "./ownerSession";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import { useElectionDayReauthProof } from "./electionDayReauthProof";
@@ -172,6 +177,38 @@ async function resolveOwnerSessionUser(): Promise<ServerSessionUser | null> {
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Where a visitor with no workspace session actually belongs.
+ *
+ * `bootstrap()` reports "unauthenticated" for an Election Owner who has been
+ * approved but whose workspace does not exist yet: there is no
+ * `election_owners` row, so `resolveOwnerSessionUser` above resolves nothing.
+ * They are nonetheless fully authenticated - the shared login has just
+ * verified their password - and sending them to a credential form asks them
+ * to sign in twice and dead-ends at the legacy Owner login.
+ *
+ * Asks the server, with the Owner's own token, whether that is the case. Any
+ * other answer - no Owner token, an unauthorized or failed call, a state that
+ * is not pending - returns the login screen, so this is fail-closed and the
+ * only thing it can ever do is send an ALREADY-authenticated Owner to the one
+ * screen that can help them. It authorizes nothing: the setup page re-checks
+ * the provisioning state itself and provisioning is authorized server-side.
+ */
+export async function resolveSignedOutDestination(): Promise<string> {
+  try {
+    const { data } = await ownerAuthClient.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return ROUTES.electionDayLogin;
+    const state = await fetchOwnerProvisioningState(token);
+    if (state.status !== "ok") return ROUTES.electionDayLogin;
+    return state.state.state === "pending"
+      ? ROUTES.electionDayOwnerSetup
+      : ROUTES.electionDayLogin;
+  } catch {
+    return ROUTES.electionDayLogin;
   }
 }
 

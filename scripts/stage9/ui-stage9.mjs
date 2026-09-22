@@ -262,6 +262,41 @@ try {
   await ePage.locator('input[autocomplete="current-password"]').fill(ownerPw);
   await ePage.getByRole("button", { name: "התחברות" }).click();
   await ePage.getByText("הקמת מערכת הבחירות").first().waitFor({ timeout: 20000 });
+
+  // --- SECOND-LOGIN REGRESSION (approved Owner, not provisioned yet) -------
+  // This is the state the SHARED login hands over in: authenticated, with no
+  // election_owners row. Landing on /election-day used to report them as
+  // signed out and bounce them to the worker login, whose only way onward was
+  // the legacy Owner login - a second credential prompt moments after they
+  // had already signed in. The suite reaches this state through the legacy
+  // screen only because the cross-origin handoff cannot run on one host; the
+  // SESSION and the entry URL are identical either way, which is what this
+  // asserts.
+  const seen = [];
+  ePage.on("framenavigated", (f) => {
+    if (f === ePage.mainFrame()) seen.push(new URL(f.url()).pathname);
+  });
+  await ePage.goto(`${EBASE}/election-day`);
+  // The guard resolves the destination asynchronously. Wait for it to stop
+  // moving rather than for a particular screen, so a regression fails the
+  // check below with the URL it actually reached - not an opaque timeout on
+  // an element that was never going to appear.
+  await ePage.waitForLoadState("networkidle").catch(() => {});
+  await ePage.waitForTimeout(2000);
+  check("O0a an approved-but-unprovisioned Owner landing on /election-day reaches PROVISIONING",
+    new URL(ePage.url()).pathname === "/election-day/owner/setup", ePage.url());
+  check("O0b ... and is never asked for credentials a second time",
+    (await ePage.locator('input[type="password"]').count()) === 0 &&
+      (await ePage.locator('input[name="kb-workspace-code"]').count()) === 0,
+    `pw=${await ePage.locator('input[type="password"]').count()}`);
+  check("O0c ... and never passes THROUGH a login screen on the way",
+    !seen.some((u) => u.includes("owner-login") || u === "/election-day/login" || u === "/login"),
+    seen.join(" -> "));
+
+  // Continue the lifecycle from setup regardless of what the checks found, so
+  // a regression reports the three results above instead of cascading.
+  await ePage.goto(`${EBASE}/election-day/owner/setup`);
+  await ePage.getByText("הקמת מערכת הבחירות").first().waitFor({ timeout: 20000 });
   await ePage.locator("#ws-name").fill(WS_NAME);
   await ePage.locator("#ws-end").fill("2026-12-31T20:00");
   await ePage.getByRole("button", { name: "יצירת מערכת הבחירות" }).click();
@@ -273,6 +308,16 @@ try {
   await shot(ePage, "02-created-390");
   await ePage.getByRole("button", { name: "המשך לניהול המערכת" }).click();
   await ownerAdmin(ePage);
+
+  // The same entry URL, now that the workspace exists: straight in, still no
+  // credential prompt, and into THIS Owner's own workspace.
+  await ePage.goto(`${EBASE}/election-day`);
+  await ownerAdmin(ePage);
+  check("O0d a PROVISIONED Owner landing on /election-day opens their workspace directly",
+    ePage.url().includes("/election-day/") &&
+      !ePage.url().includes("login") &&
+      (await ePage.locator('input[type="password"]').count()) === 0,
+    ePage.url());
   // The workspace code and the module list are no longer duplicated into a
   // shell header - they are read from the sections that own them.
   await ePage.goto(`${EBASE}/election-day/owner/settings`);
