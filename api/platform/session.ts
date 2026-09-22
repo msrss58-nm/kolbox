@@ -542,7 +542,9 @@ async function usernameUnavailable(
   return true;
 }
 
-/** The Platform Owner's own application username, or null when unclaimed. */
+/** The login username a principal holds, or null when unclaimed. Used for the
+ * Platform Owner's own identity and for the Multi-Entity seat holder's - both
+ * keyed by a SERVER-VERIFIED auth user id, never anything client-supplied. */
 async function readOwnUsername(authUserId: string): Promise<string | null> {
   try {
     const supabase = getServiceClient();
@@ -1048,7 +1050,27 @@ async function handleMultiEntityState(
     return;
   }
 
-  res.status(200).json(data ?? { seat: null, workspaces: [] });
+  // The seat's own login username, merged in from the identity directory.
+  // The RPC above cannot return it (auth_identities is a separate concern with
+  // its own DEFINER accessor), and without it the hand-off details the console
+  // shows after provisioning are unrecoverable on the next page load - the
+  // operator is left knowing the seat holder's e-mail but not the name they
+  // must actually type to sign in. Additive and non-fatal: unreadable means
+  // the row is simply absent, never a failed read of the whole section.
+  const state = (data ?? { seat: null, workspaces: [] }) as {
+    seat?: { auth_user_id?: unknown } | null;
+  };
+  const seatAuthUserId =
+    state.seat && typeof state.seat.auth_user_id === "string"
+      ? state.seat.auth_user_id
+      : null;
+  if (seatAuthUserId) {
+    const username = await readOwnUsername(seatAuthUserId);
+    res.status(200).json({ ...state, seat: { ...state.seat, username } });
+    return;
+  }
+
+  res.status(200).json(state);
 }
 
 /**

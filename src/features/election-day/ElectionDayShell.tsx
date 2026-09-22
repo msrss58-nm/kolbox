@@ -16,6 +16,7 @@ import { BUDGET_TEXT } from "../budget/budget.constants";
 import { budgetNavItemsFor, useBudgetSession } from "../budget/budgetSession";
 import { usePermissions } from "../../permissions/usePermissions";
 import { AppShell } from "../../app/AppShell";
+import { VOTER_MANAGEMENT_MODULE } from "../../app/VoterManagementGuard";
 import { AllocationPasswordDialog } from "./AllocationPasswordDialog";
 import { CountdownHeader } from "./CountdownHeader";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
@@ -116,6 +117,14 @@ export function ElectionDayShell() {
     ? (sessionUser?.modules?.includes("election_day") ?? false)
     : visibleNavItems.length > 0;
 
+  // Voter Management is a module like any other, and the ONLY group that was
+  // still offered unconditionally. `VoterManagementGuard` already refuses its
+  // routes on exactly this key, so an unentitled workspace was being shown a
+  // menu whose every destination is a full-page refusal. Same fail-closed
+  // reading of `modules` the guard uses: absent means not entitled.
+  const showVoterManagement =
+    sessionUser?.modules?.includes(VOTER_MANAGEMENT_MODULE) ?? false;
+
   // The mobile bottom bar already shows only the CURRENT module (see AppShell)
   // and this shell has no drawer, so while the Owner is inside their
   // administration sections the bar carries those - otherwise they would be
@@ -214,9 +223,10 @@ export function ElectionDayShell() {
 
   return (
     <AppShell
-      navItems={NAV_ITEMS}
-      navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
+      navItems={showVoterManagement ? NAV_ITEMS : []}
+      navLabel={showVoterManagement ? VOTER_MANAGEMENT_NAV_SECTION_LABEL : undefined}
       sections={electionDaySections}
+      workspaceName={sessionUser?.workspaceName}
       mobileNavItems={
         onOwnerAdminRoute && ownerItems.length > 0 ? ownerItems : visibleNavItems
       }

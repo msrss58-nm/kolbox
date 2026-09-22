@@ -27,6 +27,12 @@ export interface ServerSessionUser {
    * "no entitlement could be established" and must be treated as such
    * (fail closed), never as "allow". */
   modules?: string[];
+  /** The active workspace's display name, for the shell chrome only. Server
+   * -derived, additive and optional by contract: the server omits it rather
+   * than failing a session it could otherwise resolve, so the UI must render
+   * without it. Never an authorization input - it names what the signed-in
+   * actor is looking at, it does not decide what they may do. */
+  workspaceName?: string;
 }
 
 /**
@@ -54,7 +60,8 @@ function isServerSessionUser(value: unknown): value is ServerSessionUser {
     typeof v.roleId === "string" &&
     typeof v.workspaceId === "string" &&
     (v.modules === undefined ||
-      (Array.isArray(v.modules) && v.modules.every((m) => typeof m === "string")))
+      (Array.isArray(v.modules) && v.modules.every((m) => typeof m === "string"))) &&
+    (v.workspaceName === undefined || typeof v.workspaceName === "string")
   );
 }
 

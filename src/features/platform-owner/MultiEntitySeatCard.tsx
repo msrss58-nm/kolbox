@@ -3,12 +3,17 @@ import { Button } from "../../components/ui/Button";
 import { Card, CardTitle } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { KOLBOX_ORIGIN_URLS } from "../../app/origins";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { formatDateTime } from "./multiEntityFormat";
 import { LtrValue } from "./MultiEntityLtrValue";
 import type { MultiEntitySeat } from "./platformOwnerClient";
 
 const text = PLATFORM_OWNER_TEXT.multiEntity.seat;
+
+/** The ONE address every principal signs in at. Taken from the hard-coded
+ * origin map, never derived from a link or the address bar. */
+const SEAT_LOGIN_URL = KOLBOX_ORIGIN_URLS.sharedLogin;
 
 /** Label/value row. Stacks on phones and splits label-start/value-end from
  * `sm:` up - the same shape the console's Settings identity rows use, so the
@@ -41,6 +46,15 @@ function Row({
 
 /**
  * The Multi-Entity Owner seat: unprovisioned, or the current holder.
+ *
+ * This card is also the DURABLE half of the hand-off. Everything an operator
+ * needs to tell a seat holder how to sign in - their name, their login
+ * username, the address - is server state and survives a reload, a navigation
+ * and a second operator's session. The one-time password-setting link is the
+ * deliberate exception: it is a credential, it is shown once by
+ * `MultiEntityPasswordLinkPanel`, and it is never persisted anywhere. The hint
+ * says which half is which, so an operator learns that BEFORE losing the link
+ * rather than by discovering it gone.
  *
  * The replace action deliberately does NOT live next to a delete control of
  * any kind. Replacing the seat and purging the previous Auth account are two
@@ -93,6 +107,11 @@ export function MultiEntitySeatCard({
         <>
           <div>
             <Row label={text.nameLabel} value={seat.name} />
+            <Row
+              label={text.usernameLabel}
+              value={seat.username ?? text.noUsername}
+              ltr={!!seat.username}
+            />
             <Row label={text.emailLabel} value={seat.email} ltr />
             <Row
               label={text.phoneLabel}
@@ -100,9 +119,13 @@ export function MultiEntitySeatCard({
               ltr={!!seat.phone}
             />
             <Row label={text.authIdLabel} value={seat.authUserId} ltr />
+            <Row label={text.loginUrlLabel} value={SEAT_LOGIN_URL} ltr />
             <Row label={text.createdAtLabel} value={formatDateTime(seat.createdAt)} />
             <Row label={text.updatedAtLabel} value={formatDateTime(seat.updatedAt)} />
           </div>
+          <p className="text-xs text-slate-500" data-testid="seat-handoff-hint">
+            {text.handoffHint}
+          </p>
           <Button
             variant="secondary"
             onClick={onReplace}

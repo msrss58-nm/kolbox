@@ -211,6 +211,11 @@ export interface MultiEntitySeat {
   authUserId: string;
   name: string;
   email: string;
+  /** The seat holder's LOGIN username - the name they type on the shared
+   * login. Durable server state, so it survives a reload; null when the
+   * directory could not be read or no username is claimed. NOT a credential:
+   * the one-time password link is, and it is deliberately never persisted. */
+  username: string | null;
   phone: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -316,6 +321,7 @@ function mapSeat(v: unknown): MultiEntitySeat | null {
     authUserId: id,
     name: str(o.name) ?? "",
     email: str(o.email) ?? "",
+    username: str(o.username),
     phone: str(o.phone),
     createdAt: str(o.created_at),
     updatedAt: str(o.updated_at),

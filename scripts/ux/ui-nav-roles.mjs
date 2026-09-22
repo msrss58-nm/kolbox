@@ -48,7 +48,6 @@ const ALL_BUDGET = ["budget.view", "budget.manageExpenses", "budget.manageFunder
 const ED_VIEW = ["voter.viewName", "voter.viewAddress", "voter.viewPhone", "voter.viewVotedStatus"];
 const ED = (r) => `/election-day/${r}`;
 const BUDGET_HREFS = ["dashboard", "planning", "expenses", "suppliers", "reports", "settings"].map((r) => `/budget/${r}`);
-const MAIN_HREFS = ["/", "/voters", "/activists", "/import"];
 const S_MAIN = "ניהול בוחרים";
 const S_ED = "ניהול יום בחירות";
 const S_BUDGET = "ניהול תקציב";
@@ -144,8 +143,14 @@ try {
   await workerLogin(pa, "ux-full");
   await pa.waitForURL(/\/election-day\/dashboard/, { timeout: 20000 }).catch(() => {});
   await sec(pa, S_BUDGET).waitFor({ timeout: 20000 });
-  check("N01 three module headers in order: ניהול בוחרים, ניהול יום בחירות, ניהול תקציב",
-    same(await sectionLabels(pa), [S_MAIN, S_ED, S_BUDGET]), (await sectionLabels(pa)).join(" | "));
+  // The Voter Management group is now ENTITLEMENT-driven like every other
+  // module, instead of the one group rendered unconditionally. No worker
+  // session can carry `voter_management` (election_day_workspace_worker_modules
+  // emits only election_day and budget), so a worker's headers are exactly the
+  // two modules they actually hold - and the route behind the old header was
+  // already a full-page refusal, see N07 below.
+  check("N01 module headers are exactly the ENTITLED modules, in order: ניהול יום בחירות, ניהול תקציב",
+    same(await sectionLabels(pa), [S_ED, S_BUDGET]), (await sectionLabels(pa)).join(" | "));
   check("N02 each header is a button with aria-expanded + aria-controls pointing at its own links",
     await pa.evaluate(() => [...document.querySelectorAll("aside [data-nav-section]")].every((s) => {
       const b = s.querySelector(":scope > button");
@@ -153,7 +158,7 @@ try {
       return b && b.hasAttribute("aria-expanded") && panel && s.contains(panel) && panel.querySelectorAll("a").length > 0;
     })));
   check("N03 the active module (Election Day) is expanded; the others are collapsed",
-    await expanded(pa, S_ED) && !(await expanded(pa, S_MAIN)) && !(await expanded(pa, S_BUDGET)) &&
+    await expanded(pa, S_ED) && !(await expanded(pa, S_BUDGET)) &&
     (await sec(pa, S_ED).getAttribute("data-active")) === "true");
   check("N04 the active page link is visible and marked current",
     (await pa.locator('aside a[aria-current="page"]:visible').getAttribute("href")) === ED("dashboard"));
@@ -161,7 +166,8 @@ try {
     same(await visibleHrefs(pa, S_ED), [ED("dashboard"), ED("voters"), ED("reasons")]), (await visibleHrefs(pa, S_ED)).join(" "));
   check("N06 collapsed Budget: no visible links, but the same six items as before are present (nothing added/removed)",
     (await visibleHrefs(pa, S_BUDGET)).length === 0 && same(await domHrefs(pa, S_BUDGET), BUDGET_HREFS));
-  check("N07 collapsed 'ניהול בוחרים' holds the unchanged main-app items", same(await domHrefs(pa, S_MAIN), MAIN_HREFS));
+  check("N07 'ניהול בוחרים' is not offered at all - the menu now agrees with the guard",
+    (await sec(pa, S_MAIN).count()) === 0, String(await sec(pa, S_MAIN).count()));
   check("N08 chevron state follows expansion", (await chevronOpen(pa, S_ED)) && !(await chevronOpen(pa, S_BUDGET)));
   const box = await hdr(pa, S_BUDGET).boundingBox();
   check("N09 module header is a >=44px touch target", Boolean(box && box.height >= 44), String(box?.height));
@@ -220,8 +226,8 @@ try {
   await pm.waitForURL(/\/election-day\/dashboard/, { timeout: 20000 }).catch(() => {});
   await sec(pm, S_ED).waitFor({ timeout: 20000 });
   await pm.waitForTimeout(1500); // the Budget status probe settles
-  check("N19 no Budget module header at all (not entitled by role); headers = ניהול בוחרים, ניהול יום בחירות",
-    same(await sectionLabels(pm), [S_MAIN, S_ED]) && (await pm.locator("aside a[href^='/budget']").count()) === 0);
+  check("N19 no Budget module header at all (not entitled by role); the only header is ניהול יום בחירות",
+    same(await sectionLabels(pm), [S_ED]) && (await pm.locator("aside a[href^='/budget']").count()) === 0);
   check("N20 Election Day expanded with every permitted item (all six)",
     await expanded(pm, S_ED) && same(await visibleHrefs(pm, S_ED), ["dashboard", "voters", "files", "rides", "reasons", "reports"].map(ED)));
   await shot(pm, "04-manager-ed-only");
@@ -272,8 +278,13 @@ try {
   const oActiveHref = (p) => p.locator('aside a[aria-current="page"]:visible').getAttribute("href");
 
   await oSec(po, B_SEC).waitFor({ timeout: 25000 });
-  check("A01 Owner sidebar = EXACTLY three top-level menus, with no administration menu",
-    same(await oLabels(po), [VM_SEC, ED_SEC, B_SEC]), (await oLabels(po)).join(" | "));
+  // Voter Management is entitlement-driven now, exactly like the other two.
+  // This Owner's workspace is not entitled to it (and the module is globally
+  // unavailable anyway), so their menus are the two modules they hold.
+  check("A01 Owner sidebar = EXACTLY the entitled module menus, with no administration menu",
+    same(await oLabels(po), [ED_SEC, B_SEC]), (await oLabels(po)).join(" | "));
+  check("A01b ... and 'ניהול בוחרים' is not among them",
+    !(await oLabels(po)).includes(VM_SEC), (await oLabels(po)).join(" | "));
   const domHrefsOf = (label) =>
     oSec(po, label).locator("a").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
   const edHrefs = await domHrefsOf(ED_SEC);
@@ -345,7 +356,7 @@ try {
   await oSec(po, ED_SEC).waitFor({ timeout: 20000 });
   await po.waitForTimeout(1000);
   check("A10 without the Budget entitlement the whole Budget menu AND its Owner settings link disappear",
-    same(await oLabels(po), [VM_SEC, ED_SEC]) &&
+    same(await oLabels(po), [ED_SEC]) &&
       (await po.locator(`aside a[href='${BUDGET_HREF}']`).count()) === 0,
     (await oLabels(po)).join(" | "));
   await shot(po, "11-owner-admin-no-budget");
@@ -353,7 +364,7 @@ try {
   await po.goto(`${EBASE}/election-day/owner/users`);
   await oSec(po, B_SEC).waitFor({ timeout: 20000 });
   check("A11 restoring the entitlement brings the Budget menu back",
-    same(await oLabels(po), [VM_SEC, ED_SEC, B_SEC]), (await oLabels(po)).join(" | "));
+    same(await oLabels(po), [ED_SEC, B_SEC]), (await oLabels(po)).join(" | "));
 
   // The links must actually OPEN the module's own existing surface for the
   // Owner - the same shells a worker gets, driven by owner-actions. A guard

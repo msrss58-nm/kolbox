@@ -63,6 +63,11 @@ export interface ElectionDaySessionUser {
    * Navigation metadata only, fail-closed when absent - every module
    * re-checks its own entitlement server-side on every request. */
   modules?: readonly string[];
+  /** The active workspace's display name, for the shell chrome only. Comes
+   * from the trusted session response (worker) or the Owner context (Owner)
+   * - never hard-coded, never derived from the URL. Optional by contract on
+   * both paths, so the chrome renders without it. */
+  workspaceName?: string;
 }
 
 interface ElectionDaySessionState {
@@ -170,10 +175,16 @@ async function resolveOwnerSessionUser(): Promise<ServerSessionUser | null> {
     if (modules.status !== "ok") return null;
     return {
       id: context.context.ownerId,
-      name: data.session?.user.email ?? "",
+      // The username the Owner actually signs in with, falling back to the
+      // e-mail address only when no username is claimed. The e-mail was
+      // never the login identity - it was simply the one name this path
+      // happened to have before the identity directory returned the real
+      // one, and it is not the name the Owner would recognise as theirs.
+      name: context.context.username ?? data.session?.user.email ?? "",
       roleId: OWNER_SESSION_ROLE_ID,
       workspaceId: context.context.workspaceId,
       modules: modules.data.filter((m) => m.enabled && m.available).map((m) => m.key),
+      workspaceName: context.context.workspaceName,
     };
   } catch {
     return null;
@@ -219,6 +230,7 @@ function toStoredUser(user: ServerSessionUser): ElectionDaySessionUser {
     roleId: user.roleId,
     workspaceId: user.workspaceId,
     modules: user.modules,
+    workspaceName: user.workspaceName,
   };
 }
 

@@ -474,12 +474,17 @@ export const PLATFORM_OWNER_TEXT = {
       provision: "הקצאת בעל רב-מערכות",
       replace: "החלפת בעל רב-מערכות",
       nameLabel: "שם",
+      usernameLabel: "שם משתמש לכניסה",
+      noUsername: "לא נקבע",
       emailLabel: "אימייל",
       phoneLabel: "טלפון",
       authIdLabel: "מזהה חשבון",
+      loginUrlLabel: "כתובת כניסה",
       createdAtLabel: "הוקצה בתאריך",
       updatedAtLabel: "עודכן בתאריך",
       noPhone: "לא הוזן",
+      handoffHint:
+        "פרטי המסירה נשמרים בשרת וזמינים גם לאחר רענון. הקישור החד-פעמי לקביעת סיסמה אינו נשמר - אם הוא אבד, יש להחליף את בעל רב-המערכות כדי להפיק קישור חדש.",
     },
 
     form: {

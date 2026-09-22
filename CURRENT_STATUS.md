@@ -4547,3 +4547,65 @@ The approval success panel now offers two actions beside the one-time link: **ש
 ### PRE-EXISTING BREAKAGE, CONFIRMED NOT CAUSED HERE
 
 `stage6/api-stage6.mjs` and `stage8d/api-stage8d.mjs` fail, and **already failed at `f000678` before this work**: neither passes the `username` that both provisioning ops have required since `566ec04`. Proven rather than asserted — each was run from a pristine `HEAD` worktree and from the current tree against the same stack; the outputs are byte-identical after normalizing UUIDs and paths (stage6: `TypeError: Invalid URL` at `api-stage6.mjs:214:44`, 0 passes both runs; stage8d: `signIn failed for a synthetic user` at `api-stage8d.mjs:123:23`, 1 pass both runs). Adding the now-required phone to their call sites was correct but does not rescue them. **Fixing them is a separate, unapproved task.**
+
+---
+
+## Open-issues batch — 2026-09-23 (LOCAL PASS, not committed)
+
+Six reported items. **Five are fixed; one is refused as a schema change and reported instead.** No migration, no DB change, no new API file, no provider, package or env var. Production untouched.
+
+### 1. Platform console showed stale data until F5 — FIXED
+
+`PlatformAdminShell` mounts `useOwnerAccess()` and `useWorkspaceModules()` **once**, and every console section is a *sibling* child route — so moving between `/platform/owners`, `/platform/workspaces` and `/platform/modules` remounted nothing and re-read nothing. The console served whatever it had fetched when it was first opened.
+
+Fixed at the cause: the shell re-reads both lists when the operator enters a section (the first render is skipped — each hook already loads on mount), and the approval dialog now reloads **both** lists instead of only the one it sits in. The first half matters most: a workspace appears when an approved Owner activates their link, later, in someone else's browser — no post-mutation callback in this tab can ever learn about that, so only re-reading on entry fixes it.
+
+### 2. "יבנה" saw ניהול בוחרים with only ניהול יום בחירות assigned — FIXED (menu only; authorization was already correct)
+
+Classified with evidence rather than assumed:
+
+- **Backend — already correct, nothing to fix.** `voter_management` has **no server surface at all**: no RPC, no route, no table keyed on it (the module's data is still per-browser `MockApi`). The worker module list (`election_day_workspace_worker_modules`) is hard-coded to `election_day` and `budget`, so **no worker session can ever carry the key**; for the Owner, effective access is the entitlement row **AND** `platform_modules.available`, and `voter_management` ships `available=false`, `availability_switchable=false`.
+- **Routing — already correct.** `VoterManagementGuard` gates `/`, `/voters`, `/activists`, `/import` on exactly that key and fails closed (absent, empty or unreadable ⇒ refused).
+- **Menu — the one real defect.** The `ניהול בוחרים` group was the only nav group rendered with no entitlement input at all, so the workspace was shown a menu whose every destination is a full-page refusal.
+
+The group is now entitlement-driven in **both** shells that render it — `ElectionDayShell` and `BudgetShell` — exactly like Election Day and Budget. `AppLayout` deliberately still renders it unconditionally: `VoterManagementGuard` sits **above** that shell, so reaching it already proves the entitlement. **No module was granted and no module was enabled.**
+
+### 3. Multi-Entity hand-off details vanished on refresh — FIXED (safely)
+
+The seat now carries its **login username**, merged into the `multi_entity_state` response by the **existing** service-role accessor `auth_identity_for_subject` — the RPC itself cannot return it, and widening the RPC would have been a migration. The seat card shows username, e-mail, phone and the shared-login address as durable rows, with a hint stating which half survives a reload.
+
+**The one-time password-setting link is still never persisted** — not in the DB, not in `localStorage`, not in `sessionStorage`, not in the URL. It is a credential; persisting it was never the fix. If it is lost the remedy is unchanged: replace the seat.
+
+### 4. "Create another Multi-Entity Owner" — NOT IMPLEMENTED (STOP condition)
+
+**The button never existed, and this is not a UI regression.** `git log --follow` on `MultiEntitySeatCard.tsx` returns two commits; the file was created in `b36c370` carrying today's exact `{!loading && !seat}` / `{!loading && seat}` pair. No version of this UI ever offered a second seat.
+
+The model is a **true singleton**, enforced in the database: `multi_entity_owner` has `id boolean primary key default true` with `constraint multi_entity_owner_singleton check (id)`, and `multi_entity_assignments` deliberately carries **no owner column at all** — which is exactly what makes assignments survive a replacement. A second *concurrent* seat would need a schema change **and** a new authorization boundary inside `multi_entity_assert_workspace_assigned`. That is a migration plus a security-boundary change, so it was refused and reported rather than built.
+
+What the operator can do today is `החלפת בעל רב-מערכות` — replace the seat holder, then purge the displaced account as a separate, explicitly-approved step.
+
+### 5. Active election workspace name under the logo — FIXED
+
+`/api/election-day/session` (POST **and** GET) and the Owner `op=session` now return `workspaceName`, read server-side from `election_workspaces` by a workspace id the session RPC has **already** resolved and returned. `AppShell` renders it directly under the KOLBOX logo, desktop and mobile; each shell supplies it from its own trusted session context.
+
+Additive and non-fatal by contract (an unreadable name omits the field rather than failing a session), and **never an input**: a forged `workspaceName` in a request body is refused `400 INVALID_REQUEST`.
+
+### 6. Owner identity showed an e-mail — FIXED
+
+`resolveOwnerSessionUser` set `name` to the Supabase auth e-mail. The Owner `op=session` now also returns `username` — via the same existing `auth_identity_for_subject` accessor — and the shell's account block shows it, falling back to the e-mail only when no username is claimed. **No second identity source was added.**
+
+### VERIFICATION (local, isolated scratch stack, reset to a clean 108-migration replay)
+
+Two new retained suites: `open-issues/api-open-issues` **30/0** · `open-issues/ui-open-issues` **29/0**.
+
+The entitlement checks are **discriminating, not vacuous**. A control workspace that genuinely holds the `voter_management` row is still refused (row AND availability); the positive control runs on the Owner path — the only one where the key can become effective — and proves the group appears when entitled, reaches the module, and disappears again when availability is withdrawn. The refresh check creates a workspace **out of band** and proves the console picks it up on re-entering the section (14 → 15 rows) with no reload.
+
+Regressions: `ui-stage9` **84/0** · `ux/ui-nav-roles` **57/0** · `budget/ui-budget` **23/0** · `stage5/ui-real-local` **31/0** · `stage7/ui-stage7` **82/0** · `platform/ui-module-availability` **23/0** · `platform/ui-platform-owner-login` **20/0** · `auth/ui-auth-complete` **26/0** · `api-stage9` **96/0** · `api-auth-identity` **66/0** · `api-auth-principal-switch` **31/0** · `platform/api-owner-module-access` **21/0** · `platform/api-module-availability` **44/0** · `stage5/api-real-local` **120/0**.
+
+`ui-nav-roles` was **updated, not weakened**: N01/N03/N07/N19/A01/A10/A11 asserted the unconditional `ניהול בוחרים` header — which was the defect itself.
+
+Typecheck + build clean; eslint **0 errors** with zero non-CRLF warnings on every changed file; `git diff --check` clean. No migration, config, dependency or API file in the diff. Protected 15 never staged, unchanged at **+138/−45**.
+
+### PRE-EXISTING BREAKAGE, PROVEN NOT CAUSED HERE
+
+`stage8/ui-stage8` aborts at E2 waiting for the heading `כניסת בעלים` — the Election Owner login screen that commit `a6c5abe` retired. Run from a **pristine `HEAD` worktree against the same stack** it fails identically: **40 PASS / 1 FAIL**, same heading, same redirect to the shared login. The suite needs to follow the bounce to `/login`; that is a one-line test change in a flow outside this batch's scope and was deliberately not made.

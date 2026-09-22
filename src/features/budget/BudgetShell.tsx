@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Link, Outlet, useNavigate } from "react-router";
 import { ArrowLeftRight } from "lucide-react";
 import { AppShell, type ShellNavSection } from "../../app/AppShell";
+import { VOTER_MANAGEMENT_MODULE } from "../../app/VoterManagementGuard";
 import { toast } from "../../components/ui/Toast";
 import { COMMON_TEXT } from "../../constants/common-text";
 import {
@@ -31,6 +32,10 @@ export function BudgetShell() {
   const { can } = usePermissions();
 
   const hasElectionDay = Boolean(session?.modules.includes("election_day"));
+  // Same fail-closed entitlement gate ElectionDayShell applies - this shell is
+  // the second consumer of the same unconditional group, and a fix applied to
+  // only one of them would leave the defect alive on the Budget surface.
+  const showVoterManagement = Boolean(session?.modules.includes(VOTER_MANAGEMENT_MODULE));
   const budgetItems = useMemo(() => budgetNavItemsFor(session), [session]);
 
   const sections = useMemo(() => {
@@ -55,10 +60,11 @@ export function BudgetShell() {
 
   return (
     <AppShell
-      navItems={NAV_ITEMS}
-      navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
+      navItems={showVoterManagement ? NAV_ITEMS : []}
+      navLabel={showVoterManagement ? VOTER_MANAGEMENT_NAV_SECTION_LABEL : undefined}
       sections={sections}
       mobileNavItems={budgetItems}
+      workspaceName={session?.workspaceName}
       footer={
         session
           ? { name: session.actorName, subtitle: BUDGET_TEXT.moduleTitle, onLogout: () => void logout() }

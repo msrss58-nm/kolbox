@@ -134,6 +134,7 @@ export function AppShell({
   navLabel,
   sections,
   mobileNavItems,
+  workspaceName,
   footer,
   children,
 }: {
@@ -142,6 +143,12 @@ export function AppShell({
   navLabel?: string;
   sections?: ShellNavSection[];
   mobileNavItems?: ShellNavItem[];
+  /** The active workspace's name, shown directly under the logo so an
+   * operator working several elections can always see WHICH one is on
+   * screen. Supplied by the caller from its own trusted session context -
+   * this component never resolves it, and renders nothing when it is
+   * absent rather than inventing a placeholder. */
+  workspaceName?: string;
   footer?: ShellFooter;
   children: React.ReactNode;
 }) {
@@ -155,6 +162,15 @@ export function AppShell({
       {/* Desktop sidebar (start side = right in RTL) */}
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-sidebar p-4 md:flex">
         <Logo light className="px-2 py-3" />
+        {workspaceName && (
+          <p
+            className="truncate px-2 text-sm font-bold text-primary-300"
+            data-testid="active-workspace-name"
+            title={workspaceName}
+          >
+            {workspaceName}
+          </p>
+        )}
         <nav className="mt-6 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {!navLabel && navItems.map((item) => <SidebarLink key={item.to} {...item} />)}
           {allSections.map((section) => (
@@ -191,8 +207,16 @@ export function AppShell({
         {/* Mobile topbar */}
         <header className="sticky top-0 z-30 flex items-center justify-between bg-sidebar px-4 py-3 md:hidden">
           <LogoMark className="size-8" />
-          <span className="text-lg font-extrabold text-white">
+          <span className="min-w-0 truncate text-center text-lg font-extrabold text-white">
             קול<span className="text-primary-400">בוקס</span>
+            {workspaceName && (
+              <span
+                className="block truncate text-xs font-bold text-primary-300"
+                data-testid="active-workspace-name-mobile"
+              >
+                {workspaceName}
+              </span>
+            )}
           </span>
           {footer ? (
             <button

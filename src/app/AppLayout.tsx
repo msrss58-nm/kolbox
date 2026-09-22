@@ -49,11 +49,15 @@ export function AppLayout() {
     }
   };
 
+  // No entitlement gate on the Voter Management group here, unlike the other
+  // two shells: `VoterManagementGuard` sits ABOVE this shell in the router, so
+  // reaching it at all already proves the workspace holds the module.
   return (
     <AppShell
       navItems={NAV_ITEMS}
       navLabel={VOTER_MANAGEMENT_NAV_SECTION_LABEL}
       sections={electionDaySections}
+      workspaceName={sessionUser?.workspaceName}
       footer={
         sessionUser
           ? {

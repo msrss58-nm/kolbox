@@ -160,7 +160,18 @@ export function PlatformOwnersSection() {
 
       {approveOpen && (
         <OwnerApprovalDialog
-          onChanged={() => void access.reload()}
+          // BOTH shell-level reads, not just the one this dialog sits in.
+          // `useOwnerAccess` and `useWorkspaceModules` are mounted once by
+          // PlatformAdminShell and every section is a sibling child route, so
+          // nothing remounts on navigation: a list this dialog does not
+          // refresh stays stale until the operator presses F5. Approving an
+          // Owner creates an approval AND is the act that a workspace and its
+          // module entitlements follow from, so the workspace/module lists
+          // must be re-read too.
+          onChanged={() => {
+            void access.reload();
+            void workspaceModules.reload();
+          }}
           onClose={() => setApproveOpen(false)}
           catalog={workspaceModules.catalog}
           catalogError={workspaceModules.readError !== null}

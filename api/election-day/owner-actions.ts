@@ -679,7 +679,52 @@ async function handleGet(req: MinimalRequest, res: MinimalResponse): Promise<voi
       workspace_id: string;
     };
 
-    res.status(200).json({ ownerId: row.owner_id, workspaceId: row.workspace_id });
+    // Two DISPLAY fields, both keyed by an identity/workspace this RPC has
+    // already resolved and verified. Neither is an authority: nothing
+    // downstream may authorize on them, and both are additive and
+    // non-fatal - a failure omits the field rather than failing a session
+    // that is otherwise perfectly valid.
+    //
+    // `username` is the Owner's own login name, so the shell can identify
+    // them the way they signed in instead of by e-mail address. Read through
+    // the DEFINER accessor, never a direct auth_identities read - that table
+    // grants nothing to any role by design.
+    //
+    // `workspaceName` names the workspace the Owner is administering, for
+    // the same sidebar line a worker session now carries.
+    let username: string | null = null;
+    try {
+      const identity = await supabase.rpc("auth_identity_for_subject", {
+        p_auth_user_id: verified.authUserId,
+      });
+      username =
+        !identity.error && typeof identity.data === "string" && identity.data !== ""
+          ? identity.data
+          : null;
+    } catch {
+      username = null;
+    }
+
+    let workspaceName: string | null = null;
+    try {
+      const workspace = await supabase
+        .from("election_workspaces")
+        .select("name")
+        .eq("id", row.workspace_id)
+        .maybeSingle();
+      const name = (workspace.data as { name?: unknown } | null)?.name;
+      workspaceName =
+        !workspace.error && typeof name === "string" && name !== "" ? name : null;
+    } catch {
+      workspaceName = null;
+    }
+
+    res.status(200).json({
+      ownerId: row.owner_id,
+      workspaceId: row.workspace_id,
+      ...(username ? { username } : {}),
+      ...(workspaceName ? { workspaceName } : {}),
+    });
     return;
   }
 

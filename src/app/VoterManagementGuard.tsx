@@ -16,7 +16,7 @@ import { APP_SHELL_TEXT } from "./appShell.constants";
  * among the session's EFFECTIVE modules (entitlement row AND global
  * availability) - the same rule Budget already follows.
  */
-const VOTER_MANAGEMENT_MODULE = "voter_management";
+export const VOTER_MANAGEMENT_MODULE = "voter_management";
 
 /**
  * Gates `/`, `/voters`, `/activists` and `/import` on the trusted

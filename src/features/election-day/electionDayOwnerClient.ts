@@ -27,6 +27,14 @@ const OWNER_ACTIONS_ENDPOINT = "/api/election-day/owner-actions";
 export interface OwnerContext {
   ownerId: string;
   workspaceId: string;
+  /** The Owner's own login username, when one is claimed. DISPLAY ONLY - the
+   * shell identifies them the way they sign in instead of by e-mail address.
+   * Optional by contract: the server omits it rather than failing a session,
+   * so every consumer must have a fallback. */
+  username?: string;
+  /** The administered workspace's display name, for the shell chrome. Same
+   * additive, display-only, never-an-authority contract as `username`. */
+  workspaceName?: string;
 }
 
 export type OwnerSessionResult =
@@ -37,7 +45,12 @@ export type OwnerSessionResult =
 function isOwnerContext(value: unknown): value is OwnerContext {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return typeof v.ownerId === "string" && typeof v.workspaceId === "string";
+  return (
+    typeof v.ownerId === "string" &&
+    typeof v.workspaceId === "string" &&
+    (v.username === undefined || typeof v.username === "string") &&
+    (v.workspaceName === undefined || typeof v.workspaceName === "string")
+  );
 }
 
 function bearer(accessToken: string): Record<string, string> {

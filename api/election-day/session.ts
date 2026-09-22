@@ -138,6 +138,38 @@ function requireServiceClient(
   }
 }
 
+/**
+ * The active workspace's display name, for the shell chrome.
+ *
+ * Keyed by a workspace id the session RPC has ALREADY resolved and returned,
+ * so this reads nothing the caller has not already proved a session in - it
+ * decides nothing and authorizes nothing, it only names what the caller is
+ * looking at. A direct service-role read for the same reason
+ * api/platform/session.ts reads `platform_modules` directly: no DEFINER
+ * accessor returns this one column for a workspace id, and inventing one
+ * would be a migration for a label.
+ *
+ * Additive and NON-FATAL, exactly like `modules` below: a failure returns
+ * null and the field is simply omitted, never a failed session.
+ */
+async function readWorkspaceName(
+  supabase: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("election_workspaces")
+      .select("name")
+      .eq("id", workspaceId)
+      .maybeSingle();
+    if (error) return null;
+    const name = (data as { name?: unknown } | null)?.name;
+    return typeof name === "string" && name !== "" ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(
   req: MinimalRequest,
   res: MinimalResponse,
@@ -327,12 +359,15 @@ export default async function handler(
     // unverified client-held value (needed for the still-legacy reauth
     // path's actor_id parameter; does not by itself make that legacy path
     // server-trusted - see CURRENT_STATUS.md).
+    const workspaceName = await readWorkspaceName(supabase, row.workspace_id);
+
     res.status(200).json({
       id: row.actor_id,
       name: row.actor_name,
       roleId: row.role_id,
       workspaceId: row.workspace_id,
       ...(modules ? { modules } : {}),
+      ...(workspaceName ? { workspaceName } : {}),
     });
     return;
   }
@@ -390,12 +425,15 @@ export default async function handler(
       modules = undefined;
     }
 
+    const workspaceName = await readWorkspaceName(supabase, row.workspace_id);
+
     res.status(200).json({
       id: row.actor_id,
       name: row.actor_name,
       roleId: row.role_id,
       workspaceId: row.workspace_id,
       ...(modules ? { modules } : {}),
+      ...(workspaceName ? { workspaceName } : {}),
     });
     return;
   }
