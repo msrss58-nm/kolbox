@@ -123,6 +123,26 @@ const verifyOtpWith = (client: OtpClient) => async (tokenHash: string) => {
 };
 
 /**
+ * Ends an Owner session held in THIS origin's storage, when a WORKER signs in
+ * here. Only the Election origin can hold both principals at once, so only
+ * that surface passes this.
+ *
+ * `scope: "local"` is required, not incidental: the supabase-js default
+ * (`global`) revokes every session the account holds, which would sign the
+ * same Owner out of their other browsers because a worker signed in on this
+ * one. The same trap was already found and fixed in the Budget owner step-up.
+ * Never throws - a storage clear that fails must not strand a worker whose
+ * own session was already established server-side.
+ */
+const endOwnerSessionLocally = async () => {
+  try {
+    await ownerAuthClient.auth.signOut({ scope: "local" });
+  } catch {
+    // Nothing to do: the worker's own sign-in is already complete.
+  }
+};
+
+/**
  * ORIGIN SEPARATION - build-time surface selector.
  *
  * The Platform Owner console and the Election Day / campaign application are
@@ -396,7 +416,12 @@ const electionRoutes: RouteObject[] = [
   // cookie) and the Election Owner (aal1 via this origin's own client).
   {
     path: ROUTES.authComplete,
-    element: <AuthCompleteScreen verifyOtp={verifyOtpWith(ownerAuthClient)} />,
+    element: (
+      <AuthCompleteScreen
+        verifyOtp={verifyOtpWith(ownerAuthClient)}
+        endOtherPrincipalSession={endOwnerSessionLocally}
+      />
+    ),
   },
   { path: ROUTES.electionDayOwnerLogin, element: <OwnerLoginScreen /> },
   // Stage 3B - both routes are deliberately OUTSIDE OwnerAuthGuard.

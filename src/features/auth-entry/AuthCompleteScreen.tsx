@@ -45,11 +45,20 @@ const text = AUTH_CONFIRM_TEXT;
  * `verifyOtp` is injected per surface, because each realm must establish its
  * aal1 session in ITS OWN isolated client's storage; MFA then runs afterwards
  * through the existing guard, completely unchanged.
+ *
+ * `endOtherPrincipalSession` is injected the same way, and for the mirror
+ * reason: a WORKER sign-in has to end any Owner session this origin still
+ * holds. That one lives in the page's own storage, so only the page can
+ * remove it - the server can clear a cookie, never a client's storage. The
+ * Owner direction is handled entirely server-side in leg 2 (it revokes and
+ * clears the worker session cookie), so nothing is needed here for it.
  */
 export function AuthCompleteScreen({
   verifyOtp,
+  endOtherPrincipalSession,
 }: {
   verifyOtp?: (tokenHash: string) => Promise<boolean>;
+  endOtherPrincipalSession?: () => Promise<void>;
 }) {
   const [failed, setFailed] = useState(false);
   // The handoff is SINGLE-USE. `StrictMode` double-invokes effects in
@@ -76,11 +85,21 @@ export function AuthCompleteScreen({
           setFailed(true);
           return;
         }
+      } else if (endOtherPrincipalSession) {
+        // A WORKER just signed in, and the session cookie for them is already
+        // set. Any Owner session still sitting in this origin's storage
+        // belongs to a DIFFERENT principal and must not survive - otherwise
+        // the browser holds two identities at once, which is precisely the
+        // defect this fixes, in the other direction. Awaited, and before the
+        // navigation, so the next page can never observe the stale one.
+        await endOtherPrincipalSession();
       }
       // A full navigation, so every guard re-runs from a clean state.
       window.location.replace(result.redirect);
     })();
-  }, [verifyOtp]);
+    // Both injections are module-level constants at the call site, so this
+    // never re-runs on their account; the `started` ref is the real guard.
+  }, [verifyOtp, endOtherPrincipalSession]);
 
   if (failed) {
     return (

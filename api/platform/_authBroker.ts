@@ -51,7 +51,11 @@ export interface BrokerRequest {
 export interface BrokerResponse {
   status: (code: number) => BrokerResponse;
   json: (body: unknown) => void;
-  setHeader: (name: string, value: string) => unknown;
+  /** `string[]` is what Node's own ServerResponse.setHeader accepts, and it
+   * is how a response emits TWO `Set-Cookie` headers - which a sign-in that
+   * must also END the previous principal's session genuinely needs. Matches
+   * api/election-day/session.ts's MinimalResponse, which already declares it. */
+  setHeader: (name: string, value: string | string[]) => unknown;
 }
 
 const PARTITION_KEY = "auth_op";
@@ -618,6 +622,9 @@ async function handleComplete(
   });
 
   const clearTxn = `${TXN_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+  // Attributes other than Max-Age must match the cookie as it was SET, or the
+  // browser treats this as a different cookie and the original survives.
+  const clearSession = `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
 
   if (error || !data || (Array.isArray(data) && data.length === 0)) {
     noStore(res);
@@ -718,8 +725,38 @@ async function handleComplete(
     res.status(401).json(GENERIC_FAILURE);
     return;
   }
+  // THE PREVIOUS PRINCIPAL ENDS HERE.
+  //
+  // Both credentials live on THIS origin and are entirely independent: the
+  // worker's `__Host-kb_ed_session` cookie and the Owner's Supabase session
+  // in the page's own isolated storage. A browser that signed in as a worker
+  // earlier still carried a valid worker cookie into an Owner sign-in, and
+  // the application resolved that cookie first - so the Owner was shown, and
+  // acted as, the worker. Authenticating as one principal must therefore
+  // TERMINATE the other, not merely sit alongside it.
+  //
+  // Revoke before clearing, so the token dies rather than merely becoming
+  // unreachable from this browser. `election_day_logout_v2` is the same
+  // idempotent, service_role-only revocation the logout endpoint calls; an
+  // unknown hash is a silent no-op. A revocation FAILURE does not fail the
+  // sign-in: the cookie is cleared unconditionally below, which is what
+  // decides who this browser can present, and leaving the Owner stranded on
+  // a transient database error would be the worse outcome.
+  //
+  // ONLY ON SUCCESS. The failure paths above deliberately leave an existing
+  // worker session alone: nothing was established, so no identity confusion
+  // can arise - and tearing one down on every failed Owner attempt would let
+  // anyone reaching leg 2 sign a working worker out.
+  const staleSession = req.cookies?.[SESSION_COOKIE];
+  if (staleSession) {
+    await supabase.rpc("election_day_logout_v2", {
+      p_session_hash: toPgBytea(sha256Hex(staleSession)),
+    });
+  }
   noStore(res);
-  res.setHeader("Set-Cookie", clearTxn);
+  // Unconditional, so "an Owner sign-in ends with no worker cookie" holds
+  // even if the cookie could not be read back to be revoked.
+  res.setHeader("Set-Cookie", [clearTxn, clearSession]);
   res.status(200).json({ ok: true, tokenHash, redirect: landingFor(row.realm) });
 }
 

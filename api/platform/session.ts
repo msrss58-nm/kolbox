@@ -76,9 +76,11 @@ interface MinimalRequest {
 interface MinimalResponse {
   status: (code: number) => MinimalResponse;
   json: (body: unknown) => void;
-  // Present on Vercel's response object; used only by the Stage 5 Multi-Entity
-  // partition (Cache-Control: no-store). The Platform path never calls it.
-  setHeader: (name: string, value: string) => unknown;
+  // Present on Vercel's response object; used by the Stage 5 Multi-Entity
+  // partition (Cache-Control: no-store) and by the auth broker, which emits
+  // two Set-Cookie headers when a sign-in also ends the previous principal's
+  // session. The Platform path itself never calls it.
+  setHeader: (name: string, value: string | string[]) => unknown;
 }
 
 const DEFAULT_PLATFORM_ORIGIN = "https://kolbox-platform.vercel.app";

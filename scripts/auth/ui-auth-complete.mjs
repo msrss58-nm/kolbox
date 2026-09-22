@@ -97,10 +97,63 @@ const BASE = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch();
 const pageErrors = [];
 
-/** One run of leg 2 against a stubbed server, with NOTHING clicked. */
-async function runLeg2(completeResponse) {
+/** The storage key the Election Owner's isolated Supabase client uses on this
+ * origin (see src/services/supabase/ownerAuthClient.ts). A worker sign-in has
+ * to leave NOTHING under it. */
+const OWNER_STORAGE_KEY = "kb-owner-auth-token";
+
+/** A shape close enough to a real persisted session for supabase-js to load
+ * it and treat it as one. It carries no real token - the stack it would be
+ * validated against is unreachable in this suite by design. */
+const fakeOwnerSession = () =>
+  JSON.stringify({
+    access_token: "not-a-real-token",
+    refresh_token: "not-a-real-refresh",
+    token_type: "bearer",
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    user: { id: "00000000-0000-4000-8000-000000000001", email: "owner@kolbox.test" },
+  });
+
+/** One run of leg 2 against a stubbed server, with NOTHING clicked.
+ * `seedOwnerSession` puts a previous OWNER session in this origin's storage
+ * before the page loads, which is the mirror of the production defect. */
+async function runLeg2(completeResponse, { seedOwnerSession = false } = {}) {
   const ctx = await browser.newContext({ locale: "he-IL" });
   const page = await ctx.newPage();
+  if (seedOwnerSession) {
+    // addInitScript runs on EVERY document in the context, the landing page
+    // included - so it must seed exactly ONCE, or it would silently re-create
+    // the session the sign-in had just removed and mask the whole defect.
+    //
+    // It also instruments removeItem, recording the path the page was on when
+    // the Owner key went away. That log lives under its own key and survives
+    // the navigation, which is what lets the ORDER be asserted without
+    // reaching into a page that is mid-navigation.
+    await page.addInitScript(
+      ([key, value, seededFlag, logKey]) => {
+        try {
+          const ls = window.localStorage;
+          const original = Storage.prototype.removeItem;
+          Storage.prototype.removeItem = function (k) {
+            if (k === key) {
+              const prev = ls.getItem(logKey) ?? "";
+              original.call(ls, logKey);
+              ls.setItem(logKey, `${prev}${window.location.pathname};`);
+            }
+            return original.call(this, k);
+          };
+          if (!ls.getItem(seededFlag)) {
+            ls.setItem(seededFlag, "1");
+            ls.setItem(key, value);
+          }
+        } catch {
+          /* nothing to seed */
+        }
+      },
+      [OWNER_STORAGE_KEY, fakeOwnerSession(), "__kb_seeded", "__kb_removed_at"],
+    );
+  }
   page.on("pageerror", (e) => pageErrors.push(String(e)));
   const posts = [];
   const headings = [];
@@ -147,8 +200,14 @@ async function runLeg2(completeResponse) {
     .locator("button")
     .evaluateAll((els) => els.map((e) => e.innerText.trim()))
     .catch(() => []);
+  const ownerAtEnd = await page
+    .evaluate((k) => window.localStorage.getItem(k), OWNER_STORAGE_KEY)
+    .catch(() => "unreadable");
+  const removedAt = await page
+    .evaluate(() => window.localStorage.getItem("__kb_removed_at"))
+    .catch(() => null);
   await ctx.close();
-  return { posts, txnReads, headings, finalUrl, bodyText, buttons };
+  return { posts, txnReads, headings, finalUrl, bodyText, buttons, ownerAtEnd, removedAt };
 }
 
 try {
@@ -197,6 +256,34 @@ try {
   const expired = await runLeg2({ status: 200, body: { ok: false } });
   check("D4 an ok:false body is treated as failure too, not as a session",
     new URL(expired.finalUrl).pathname === "/auth/complete", expired.finalUrl);
+
+  section("F. OWNER -> WORKER: a worker sign-in ENDS the Owner session here");
+  // The mirror of the server-side fix. The Owner's session lives in THIS
+  // origin's storage, so only the page can remove it - a server can clear a
+  // cookie, never a client's storage. Without this, a browser that had signed
+  // in as the Owner kept that identity alongside the worker's new cookie.
+  const seeded = await runLeg2(
+    { status: 200, body: { ok: true, redirect: "/election-day" } },
+    { seedOwnerSession: true },
+  );
+  check("F1 the worker sign-in still completes normally", seeded.posts.length === 1 &&
+    new URL(seeded.finalUrl).pathname === "/election-day", seeded.finalUrl);
+  check("F2 the seeded Owner session is GONE once the worker has signed in",
+    seeded.ownerAtEnd === null, String(seeded.ownerAtEnd).slice(0, 60));
+  check("F3 ... and it was removed on the COMPLETION page, before the navigation",
+    (seeded.removedAt ?? "").includes("/auth/complete"), String(seeded.removedAt));
+  check("F4 no confirmation appeared on the way, as before",
+    !seeded.headings.join(" | ").includes("אישור כניסה"));
+
+  // The guard must be exact: a FAILED handoff establishes no new principal, so
+  // it must not sign an existing Owner out either.
+  const seededDenied = await runLeg2({ status: 401, body: { ok: false } }, { seedOwnerSession: true });
+  check("F5 a REFUSED handoff does not touch the existing Owner session",
+    typeof seededDenied.ownerAtEnd === "string" && seededDenied.ownerAtEnd.includes("not-a-real-token"),
+    String(seededDenied.ownerAtEnd).slice(0, 60));
+  check("F6 ... and it still fails closed, as before",
+    new URL(seededDenied.finalUrl).pathname === "/auth/complete" &&
+      seededDenied.bodyText.includes("פג תוקף הבקשה"));
 
   section("E. NO SECRETS IN URLS");
   check("E1 the handoff never put a code, token or txn in the address bar",
