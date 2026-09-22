@@ -21,7 +21,6 @@
  * impossible rather than merely filtered.
  */
 const PLATFORM_ORIGIN = "https://kolbox-platform.vercel.app";
-const MULTI_ENTITY_ORIGIN = "https://kolbox-multi-entity.vercel.app";
 const AUTH_ORIGIN = "https://kolbox-auth.vercel.app";
 
 export const KOLBOX_ORIGIN_URLS = {
@@ -29,15 +28,19 @@ export const KOLBOX_ORIGIN_URLS = {
    * path is itself a redirect to the console, so the console IS its canonical
    * destination and the MFA architecture is untouched. */
   console: `${PLATFORM_ORIGIN}/platform`,
-  login: `${PLATFORM_ORIGIN}/platform/login`,
+  /** THE Platform Owner login - one of the two KOLBOX login screens, and it
+   * lives on the auth origin like the other one. */
+  login: `${AUTH_ORIGIN}/login/platform-owner`,
   setPassword: `${PLATFORM_ORIGIN}/platform/set-password`,
-  multiEntityLogin: `${MULTI_ENTITY_ORIGIN}/multi-entity/login`,
-  /** The dedicated Multi-Entity login on the AUTH origin - the address a
-   * Platform Owner sends to a new seat holder. Hard-coded like every other
-   * entry here: a cross-origin destination that a misconfigured deployment
-   * or a crafted URL could repoint is exactly what an origin split must not
-   * have. */
-  multiEntityLoginEntry: `${AUTH_ORIGIN}/login/multi-entity-owner`,
+  /** THE shared login - the single address every principal except the
+   * Platform Owner is sent to, whoever they are. It is deliberately the same
+   * URL for an Election Owner, a Multi-Entity Owner, a Manager and an
+   * ordinary user: handing someone a realm-specific address would be a realm
+   * chooser with extra steps, and the server resolves the principal anyway.
+   * Hard-coded like every other entry here: a cross-origin destination a
+   * misconfigured deployment or a crafted URL could repoint is exactly what
+   * an origin split must not have. */
+  sharedLogin: `${AUTH_ORIGIN}/login`,
 } as const;
 
 export type KolboxOriginTarget = keyof typeof KOLBOX_ORIGIN_URLS;

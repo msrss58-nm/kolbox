@@ -485,25 +485,32 @@ async function usernameUnavailable(
   realm: string,
   username: string,
 ): Promise<boolean> {
-  const { data, error } = await supabase.rpc("auth_identity_resolve", {
-    p_realm: realm,
-    p_username: username,
-  });
+  // ONE call, and deliberately the SUGGESTION function rather than a resolve.
+  // It answers the base itself exactly when the base is free, so "is it
+  // taken" and "what should I offer instead" come from a single source that
+  // is by construction the same namespace auth_identity_assign will enforce.
+  //
+  // A resolve would be wrong in two ways now: it is scoped to ONE realm,
+  // while a shared-login username competes across all of them, and it ignores
+  // a disabled row - which still reserves its name, so a resolve would report
+  // free a username the unique index then refuses.
+  const { data: suggestion, error } = await supabase.rpc(
+    "auth_identity_suggest_username",
+    { p_realm: realm, p_base: username },
+  );
   if (error) {
     sendError(res, 500, "SERVER_ERROR");
     return true;
   }
-  const taken = !!data && (!Array.isArray(data) || data.length > 0);
-  if (!taken) return false;
+  const offered = typeof suggestion === "string" ? suggestion : null;
+  // Compared on the canonical form the function itself returns, so a trimmed
+  // or differently-composed input is not mistaken for a collision.
+  if (offered !== null && offered === username.trim().normalize("NFC")) return false;
 
-  const { data: suggestion } = await supabase.rpc("auth_identity_suggest_username", {
-    p_realm: realm,
-    p_base: username,
-  });
   res.status(409).json({
     error: "USERNAME_TAKEN",
     requested: username,
-    suggestion: typeof suggestion === "string" ? suggestion : null,
+    suggestion: offered,
   });
   return true;
 }

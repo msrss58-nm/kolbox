@@ -7,8 +7,11 @@
  * decision. Lives in an underscore-prefixed module so it is NOT a Vercel
  * Function: the project stays at exactly 12/12 Hobby Functions.
  *
- * FOUR OPS, each gated to the deployment that may answer it (see _surfaceGate):
- *   login     auth deployment only    authenticate once, resolve realm, issue
+ * FIVE OPS, each gated to the deployment that may answer it (see _surfaceGate).
+ * The two login ops are the two login screens; the other three are the
+ * handoff, and are identical for every principal:
+ *   login | login_platform_owner
+ *             auth deployment only    authenticate once, resolve realm, issue
  *                                     a one-time handoff code. Mints nothing.
  *   continue  target deployments only LEG 1: consume the code, write THIS
  *                                     origin's own HttpOnly txn cookie, 303.
@@ -54,19 +57,27 @@ export interface BrokerResponse {
 const PARTITION_KEY = "auth_op";
 
 /**
- * THREE DEDICATED LOGIN OPS - one per login screen. The REALM COMES FROM THE
- * OP, i.e. from the route the user visited, never from a body field and never
- * from guessing at the shape of what they typed. That is what removes the
- * realm selector, the system code and the e-mail heuristic all at once: the
- * Users screen can only ever resolve a worker, the Owner screen only an
- * Election Owner, the Platform screen only the Platform Owner.
+ * TWO LOGIN OPS - one per login screen, and there are exactly two screens.
+ *
+ * `login_platform_owner` keeps its own dedicated op and screen. `login` is
+ * the SHARED screen every other principal uses: the caller states no realm at
+ * all, and the server resolves it from the directory after the fact.
+ *
+ * What this removes, and what it does NOT: the user no longer states a realm,
+ * a workspace or a system code - nothing about WHO they are is taken from the
+ * request. What still never happens is guessing: the directory answers with
+ * at most one principal (see `resolveIdentity`), and only then is a single
+ * credential-bearing call made, to that principal's own store.
  */
-const LOGIN_OPS: Record<string, Realm> = {
-  login_worker: "worker",
-  login_election_owner: "election_owner",
+const LOGIN_OPS: Record<string, Realm | "shared"> = {
+  login: "shared",
   login_platform_owner: "platform_owner",
-  login_multi_entity_owner: "multi_entity_owner",
 };
+
+/** The realms the shared screen may resolve, in a fixed order. The Platform
+ * Owner is deliberately absent - it has its own screen, so its username never
+ * competes with anyone else's and its credential is never posted here. */
+const SHARED_REALMS: readonly Realm[] = ["worker", "election_owner", "multi_entity_owner"];
 
 const AUTH_OPS = new Set<string>([
   ...Object.keys(LOGIN_OPS),
@@ -205,16 +216,56 @@ function targetOriginFor(realm: Realm): string | null {
   return raw === "" ? null : raw.replace(/\/+$/, "");
 }
 
+interface IdentityRow {
+  auth_user_id: string | null;
+  actor_id: string | null;
+}
+
 /**
- * Resolves a username inside ONE realm and authenticates against that realm's
- * own credential store. Exactly one credential-bearing call per submit; a
- * failure is never retried against another realm, because there is no other
- * realm to try - the route already decided.
+ * Turns a username into AT MOST ONE principal.
+ *
+ * For the dedicated Platform Owner op this is the single lookup it always
+ * was. For the shared screen it asks each shared realm in turn - these are
+ * DIRECTORY reads that verify no credential, so asking three costs nothing a
+ * caller could exploit and cannot lock anyone out.
+ *
+ * A username held in two shared realms is AMBIGUOUS and is refused outright.
+ * The alternatives are both wrong: picking a realm by precedence would let
+ * whoever registered first decide whose password is checked, and trying each
+ * realm's password in turn would make one submit into several credential
+ * attempts. Refusing is the only answer that keeps "exactly one
+ * credential-bearing call per submit" true. The refusal is indistinguishable
+ * from "no such user", so this is never an enumeration oracle either.
+ */
+async function resolveIdentity(
+  supabase: ReturnType<typeof getServiceClient>,
+  requestedRealm: Realm | "shared",
+  username: string,
+): Promise<{ realm: Realm; idRow: IdentityRow } | null | "error"> {
+  const realms = requestedRealm === "shared" ? SHARED_REALMS : [requestedRealm];
+  const matches: { realm: Realm; idRow: IdentityRow }[] = [];
+  for (const realm of realms) {
+    const { data, error } = await supabase.rpc("auth_identity_resolve", {
+      p_realm: realm,
+      p_username: username,
+    });
+    if (error) return "error";
+    const idRow = (Array.isArray(data) ? data[0] : data) as IdentityRow | undefined;
+    if (idRow) matches.push({ realm, idRow });
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * Authenticates against exactly one realm's own credential store. Exactly one
+ * credential-bearing call per submit; a failure is never retried against
+ * another realm, because by this point the directory has already named a
+ * single principal.
  */
 async function handleLogin(
   req: BrokerRequest,
   res: BrokerResponse,
-  realm: Realm,
+  requestedRealm: Realm | "shared",
 ): Promise<void> {
   const startedAt = Date.now();
 
@@ -226,8 +277,10 @@ async function handleLogin(
   if (!origin || !auth || !constantTimeEquals(origin, auth)) return deny(res, 403);
 
   const body = bodyOf(req);
-  // Username and password only. No workspace code, no e-mail identifier, no
-  // realm field: the route already decided the realm.
+  // Username and password only. No workspace code, no e-mail identifier and
+  // no realm field - on EITHER screen. The shared screen resolves the realm
+  // server-side from the directory; a realm sent in the body would be
+  // rejected here as an unexpected key before it could reach anything.
   if (!keysAllowed(body, ["username", "password"])) {
     return deny(res, 400);
   }
@@ -245,10 +298,12 @@ async function handleLogin(
     return deny(res, 500);
   }
 
-  // Rate limit BEFORE any credential work. The bucket is scoped to the realm
-  // as well as the username, so one realm's lockout can never deny service to
-  // a different principal who happens to share a username in another realm.
-  const idBucket = `auth:${realm}:${sha256Hex(username.toLowerCase())}`;
+  // Rate limit BEFORE any credential work - and before the directory is even
+  // consulted, so the limit cannot be probed for whether a username exists.
+  // The bucket is scoped to the SCREEN (shared vs platform owner) rather than
+  // to a resolved realm, which is what stops the two screens' attempts from
+  // being counted as one bucket while still giving each identifier its own.
+  const idBucket = `auth:${requestedRealm}:${sha256Hex(username.toLowerCase())}`;
   const ip = clientIp(req);
   const [idAttempts, ipAttempts] = await Promise.all([
     supabase.rpc("election_day_register_login_attempt", { p_bucket_key: idBucket }),
@@ -267,21 +322,17 @@ async function handleLogin(
     return deny(res, 429);
   }
 
-  // ONE directory lookup, scoped to this route's realm. A username belonging
-  // to a different realm resolves to nothing here, which is exactly the
-  // wrong-realm rejection - and it is indistinguishable from "no such user".
-  const { data: idData, error: idError } = await supabase.rpc("auth_identity_resolve", {
-    p_realm: realm,
-    p_username: username,
-  });
-  if (idError) return deny(res, 500);
-  const idRow = (Array.isArray(idData) ? idData[0] : idData) as
-    | { auth_user_id: string | null; actor_id: string | null }
-    | undefined;
-  if (!idRow) {
+  // THE REALM IS DECIDED HERE, SERVER-SIDE, AND NOWHERE ELSE. An unknown
+  // username, one that is ambiguous across the shared realms, and one that
+  // belongs to the Platform Owner but was typed on the shared screen all
+  // resolve to nothing - each answering exactly like a wrong password.
+  const resolved = await resolveIdentity(supabase, requestedRealm, username);
+  if (resolved === "error") return deny(res, 500);
+  if (!resolved) {
     await sleepUntil(startedAt, MIN_LOGIN_RESPONSE_MS);
     return deny(res, 401);
   }
+  const { realm, idRow } = resolved;
 
   let authUserId: string | null = null;
   let actorId: string | null = null;
@@ -695,7 +746,7 @@ export async function handleAuthBrokerRequest(
   const op = ops[0];
   const host = req.headers.host;
 
-  // The four login ops live on the AUTH deployment only. 404, not 403: a
+  // Both login ops live on the AUTH deployment only. 404, not 403: a
   // wrong-surface caller learns nothing about whether the op exists here.
   const loginRealm = LOGIN_OPS[op];
   if (loginRealm) {

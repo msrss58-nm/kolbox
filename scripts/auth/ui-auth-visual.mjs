@@ -130,13 +130,18 @@ try {
   p.on("console", (m) => {
     if (m.type() === "error") pageErrors.push(m.text());
   });
-  const USERS_TITLE = "כניסה לקולבוקס - משתמשים";
-  const OWNER_TITLE = "כניסה לקולבוקס - בעל המערכת";
+  // TWO screens, so two titles. The shared one is deliberately GENERIC: it
+  // must not name, hint at or ask which kind of user is typing.
+  const SHARED_TITLE = "התחברות";
   const PLATFORM_TITLE = "כניסה לקולבוקס - בעל הפלטפורמה";
-  const MULTI_TITLE = "כניסה לקולבוקס - בעל ריבוי מערכות";
+  const RETIRED_TITLES = [
+    "כניסה לקולבוקס - משתמשים",
+    "כניסה לקולבוקס - בעל המערכת",
+    "כניסה לקולבוקס - בעל ריבוי מערכות",
+  ];
 
-  await p.goto(`${BASE}/login/users`);
-  await p.getByRole("heading", { name: USERS_TITLE }).waitFor({ timeout: 20000 });
+  await p.goto(`${BASE}/login`);
+  await p.getByRole("heading", { name: SHARED_TITLE }).waitFor({ timeout: 20000 });
 
   // The brand panel is identified structurally - by the gradient utility the
   // approved design uses - not by a test id, so it cannot pass while looking
@@ -225,14 +230,12 @@ try {
   check("F9 a single primary submit button", (await submit.count()) === 1);
   check("F10 the submit button reads the login action", (await submit.innerText()).includes("התחברות"));
 
-  // ------------------------------------ the three dedicated surfaces ----
-  section("THREE DEDICATED LOGIN SCREENS, ONE IDENTICAL APPROVED DESIGN");
+  // ------------------------------------------- the two login screens ----
+  section("TWO LOGIN SCREENS, ONE IDENTICAL APPROVED DESIGN");
 
   const surfaces = [
-    ["T1", "/login/users", USERS_TITLE, false],
-    ["T2", "/login/election-owner", OWNER_TITLE, true],
+    ["T1", "/login", SHARED_TITLE, false],
     ["T3", "/login/platform-owner", PLATFORM_TITLE, true],
-    ["T4", "/login/multi-entity-owner", MULTI_TITLE, true],
   ];
   const geometry = [];
   for (const [id, route, title, ownerRealm] of surfaces) {
@@ -279,23 +282,48 @@ try {
     await p.screenshot({ path: path.join(screens, `auth${id}.png`) });
   }
   // Identical design is asserted structurally: the brand panel is the same
-  // size on all three, because all three are the same component.
+  // size on both, because both are the same component.
   check(
-    "T5 the approved panel geometry is identical across all FOUR screens",
-    geometry.length === 4 && new Set(geometry).size === 1,
+    "T5 the approved panel geometry is identical across BOTH screens",
+    geometry.length === 2 && new Set(geometry).size === 1,
     geometry.join(" | "),
   );
   check(
-    "T6 the auth bundle carries all four titles and no legacy system-code label",
-    bundleJs.includes(USERS_TITLE) &&
-      bundleJs.includes(OWNER_TITLE) &&
+    "T6 the auth bundle carries both titles and no legacy system-code label",
+    bundleJs.includes(SHARED_TITLE) &&
       bundleJs.includes(PLATFORM_TITLE) &&
-      bundleJs.includes(MULTI_TITLE) &&
       !bundleJs.includes("כניסת צוות עם קוד מערכת"),
   );
+  check(
+    "T7 no retired realm-specific title ships at all - there are two screens, not five",
+    RETIRED_TITLES.every((t) => !bundleJs.includes(t)),
+    RETIRED_TITLES.filter((t) => bundleJs.includes(t)).join(" | "),
+  );
 
-  await p.goto(`${BASE}/login/users`);
-  await p.getByRole("heading", { name: USERS_TITLE }).waitFor({ timeout: 20000 });
+  // The retired paths must still RESOLVE - links were already sent to Owners -
+  // but they must land on the one shared screen, carrying no form of their own.
+  for (const [i, route] of [
+    "/login/users",
+    "/login/election-owner",
+    "/login/multi-entity-owner",
+  ].entries()) {
+    await p.goto(`${BASE}${route}`);
+    await p.getByRole("heading", { name: SHARED_TITLE }).waitFor({ timeout: 20000 });
+    check(
+      `T8.${i + 1} ${route} redirects to the shared screen`,
+      new URL(p.url()).pathname === "/login" &&
+        (await p.locator("form").count()) === 1,
+      p.url(),
+    );
+  }
+
+  // An unknown path must not dead-end on a no-match page either.
+  await p.goto(`${BASE}/nope`);
+  await p.getByRole("heading", { name: SHARED_TITLE }).waitFor({ timeout: 20000 });
+  check("T9 an unknown auth-origin path lands on the shared screen", new URL(p.url()).pathname === "/login");
+
+  await p.goto(`${BASE}/login`);
+  await p.getByRole("heading", { name: SHARED_TITLE }).waitFor({ timeout: 20000 });
 
   // --------------------------------------------- the OTP flow is gone ----
   section("THE RETIRED E-MAIL OTP FLOW IS ABSENT");
@@ -331,8 +359,8 @@ try {
   });
   const m = await mctx.newPage();
   m.on("pageerror", (e) => pageErrors.push(String(e)));
-  await m.goto(`${BASE}/login/users`);
-  await m.getByRole("heading", { name: "כניסה לקולבוקס" }).waitFor({ timeout: 20000 });
+  await m.goto(`${BASE}/login`);
+  await m.getByRole("heading", { name: SHARED_TITLE }).waitFor({ timeout: 20000 });
 
   check(
     "M1 the brand panel is dropped on a phone (not squeezed or clipped)",

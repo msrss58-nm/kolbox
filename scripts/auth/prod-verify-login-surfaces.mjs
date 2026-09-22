@@ -53,30 +53,43 @@ const post = (url, origin, body) =>
   });
 
 // ---------------------------------------------------------------- routing --
-section("A. THE FOUR LOGIN ROUTES ARE SERVED BY THE AUTH ORIGIN");
+// RUN THIS ONLY AGAINST A DEPLOYMENT THAT CARRIES THE TWO-SCREEN MODEL. The
+// retired realm paths still resolve (as redirects, so still 200) but their
+// API ops are gone, which is what B asserts below.
+section("A. THE LOGIN ROUTES ARE SERVED BY THE AUTH ORIGIN");
 for (const [id, path] of [
-  ["A1", "/login/users"],
+  ["A1", "/login"],
   ["A2", "/login/election-owner"],
   ["A3", "/login/platform-owner"],
-  ["A4", "/login/multi-entity-owner"],
+  ["A4", "/login/users"],
 ]) {
   const r = await req(`${AUTH}${path}`);
   check(`${id} ${path} serves the SPA (200)`, r.status === 200, `status=${r.status}`);
 }
 
 // ------------------------------------------------------------- api routes --
-section("B. EACH LOGIN OP EXISTS AND FAILS GENERICALLY ON BAD CREDENTIALS");
+section("B. THE TWO LOGIN OPS EXIST AND FAIL GENERICALLY; THE RETIRED ONES ARE GONE");
 const BAD = { username: "definitely no such principal", password: "definitely-wrong" };
 const shapes = [];
 for (const [id, path] of [
-  ["B1", "/api/auth/login/users"],
-  ["B2", "/api/auth/login/election-owner"],
-  ["B3", "/api/auth/login/platform-owner"],
-  ["B4", "/api/auth/login/multi-entity-owner"],
+  ["B1", "/api/auth/login"],
+  ["B2", "/api/auth/login/platform-owner"],
 ]) {
   const r = await post(`${AUTH}${path}`, AUTH, BAD);
   shapes.push(`${r.status}:${r.text.trim()}`);
   check(`${id} ${path} -> 401 generic`, r.status === 401, `status=${r.status} body=${r.text.slice(0, 120)}`);
+}
+for (const [id, path] of [
+  ["B3", "/api/auth/login/users"],
+  ["B4", "/api/auth/login/election-owner"],
+  ["B5", "/api/auth/login/multi-entity-owner"],
+]) {
+  const r = await post(`${AUTH}${path}`, AUTH, BAD);
+  check(
+    `${id} the retired ${path} no longer authenticates anything`,
+    r.status !== 200 && r.status !== 401,
+    `status=${r.status}`,
+  );
 }
 check(
   "B5 all four failures are BYTE-IDENTICAL (no realm is distinguishable)",
@@ -99,7 +112,7 @@ check(
 
 // ------------------------------------------------------- realm separation --
 section("C. WRONG-REALM AND RETIRED INPUTS ARE REFUSED");
-const wrongRealm = await post(`${AUTH}/api/auth/login/users`, AUTH, {
+const wrongRealm = await post(`${AUTH}/api/auth/login`, AUTH, {
   username: "נחום משה",
   password: "definitely-wrong",
 });
@@ -109,24 +122,24 @@ check(
   `${wrongRealm.status} ${wrongRealm.text.slice(0, 120)}`,
 );
 
-const withCode = await post(`${AUTH}/api/auth/login/users`, AUTH, {
+const withCode = await post(`${AUTH}/api/auth/login`, AUTH, {
   username: "x",
   password: "y",
   workspaceCode: "AAAA2345",
 });
 check("C2 a system code in the body is REFUSED (400)", withCode.status === 400, `status=${withCode.status}`);
 
-const withEmail = await post(`${AUTH}/api/auth/login/users`, AUTH, {
+const withEmail = await post(`${AUTH}/api/auth/login`, AUTH, {
   username: "x",
   password: "y",
   recoveryEmail: "a@b.test",
 });
 check("C3 a recovery-email field is REFUSED (400)", withEmail.status === 400, `status=${withEmail.status}`);
 
-const foreign = await post(`${AUTH}/api/auth/login/users`, "https://evil.test", BAD);
+const foreign = await post(`${AUTH}/api/auth/login`, "https://evil.test", BAD);
 check("C4 a foreign Origin is refused (403)", foreign.status === 403, `status=${foreign.status}`);
 
-const getLogin = await req(`${AUTH}/api/auth/login/users`, { method: "GET" });
+const getLogin = await req(`${AUTH}/api/auth/login`, { method: "GET" });
 check("C5 GET on a login op is refused (405)", getLogin.status === 405, `status=${getLogin.status}`);
 
 // ------------------------------------------------------- deployment gating --
@@ -136,7 +149,7 @@ for (const [id, origin, name] of [
   ["D2", PLATFORM, "platform"],
   ["D3", MULTI, "multi_entity"],
 ]) {
-  const r = await post(`${origin}/api/auth/login/users`, origin, BAD);
+  const r = await post(`${origin}/api/auth/login`, origin, BAD);
   check(
     `${id} ${name} surface does not answer the login op (404)`,
     r.status === 404,

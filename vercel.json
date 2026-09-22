@@ -79,16 +79,8 @@
       "destination": "/api/platform/session?auth_op=login_platform_owner"
     },
     {
-      "source": "/api/auth/login/election-owner",
-      "destination": "/api/platform/session?auth_op=login_election_owner"
-    },
-    {
-      "source": "/api/auth/login/users",
-      "destination": "/api/platform/session?auth_op=login_worker"
-    },
-    {
-      "source": "/api/auth/login/multi-entity-owner",
-      "destination": "/api/platform/session?auth_op=login_multi_entity_owner"
+      "source": "/api/auth/login",
+      "destination": "/api/platform/session?auth_op=login"
     },
     {
       "source": "/(.*)",

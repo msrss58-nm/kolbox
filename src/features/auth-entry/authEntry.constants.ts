@@ -15,15 +15,26 @@ export const AUTH_ENTRY_TEXT = {
 } as const;
 
 /**
- * THE FOUR DEDICATED LOGIN SCREENS.
+ * THE TWO LOGIN SCREENS. There are exactly two, and this map is the whole
+ * list.
  *
- * One shared component renders all four (see AuthLoginScreen), and every one
- * takes exactly a username and a password. Only the title differs - the
- * approved KOLBOX split-screen layout is literally the same implementation,
- * which is what makes "identical visual design" structural rather than a
- * promise. The realm is carried by the ROUTE, never chosen by the user and
- * never guessed from what they typed: there is no realm selector, no
- * workspace selector, no system code and no e-mail on any of them.
+ * `shared` is where every principal except the Platform Owner signs in -
+ * Election Owner, Multi-Entity Owner, Manager and ordinary user alike. Its
+ * title is deliberately GENERIC: the screen must not ask, hint at, or even
+ * name which kind of user is typing, because nothing about the principal is
+ * taken from the request. The server resolves it from the username directory
+ * after the credential is verified, and routes accordingly.
+ *
+ * `platformOwner` keeps its own screen. That is not a leftover: it is the one
+ * principal that administers the platform itself, its username never competes
+ * with a tenant's in the shared directory lookup, and its credential is never
+ * posted to the endpoint tenants use.
+ *
+ * One component renders both (see AuthLoginScreen) and each takes exactly a
+ * username and a password, so the approved KOLBOX split-screen layout is the
+ * same implementation rather than a promise to keep two in step. There is no
+ * realm selector, no workspace selector, no system code and no e-mail field
+ * on either.
  */
 export interface AuthRealmScreen {
   /** Sent to the server only as the choice of endpoint, never as a body field. */
@@ -32,21 +43,13 @@ export interface AuthRealmScreen {
 }
 
 export const AUTH_REALM_SCREENS = {
+  shared: {
+    endpoint: "/api/auth/login",
+    title: "התחברות",
+  },
   platformOwner: {
     endpoint: "/api/auth/login/platform-owner",
     title: "כניסה לקולבוקס - בעל הפלטפורמה",
-  },
-  electionOwner: {
-    endpoint: "/api/auth/login/election-owner",
-    title: "כניסה לקולבוקס - בעל המערכת",
-  },
-  multiEntityOwner: {
-    endpoint: "/api/auth/login/multi-entity-owner",
-    title: "כניסה לקולבוקס - בעל ריבוי מערכות",
-  },
-  users: {
-    endpoint: "/api/auth/login/users",
-    title: "כניסה לקולבוקס - משתמשים",
   },
 } as const satisfies Record<string, AuthRealmScreen>;
 

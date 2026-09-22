@@ -63,9 +63,10 @@ const E_PORT = 5197;
 const PBASE = `http://127.0.0.1:${P_PORT}`;
 const EBASE = `http://127.0.0.1:${E_PORT}`;
 const MEBASE = "http://127.0.0.1:5196"; // display-only: the Multi-Entity origin
-// The seat holder signs in on the dedicated AUTH origin, not on the
-// Multi-Entity origin - see src/app/origins.ts `multiEntityLoginEntry`.
-const ME_LOGIN_ENTRY = "https://kolbox-auth.vercel.app/login/multi-entity-owner";
+// The seat holder signs in on the ONE shared KOLBOX login on the auth origin -
+// the same address every non-Platform-Owner principal gets, because the server
+// resolves who they are. See src/app/origins.ts `sharedLogin`.
+const ME_LOGIN_ENTRY = "https://kolbox-auth.vercel.app/login";
 process.env.PLATFORM_ALLOWED_ORIGIN = PBASE;
 process.env.KOLBOX_ELECTION_APP_BASE_URL = EBASE;
 process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = MEBASE;
@@ -573,7 +574,7 @@ try {
   dialog = page.getByRole("dialog");
   check(
     "M5c accepting the suggestion fills the field with the offered name",
-    (await dialog.locator('input[name="multi-entity-username"]').inputValue()) === "me seat one 2",
+    (await dialog.locator('input[name="multi-entity-username"]').inputValue()) === "me seat one2",
     await dialog.locator('input[name="multi-entity-username"]').inputValue(),
   );
   await dialog.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();

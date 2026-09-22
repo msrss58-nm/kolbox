@@ -21,11 +21,12 @@ function legacyLoginAddress(link: string): string | null {
   }
 }
 
-/** The canonical address a Platform Owner sends to a new seat holder: the
- * dedicated Multi-Entity login on the AUTH origin. Taken from the hard-coded
- * origin map, never derived from the link or the address bar, so it cannot be
- * repointed by a misconfigured deployment or a crafted URL. */
-const MULTI_ENTITY_LOGIN_URL = KOLBOX_ORIGIN_URLS.multiEntityLoginEntry;
+/** The canonical address a Platform Owner sends to a new seat holder: the ONE
+ * shared KOLBOX login on the auth origin - the same address every other
+ * principal gets, because the server works out who signs in. Taken from the
+ * hard-coded origin map, never derived from the link or the address bar, so
+ * it cannot be repointed by a misconfigured deployment or a crafted URL. */
+const MULTI_ENTITY_LOGIN_URL = KOLBOX_ORIGIN_URLS.sharedLogin;
 
 /**
  * The one-time password-setting link, shown once, immediately after a

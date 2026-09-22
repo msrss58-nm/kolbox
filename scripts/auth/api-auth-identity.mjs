@@ -84,6 +84,11 @@ const mk = async (email) => {
 const stamp = Date.now();
 const poId = await mk(`po-${stamp}@kolbox.test`);
 const eoId = await mk(`eo-${stamp}@kolbox.test`);
+// A second, deliberately UNNAMED owner account. It exists only as the subject
+// of the collision attempts in the shared-namespace section: those must be
+// refused because of the USERNAME, never because the subject was unusable.
+const eoId2 = await mk(`eo2-${stamp}@kolbox.test`);
+const eoId3 = await mk(`eo3-${stamp}@kolbox.test`);
 
 psql(`
   insert into public.platform_owners (auth_user_id, name, email)
@@ -124,12 +129,15 @@ const actorB = q1(`select u.id from public.election_day_permission_users u
 const wsA = q1(`select id from public.election_workspaces where login_code='AAAA2345';`);
 const wsB = q1(`select id from public.election_workspaces where login_code='BBBB3456';`);
 
-// Usernames: per-realm namespace. Note "נחום משה" is used in TWO realms on
-// purpose - that must be legal, and each surface must resolve only its own.
+// Usernames: ONE namespace for every shared-login principal. "נחום משה" may
+// therefore exist only once across worker/election_owner/multi_entity_owner -
+// the Election Owner below deliberately takes a DIFFERENT name, and the
+// collision itself is proven to be refused in the namespace section further
+// down. 'platform boss' is a separate namespace and is free to coincide.
 psql(`
   select public.auth_identity_assign('worker','נחום משה',null,'${actorA}','${wsA}');
   select public.auth_identity_assign('worker','dana cohen',null,'${actorB}','${wsB}');
-  select public.auth_identity_assign('election_owner','נחום משה','${eoId}',null,null);
+  select public.auth_identity_assign('election_owner','sarah owner','${eoId}',null,null);
   select public.auth_identity_assign('platform_owner','platform boss','${poId}',null,null);
 `);
 check("X0 fixtures created", actorA.length === 36 && actorB.length === 36);
@@ -137,7 +145,7 @@ check("X0 fixtures created", actorA.length === 36 && actorB.length === 36);
 // ------------------------------------------------------ Manager/User login --
 section("USERS SCREEN - workspace resolved with NO system code");
 
-let r = await login("login_worker", { username: "נחום משה", password: PW });
+let r = await login("login", { username: "נחום משה", password: PW });
 check("U1 correct credentials sign in", r.statusCode === 200 && r.body?.ok === true, JSON.stringify(r.body));
 check("U2 the resolved realm is worker", r.body?.realm === "worker");
 check("U3 a one-time handoff code was issued", typeof r.body?.code === "string" && r.body.code.length === 64);
@@ -147,13 +155,13 @@ check(
   q1(`select workspace_id from public.auth_handoff_codes order by issued_at desc limit 1;`) === wsA,
 );
 
-r = await login("login_worker", { username: "נחום משה", password: "wrong-password" });
+r = await login("login", { username: "נחום משה", password: "wrong-password" });
 check("U6 wrong password -> generic 401", r.statusCode === 401 && r.body?.ok === false);
 
-r = await login("login_worker", { username: "no such user", password: PW });
+r = await login("login", { username: "no such user", password: PW });
 check("U7 unknown username -> the SAME generic 401", r.statusCode === 401 && r.body?.ok === false);
 
-r = await login("login_worker", { username: "dana cohen", password: PW });
+r = await login("login", { username: "dana cohen", password: PW });
 check(
   "U8 TENANT ISOLATION: the other username resolves to workspace B",
   r.statusCode === 200 &&
@@ -161,27 +169,144 @@ check(
     q1(`select workspace_id from public.auth_handoff_codes order by issued_at desc limit 1;`) === wsB,
 );
 
-r = await login("login_worker", {
+r = await login("login", {
   username: "נחום משה",
   password: PW,
   workspaceCode: "AAAA2345",
 });
 check("U9 a system code in the body is REFUSED outright (400)", r.statusCode === 400);
 
-// ------------------------------------------------------------ wrong realm --
-section("WRONG-REALM LOGIN IS REFUSED");
+// --------------------------------------------- the two screens are sealed --
+section("THE TWO SCREENS DO NOT LEAK INTO EACH OTHER");
 
+// The shared screen resolves the principal itself, so there is no longer a
+// "wrong realm" WITHIN it - a shared-login username simply signs in as
+// whoever it belongs to (proven above). What must still hold is that the two
+// SCREENS are sealed: neither can authenticate the other's principals.
 r = await login("login_platform_owner", { username: "נחום משה", password: PW });
-check("W1 a worker username on the Platform screen -> 401", r.statusCode === 401);
+check("W1 a worker username on the Platform Owner screen -> 401", r.statusCode === 401);
 
-r = await login("login_election_owner", { username: "dana cohen", password: PW });
-check("W2 a worker username on the Owner screen -> 401", r.statusCode === 401);
+r = await login("login_platform_owner", { username: "sarah owner", password: PW });
+check("W2 an Election Owner username on the Platform Owner screen -> 401", r.statusCode === 401);
 
-r = await login("login_worker", { username: "platform boss", password: PW });
-check("W3 the Platform Owner username on the Users screen -> 401", r.statusCode === 401);
+r = await login("login", { username: "platform boss", password: PW });
+check(
+  "W3 the Platform Owner username on the SHARED screen -> 401 (their namespace is not resolved there)",
+  r.statusCode === 401,
+);
 
-r = await login("login_worker", { username: "נחום משה", password: PW }, "https://evil.test");
+r = await login("login", { username: "נחום משה", password: PW }, "https://evil.test");
 check("W4 a foreign Origin is refused (403)", r.statusCode === 403);
+
+r = await login("login", { username: "נחום משה", password: PW, realm: "election_owner" });
+check("W5 a realm named in the body is REFUSED outright (400) - the client never states one", r.statusCode === 400);
+
+// The Election Owner signs in on the SAME shared screen as a worker, and the
+// server - not the route, not the user - decides which they are.
+r = await login("login", { username: "sarah owner", password: PW });
+check(
+  "W6 the Election Owner signs in on the shared screen and is resolved server-side",
+  r.statusCode === 200 && r.body?.ok === true && r.body?.realm === "election_owner",
+  JSON.stringify(r.body),
+);
+check("W7 ... and is routed to the election origin", r.body?.targetOrigin === ELECTION_ORIGIN);
+
+// ------------------------------------------------- ONE shared namespace --
+section("SHARED-LOGIN USERNAMES ARE GLOBALLY UNIQUE");
+
+const takeShared = (realm, name, subject) =>
+  psql(`select public.auth_identity_assign('${realm}','${name}','${subject}',null,null);`);
+
+let collision = "";
+try {
+  // 'נחום משה' is a WORKER. Handing it to an Election Owner would make the
+  // shared lookup ambiguous and lock both of them out, so it must be refused
+  // at creation time - which is the only moment anyone can act on it.
+  takeShared("election_owner", "נחום משה", eoId2);
+} catch (e) {
+  collision = String(e.message || e);
+}
+check(
+  "N1 a username already held by a WORKER is refused for an Election Owner",
+  collision.includes("USERNAME_TAKEN"),
+  collision.slice(0, 120),
+);
+
+collision = "";
+try {
+  takeShared("multi_entity_owner", "dana cohen", eoId2);
+} catch (e) {
+  collision = String(e.message || e);
+}
+check(
+  "N2 ... and for a Multi-Entity Owner",
+  collision.includes("USERNAME_TAKEN"),
+  collision.slice(0, 120),
+);
+
+check(
+  "N3 the suggestion crosses realms too: the next free variant of a WORKER name, offered for an Owner",
+  q1(`select public.auth_identity_suggest_username('election_owner','נחום משה');`) === "נחום משה2",
+  q1(`select public.auth_identity_suggest_username('election_owner','נחום משה');`),
+);
+
+check(
+  "N4 the Platform Owner keeps its OWN namespace - a shared-login name stays free there",
+  q1(`select public.auth_identity_suggest_username('platform_owner','נחום משה');`) === "נחום משה",
+);
+
+check(
+  "N5 the invariant is in the DATABASE, not only the function: a direct INSERT is refused",
+  (() => {
+    try {
+      psql(`insert into public.auth_identities (username, realm, auth_user_id)
+            values ('dana cohen','election_owner','${eoId2}');`);
+      return false;
+    } catch (e) {
+      return String(e.message || e).includes("auth_identities_shared_username_key");
+    }
+  })(),
+);
+
+// ------------------------------------------- the exact collision format --
+section("COLLISION FORMAT: base, base2, base3, base4 - NO SPACE");
+
+// 'נחום משה' is held by a WORKER. Each step below hands the next free variant
+// to a DIFFERENT shared realm, so the sequence is proven to be one namespace
+// spanning worker -> Election Owner -> Multi-Entity Owner, and to advance in
+// the approved format at every step.
+check(
+  "C1 the first collision offers 'נחום משה2' (worker holds the base)",
+  q1(`select public.auth_identity_suggest_username('election_owner','נחום משה');`) === "נחום משה2",
+  q1(`select public.auth_identity_suggest_username('election_owner','נחום משה');`),
+);
+
+psql(`select public.auth_identity_assign('election_owner','נחום משה2','${eoId2}',null,null);`);
+check(
+  "C2 with the Election Owner holding it, the next offer is 'נחום משה3'",
+  q1(`select public.auth_identity_suggest_username('multi_entity_owner','נחום משה');`) === "נחום משה3",
+  q1(`select public.auth_identity_suggest_username('multi_entity_owner','נחום משה');`),
+);
+
+psql(`select public.auth_identity_assign('multi_entity_owner','נחום משה3','${eoId3}',null,null);`);
+check(
+  "C3 and then 'נחום משה4' - the sequence advances across all three shared realms",
+  q1(`select public.auth_identity_suggest_username('worker','נחום משה');`) === "נחום משה4",
+  q1(`select public.auth_identity_suggest_username('worker','נחום משה');`),
+);
+
+check(
+  "C4 no variant carries a space before the number",
+  q1(`select string_agg(username, '|' order by username)
+      from public.auth_identities
+      where username like 'נחום משה%';`) === "נחום משה|נחום משה2|נחום משה3",
+  q1(`select string_agg(username, '|' order by username) from public.auth_identities where username like 'נחום משה%';`),
+);
+
+check(
+  "C5 the Platform Owner namespace is untouched by any of it",
+  q1(`select public.auth_identity_suggest_username('platform_owner','נחום משה');`) === "נחום משה",
+);
 
 // ------------------------- Platform Owner: password-only sign-in (no MFA) --
 section("PLATFORM OWNER SIGNS IN WITH PASSWORD ONLY - NO MFA PROMPT");
@@ -293,7 +418,7 @@ psql(`
   select public.auth_identity_assign('multi_entity_owner','multi boss','${meId}',null,null);
 `);
 
-r = await login("login_multi_entity_owner", { username: "multi boss", password: PW });
+r = await login("login", { username: "multi boss", password: PW });
 check(
   "M1 the Multi-Entity Owner signs in on its own surface",
   r.statusCode === 200 && r.body?.ok === true && r.body?.realm === "multi_entity_owner",
@@ -310,11 +435,15 @@ check(
       where auth_user_id='${meId}' order by issued_at desc limit 1;`) === "multi_entity_owner|-",
 );
 
-r = await login("login_multi_entity_owner", { username: "נחום משה", password: PW });
-check("M4 a worker username on the Multi-Entity screen -> 401", r.statusCode === 401);
+r = await login("login", { username: "נחום משה", password: PW });
+check(
+  "M4 the SAME shared screen resolves a worker as a worker - the Multi-Entity seat gains it nothing",
+  r.statusCode === 200 && r.body?.realm === "worker" && r.body?.targetOrigin === ELECTION_ORIGIN,
+  JSON.stringify(r.body),
+);
 r = await login("login_platform_owner", { username: "multi boss", password: PW });
 check("M5 the Multi-Entity username on the Platform screen -> 401", r.statusCode === 401);
-r = await login("login_multi_entity_owner", { username: "multi boss", password: "nope" });
+r = await login("login", { username: "multi boss", password: "nope" });
 check("M6 wrong password -> generic 401", r.statusCode === 401);
 check(
   "M7 the Multi-Entity seat needs no external verification to sign in",
@@ -423,8 +552,8 @@ check(
   `status=${c.statusCode} ${JSON.stringify(c.body)}`,
 );
 check(
-  "N5 ... and it carries the next free suggestion 'אלי כהן 2'",
-  c.body?.suggestion === "אלי כהן 2",
+  "N5 ... and it carries the next free suggestion 'אלי כהן2' - no space before the number",
+  c.body?.suggestion === "אלי כהן2",
   JSON.stringify(c.body),
 );
 check(
@@ -433,7 +562,7 @@ check(
       where name='אלי כהן ב' and workspace_id='${wsA}';`) === "0",
 );
 
-c = await createWorker("אלי כהן ב", "אלי כהן 2");
+c = await createWorker("אלי כהן ב", "אלי כהן2");
 check(
   "N7 accepting the suggestion succeeds",
   c.statusCode === 200,
@@ -442,8 +571,8 @@ check(
 
 c = await createWorker("אלי כהן ג", "אלי כהן");
 check(
-  "N8a the next collision advances the suggestion to 'אלי כהן 3'",
-  c.statusCode === 409 && c.body?.suggestion === "אלי כהן 3",
+  "N8a the next collision advances the suggestion to 'אלי כהן3'",
+  c.statusCode === 409 && c.body?.suggestion === "אלי כהן3",
   JSON.stringify(c.body),
 );
 
@@ -454,7 +583,7 @@ c = await createWorker("בדיקה", "bad@name");
 check("N9 an '@' in the login username is refused", c.statusCode === 400, `status=${c.statusCode}`);
 
 // Each of those usernames must resolve to its own workspace, with no code.
-r = await login("login_worker", { username: "אלי כהן", password: PW });
+r = await login("login", { username: "אלי כהן", password: PW });
 check(
   "N10 the first username signs in and resolves workspace A",
   r.statusCode === 200 &&
@@ -522,7 +651,7 @@ check(
   "P4 a taken Owner username -> 409 with the next free suggestion",
   pr.statusCode === 409 &&
     pr.body?.error === "USERNAME_TAKEN" &&
-    pr.body?.suggestion === "owner alpha 2",
+    pr.body?.suggestion === "owner alpha2",
   JSON.stringify(pr.body),
 );
 check(
@@ -538,9 +667,9 @@ const newOwnerId = q1(`select auth_user_id from public.election_workspace_pendin
 if (newOwnerId.length === 36) {
   await A.auth.admin.updateUserById(newOwnerId, { password: PW });
 }
-r = await login("login_election_owner", { username: "owner alpha", password: PW });
+r = await login("login", { username: "owner alpha", password: PW });
 check(
-  "P6 the provisioned Owner signs in on /login/election-owner end to end",
+  "P6 the provisioned Owner signs in on the SHARED screen end to end",
   r.statusCode === 200 && r.body?.ok === true && r.body?.realm === "election_owner",
   JSON.stringify(r.body),
 );

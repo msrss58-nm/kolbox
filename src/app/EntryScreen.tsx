@@ -226,7 +226,7 @@ export function EntryScreen() {
             <ExternalLink className="size-3.5 shrink-0" aria-hidden />
           </a>
           <a
-            href={KOLBOX_ORIGIN_URLS.multiEntityLogin}
+            href={KOLBOX_ORIGIN_URLS.sharedLogin}
             className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
           >
             {ENTRY_TEXT.multiEntityOwner}

@@ -129,12 +129,19 @@ export const ROUTES = {
   budget: "/budget",
   /** KOLBOX Auth origin: the cross-origin `form_post` bridge. Never receives
    * the handoff code from the URL - see AuthContinueScreen. */
-  /** The three dedicated KOLBOX login routes on the auth origin. The route
-   * itself determines the realm the server will authenticate against. */
-  authLoginUsers: "/login/users",
-  authLoginElectionOwner: "/login/election-owner",
+  /** The TWO KOLBOX login routes on the auth origin, and there are only two.
+   * `authLogin` is the shared screen for every principal except the Platform
+   * Owner, who keeps `authLoginPlatformOwner`. Which principal a shared
+   * sign-in turns out to be is resolved by the SERVER, never by the route,
+   * the screen or anything the user types. The three retired realm-specific
+   * paths (`/login/users`, `/login/election-owner`,
+   * `/login/multi-entity-owner`) now redirect here so existing links survive.
+   *
+   * The shared screen deliberately has NO constant of its own: it sits on
+   * `ROUTES.login`, the one entry path that already resolves on every
+   * surface, so there is a single spelling of "/login" in the codebase and no
+   * second one to drift from it. */
   authLoginPlatformOwner: "/login/platform-owner",
-  authLoginMultiEntityOwner: "/login/multi-entity-owner",
   authContinue: "/auth/continue",
   /** Leg 2 of the handoff, registered on each TARGET origin (election,
    * platform, multi-entity). The confirmation screen that must be accepted

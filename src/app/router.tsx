@@ -193,39 +193,39 @@ const APP_SURFACE: AppSurface =
  * what keeps one principal's saved credential from being a fill candidate on
  * another principal's form.
  *
- * THREE DEDICATED LOGIN ROUTES, one per principal class. THE ROUTE IS WHAT
- * DECIDES THE REALM - there is no realm selector, no workspace selector and
- * no system code anywhere on this origin. All three render the SAME component
- * (AuthLoginScreen), so the approved KOLBOX visual design is identical by
- * construction rather than by convention; only the title and the field set
- * differ.
+ * TWO LOGIN ROUTES, and there are only two: `/login`, the shared screen every
+ * principal except the Platform Owner uses, and `/login/platform-owner`.
  *
- * `/` has no login form of its own on purpose: a bare landing would be a
- * fourth form and would re-introduce "which kind of user am I?" as a question
- * the user has to answer. It redirects to the Users screen, which is the
- * overwhelmingly common case; Owners reach their own URL from the link their
- * Platform Owner / Election Owner sent them.
+ * NOTHING ABOUT THE PRINCIPAL COMES FROM THE CLIENT on the shared screen -
+ * not from a selector, not from a workspace, not from a system code, and no
+ * longer from the route either. The server resolves the principal from the
+ * username directory and decides both the target origin and the landing
+ * path. A user does not need to know what kind of user they are.
+ *
+ * The three retired realm-specific paths still resolve, as redirects to the
+ * shared screen, so links already sent to Owners keep working. They render no
+ * credential field of their own - there is exactly one shared form.
+ *
+ * Both screens render the SAME component (AuthLoginScreen), so the approved
+ * KOLBOX visual design is identical by construction rather than by
+ * convention; only the title differs.
  *
  * `/auth/continue` never reads a code from the URL (see AuthContinueScreen) -
  * that absence is a login-CSRF control, not hygiene.
  */
 const authSurfaceRoutes: RouteObject[] = [
-  { path: ROUTES.authLoginUsers, element: <AuthLoginScreen realmKey="users" /> },
-  {
-    path: ROUTES.authLoginElectionOwner,
-    element: <AuthLoginScreen realmKey="electionOwner" />,
-  },
+  { path: ROUTES.login, element: <AuthLoginScreen realmKey="shared" /> },
   {
     path: ROUTES.authLoginPlatformOwner,
     element: <AuthLoginScreen realmKey="platformOwner" />,
   },
-  {
-    path: ROUTES.authLoginMultiEntityOwner,
-    element: <AuthLoginScreen realmKey="multiEntityOwner" />,
-  },
+  // Retired realm-specific entry points - kept only so existing links resolve.
+  { path: "/login/users", element: <Navigate to={ROUTES.login} replace /> },
+  { path: "/login/election-owner", element: <Navigate to={ROUTES.login} replace /> },
+  { path: "/login/multi-entity-owner", element: <Navigate to={ROUTES.login} replace /> },
   { path: ROUTES.authContinue, element: <AuthContinueScreen /> },
-  { path: "/", element: <Navigate to={ROUTES.authLoginUsers} replace /> },
-  { path: "*", element: <Navigate to={ROUTES.authLoginUsers} replace /> },
+  { path: "/", element: <Navigate to={ROUTES.login} replace /> },
+  { path: "*", element: <Navigate to={ROUTES.login} replace /> },
 ];
 
 /**
