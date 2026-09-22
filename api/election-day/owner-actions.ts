@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { extractBearerToken, getServiceClient, verifyOwnerJwt } from "./_ownerAuth.js";
 
 // Multi-Tenant Phase 4B: generic Election Day Owner-JWT trusted action
@@ -16,6 +16,23 @@ interface OpDescriptor {
   method: "GET" | "POST";
   rpc: string;
   requiresProof: boolean;
+  /**
+   * The RPC still takes a one-time action proof, but the SERVER mints it for
+   * this op instead of demanding the Owner re-type their password.
+   *
+   * The proof's mechanism is untouched - it is still action-bound, still
+   * single-use, still consumed inside the same RPC transaction. What changes
+   * is what it proves: it stops being a step-up ("the human at the keyboard
+   * is the Owner") and becomes an internal transaction token. Authorization
+   * for the op therefore rests on the verified Owner JWT plus the RPC's own
+   * live workspace re-resolution, which are unchanged.
+   *
+   * Recorded plainly because it IS a reduction: whoever holds a live Owner
+   * session can now perform this op without knowing the Owner's password.
+   * Deliberate and requested, and deliberately NOT applied to delete or
+   * password-reset, which keep their step-up.
+   */
+  mintedProofAction?: string;
   requiredKeys: string[];
   buildParams: (
     body: Record<string, unknown>,
@@ -87,7 +104,12 @@ const OPS: Record<string, OpDescriptor> = {
     // transaction. `username` is optional: omitted, the server defaults it to
     // the name the Owner typed (first name + last name).
     rpc: "election_day_create_permission_user_owner_v4",
-    requiresProof: true,
+    // No step-up: a signed-in Owner creating a user is not asked for their own
+    // password again. The RPC's proof is minted server-side (see
+    // mintedProofAction) so its one-time, action-bound contract is unchanged
+    // and no migration is needed.
+    requiresProof: false,
+    mintedProofAction: "create_permission_user",
     requiredKeys: ["name", "password", "roleId"],
     buildParams: (b) => {
       const name = str(b.name).trim();
@@ -448,6 +470,44 @@ function sendError(res: MinimalResponse, status: number, code: string): void {
 // is refused while the workspace is not entitled to Election Day - checked
 // here, server-side, before its RPC runs. Those RPCs are service_role-only,
 // so this handler is the only way any caller can reach them.
+/**
+ * THE ONLY PLACE THAT PROPOSES A LOGIN USERNAME: base -> base1 -> base2 -> ...
+ *
+ * Used by BOTH the pre-check op and the USERNAME_TAKEN answer, so the name
+ * offered before the password step and the name offered after a lost race can
+ * never disagree. It is a SUGGESTION only - the partial unique index on
+ * auth_identities remains the sole enforcement, and a suggestion that goes
+ * stale between the check and the create is caught there, not here.
+ *
+ * Built on auth_identity_suggest_username rather than replacing it: that
+ * function returns the base when the base is free, and otherwise the first
+ * free base2/base3/... The one thing it does not offer is base1, so the base1
+ * slot is probed explicitly with the same function (asking whether base1 is
+ * returned unchanged, i.e. is itself free). At most two round trips, no
+ * second definition of normalization, and no schema change.
+ */
+async function suggestWorkerUsername(
+  supabase: ReturnType<typeof getServiceClient>,
+  base: string,
+): Promise<{ available: boolean; suggestion: string | null }> {
+  const canonical = base.trim().normalize("NFC");
+  if (canonical === "") return { available: false, suggestion: null };
+  const suggest = (p_base: string) =>
+    supabase.rpc("auth_identity_suggest_username", { p_realm: "worker", p_base });
+  const first = await suggest(canonical);
+  // An error here is NOT "available": exhausted (NO_USERNAME_AVAILABLE) and a
+  // transport failure both have to fall through to "pick another name", and
+  // the create itself stays the authority either way.
+  if (first.error || typeof first.data !== "string") {
+    return { available: false, suggestion: null };
+  }
+  if (first.data === canonical) return { available: true, suggestion: canonical };
+  const one = `${canonical}1`;
+  const probe = await suggest(one);
+  if (!probe.error && probe.data === one) return { available: false, suggestion: one };
+  return { available: false, suggestion: first.data };
+}
+
 const NON_MODULE_OPS = new Set<string>([
   "provision_workspace",
   "list_permission_users",
@@ -739,6 +799,67 @@ export default async function handler(
 
   const body = (req.body ?? {}) as Record<string, unknown>;
   const opName = str(body.op);
+
+  // ---------------------------------------------------------------------
+  // suggest_permission_user_username - the pre-check, before the password
+  // step. Reads only; creates nothing, claims nothing, and is NOT part of
+  // the RPC-descriptor machinery because it answers from the shared helper
+  // rather than from one RPC.
+  //
+  // Deliberately NOT module-gated: Owner user administration is available in
+  // a workspace entitled to nothing (see CLAUDE.md), exactly like the create
+  // and list ops beside it.
+  //
+  // It tells an authenticated Election Owner whether a login username is
+  // free. That is the same fact the create call already discloses through
+  // USERNAME_TAKEN, so it opens no new disclosure - it just moves it before
+  // the password instead of after it.
+  // ---------------------------------------------------------------------
+  if (opName === "suggest_permission_user_username") {
+    if (Object.keys(body).some((k) => k !== "op" && k !== "username")) {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    const requested = str(body.username).trim();
+    if (requested === "") {
+      sendError(res, 400, "INVALID_REQUEST");
+      return;
+    }
+    const token = extractBearerToken(req);
+    if (!token) {
+      sendError(res, 401, "UNAUTHORIZED");
+      return;
+    }
+    const owner = await verifyOwnerJwt(token);
+    if (!owner) {
+      sendError(res, 401, "UNAUTHORIZED");
+      return;
+    }
+    let client: ReturnType<typeof getServiceClient>;
+    try {
+      client = getServiceClient();
+    } catch {
+      sendError(res, 500, "SERVER_CONFIG_MISSING");
+      return;
+    }
+    // Only a real Election Owner may ask. verifyOwnerJwt proves the account;
+    // this proves the principal, the same resolution every op below relies on.
+    const resolved = await client.rpc("election_day_resolve_owner_context", {
+      p_auth_user_id: owner.authUserId,
+    });
+    if (
+      resolved.error ||
+      !resolved.data ||
+      (Array.isArray(resolved.data) && resolved.data.length === 0)
+    ) {
+      sendError(res, 401, "UNAUTHORIZED");
+      return;
+    }
+    const { available, suggestion } = await suggestWorkerUsername(client, requested);
+    res.status(200).json({ requested, available, suggestion });
+    return;
+  }
+
   const descriptor = OPS[opName];
   if (!descriptor || descriptor.method !== "POST") {
     sendError(res, 400, "INVALID_REQUEST");
@@ -823,6 +944,25 @@ export default async function handler(
   };
   if (descriptor.requiresProof) {
     rpcParams.p_reauth_proof_hash = toPgBytea(sha256Hex(reauthProof));
+  } else if (descriptor.mintedProofAction) {
+    // Minted HERE, for this one call, and never returned to anyone: the raw
+    // value exists only in this local variable. election_day_owner_reauth
+    // verifies no password - it resolves the Owner from the id and issues an
+    // action-bound row - so the password check that used to sit in front of
+    // it (in owner-reauth.ts) is what is being removed, not the proof itself.
+    // A failure to mint means the caller is not a resolvable Owner: refuse.
+    const rawProof = randomBytes(32).toString("hex");
+    const proofHash = toPgBytea(sha256Hex(rawProof));
+    const minted = await supabase.rpc("election_day_owner_reauth", {
+      p_auth_user_id: verified.authUserId,
+      p_action: descriptor.mintedProofAction,
+      p_proof_hash: proofHash,
+    });
+    if (minted.error) {
+      sendError(res, 401, "UNAUTHORIZED");
+      return;
+    }
+    rpcParams.p_reauth_proof_hash = proofHash;
   }
 
   const rpcResult = await supabase.rpc(descriptor.rpc, rpcParams);
@@ -834,18 +974,8 @@ export default async function handler(
     // accept it in one click instead of guessing.
     if (code === "USERNAME_TAKEN" && opName === "create_permission_user") {
       const base = str(body.username).trim() || str(body.name).trim();
-      const suggestion = await supabase.rpc("auth_identity_suggest_username", {
-        p_realm: "worker",
-        p_base: base,
-      });
-      res.status(409).json({
-        error: "USERNAME_TAKEN",
-        requested: base,
-        suggestion:
-          !suggestion.error && typeof suggestion.data === "string"
-            ? suggestion.data
-            : null,
-      });
+      const { suggestion } = await suggestWorkerUsername(supabase, base);
+      res.status(409).json({ error: "USERNAME_TAKEN", requested: base, suggestion });
       return;
     }
     sendError(res, status, code);

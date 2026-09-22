@@ -38,19 +38,40 @@ function initialOf(name: string): string {
   return Array.from(name.trim())[0] ?? "";
 }
 
+/**
+ * TWO STEPS, and the split is the point: the login username is proven free
+ * BEFORE a password is ever typed.
+ *
+ * It used to be one form, so a taken username was only discovered after the
+ * whole thing had been filled in and submitted - the Owner learned about the
+ * clash at the end, having already done all the work. Step 1 settles who the
+ * user is and checks the name with the server; step 2 is only reachable once
+ * that name is free.
+ *
+ * The check REPORTS, it does not reserve. Nothing is held between the two
+ * steps, so a name can still be taken by someone else in between - which is
+ * why the create call remains the authority and a refusal there sends the
+ * dialog back to step 1 with a fresh suggestion, rather than failing the
+ * Owner at the end again.
+ */
 function CreateUserDialog({
   roles,
   onAdd,
+  onCheckUsername,
   onClose,
   collision,
   onClearCollision,
 }: {
   roles: readonly RoleRecord[];
   onAdd: (input: NewPermissionUser) => Promise<unknown>;
+  /** True when the name is free. A false answer has already recorded the
+   * collision, so this component only has to stay put. */
+  onCheckUsername: (username: string) => Promise<boolean>;
   onClose: () => void;
   collision: { requested: string; suggestion: string | null } | null;
   onClearCollision: () => void;
 }) {
+  const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   // Until the Owner edits it, the login username simply mirrors the name, so
@@ -64,28 +85,48 @@ function CreateUserDialog({
   const effectiveRoleId = selectedRoleId ?? roles[0]?.id ?? null;
   const effectiveUsername = usernameTouched ? username : name;
 
+  /** Step 1 -> step 2, only if the server says the name is free. */
+  const continueToPassword = async () => {
+    if (busy) return;
+    if (!name.trim() || !effectiveRoleId) {
+      toast.error(text.toast.invalid);
+      return;
+    }
+    setBusy(true);
+    try {
+      const free = await onCheckUsername(effectiveUsername.trim());
+      if (free) setStep(2);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
+    if (step === 1) {
+      await continueToPassword();
+      return;
+    }
     if (!name.trim() || !password.trim() || !effectiveRoleId) {
       toast.error(text.toast.invalid);
       return;
     }
     setBusy(true);
     try {
-      // A cancelled step-up or a refused create resolves to `undefined` - the
-      // dialog stays open with what was typed. Only a real success closes it.
       const result = await onAdd({
         name: name.trim(),
         password: password.trim(),
         roleId: effectiveRoleId,
         username: effectiveUsername.trim(),
       });
-      // ONLY an outright success closes the dialog. A cancelled step-up
-      // resolves to `undefined` and a taken login username resolves to
-      // `false`; both must leave the form open with what was typed, the
-      // second so the Owner can accept the suggested name in one click.
+      // ONLY an outright success closes the dialog. `false` means the server
+      // refused the username after all - someone claimed it between the check
+      // and the create - so go BACK to step 1, where the collision and the
+      // next free name are shown, instead of stranding the Owner on a
+      // password field that cannot succeed.
       if (result === true) onClose();
+      else if (result === false) setStep(1);
     } finally {
       setBusy(false);
     }
@@ -94,120 +135,151 @@ function CreateUserDialog({
   return (
     <Modal open title={usersText.add} onClose={busy ? () => {} : onClose}>
       <form onSubmit={(e) => void submit(e)} className="space-y-4">
-        <Field label={text.nameLabel}>
-          {/* Browser-autofill mitigation: a new PermissionUser's display name,
+        <p
+          data-testid="create-user-step"
+          className="text-xs font-semibold text-slate-500"
+        >
+          {step === 1 ? text.stepDetails : text.stepPassword}
+        </p>
+
+        {step === 1 ? (
+          <>
+            <Field label={text.nameLabel}>
+              {/* Browser-autofill mitigation: a new PermissionUser's display name,
               never the signed-in account's own identity. A bare text field
               followed by a password field is exactly the shape Chrome treats
               as a login form and fills with a saved credential for this
               origin; "off" is the WHATWG "do not auto-populate" token (not
               "username", which would declare it a login identifier). */}
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={text.namePlaceholder}
-            autoComplete="off"
-            name="new-permission-user-name"
-            autoFocus
-          />
-        </Field>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={text.namePlaceholder}
+                autoComplete="off"
+                name="new-permission-user-name"
+                autoFocus
+              />
+            </Field>
 
-        <Field label={text.usernameLabel}>
-          <Input
-            value={effectiveUsername}
-            onChange={(e) => {
-              setUsernameTouched(true);
-              setUsername(e.target.value);
-              onClearCollision();
-            }}
-            autoComplete="off"
-            name="new-permission-user-username"
-            aria-describedby="kb-new-username-hint"
-            invalid={collision !== null}
-          />
-          <p id="kb-new-username-hint" className="mt-1 text-xs text-slate-400">
-            {text.usernameHint}
-          </p>
-          {collision && (
-            <div
-              role="alert"
-              data-testid="username-collision"
-              className="mt-2 space-y-2 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200"
-            >
-              <p className="text-xs font-semibold text-amber-900">
-                {text.usernameTakenTitle}
+            <Field label={text.usernameLabel}>
+              <Input
+                value={effectiveUsername}
+                onChange={(e) => {
+                  setUsernameTouched(true);
+                  setUsername(e.target.value);
+                  onClearCollision();
+                }}
+                autoComplete="off"
+                name="new-permission-user-username"
+                aria-describedby="kb-new-username-hint"
+                invalid={collision !== null}
+              />
+              <p id="kb-new-username-hint" className="mt-1 text-xs text-slate-400">
+                {text.usernameHint}
               </p>
-              <p className="text-xs text-amber-800">
-                {collision.suggestion
-                  ? text.usernameTakenSuggestion(collision.suggestion)
-                  : text.usernameTakenNoSuggestion}
-              </p>
-              {collision.suggestion && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setUsernameTouched(true);
-                    setUsername(collision.suggestion ?? "");
-                    onClearCollision();
-                  }}
+              {collision && (
+                <div
+                  role="alert"
+                  data-testid="username-collision"
+                  className="mt-2 space-y-2 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200"
                 >
-                  {text.usernameUseSuggestion}
-                </Button>
+                  <p className="text-xs font-semibold text-amber-900">
+                    {text.usernameTakenTitle}
+                  </p>
+                  <p className="text-xs text-amber-800">
+                    {collision.suggestion
+                      ? text.usernameTakenSuggestion(collision.suggestion)
+                      : text.usernameTakenNoSuggestion}
+                  </p>
+                  {collision.suggestion && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setUsernameTouched(true);
+                        setUsername(collision.suggestion ?? "");
+                        onClearCollision();
+                      }}
+                    >
+                      {text.usernameUseSuggestion}
+                    </Button>
+                  )}
+                </div>
               )}
-            </div>
-          )}
-        </Field>
+            </Field>
 
-        <Field label={text.passwordLabel}>
-          <div className="flex gap-2">
-            {/* "new-password": a password for an account other than the
+            <Field label={text.roleLabel}>
+              <Select
+                value={effectiveRoleId ?? ""}
+                onChange={(e) => setSelectedRoleId(e.target.value)}
+              >
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <div className="flex gap-2 pt-1">
+              <Button type="submit" loading={busy} className="flex-1">
+                {text.continueButton}
+              </Button>
+              <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+                {COMMON_TEXT.cancel}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Field label={text.passwordLabel}>
+              <div className="flex gap-2">
+                {/* "new-password": a password for an account other than the
                 signed-in one - suppresses saved-credential autofill and the
                 "update saved password?" prompt in every major browser. */}
-            <Input
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={text.passwordPlaceholder}
-              className="flex-1"
-              dir="ltr"
-              autoComplete="new-password"
-              name="new-permission-user-password"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              aria-label={
-                showPassword ? text.hidePasswordAriaLabel : text.showPasswordAriaLabel
-              }
-              className="touch-target grid shrink-0 place-items-center rounded-xl text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-primary-500"
-            >
-              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
-          </div>
-        </Field>
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={text.passwordPlaceholder}
+                  className="flex-1"
+                  dir="ltr"
+                  autoComplete="new-password"
+                  name="new-permission-user-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={
+                    showPassword ? text.hidePasswordAriaLabel : text.showPasswordAriaLabel
+                  }
+                  className="touch-target grid shrink-0 place-items-center rounded-xl text-slate-400 ring-1 ring-slate-200 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-primary-500"
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                </button>
+              </div>
+            </Field>
 
-        <Field label={text.roleLabel}>
-          <Select
-            value={effectiveRoleId ?? ""}
-            onChange={(e) => setSelectedRoleId(e.target.value)}
-          >
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <div className="flex gap-2 pt-1">
-          <Button type="submit" loading={busy} className="flex-1">
-            {text.addButton}
-          </Button>
-          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
-            {COMMON_TEXT.cancel}
-          </Button>
-        </div>
+            <div className="flex gap-2 pt-1">
+              <Button type="submit" loading={busy} className="flex-1">
+                {text.addButton}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setStep(1)}
+                disabled={busy}
+              >
+                {text.backButton}
+              </Button>
+            </div>
+          </>
+        )}
       </form>
     </Modal>
   );
@@ -231,6 +303,7 @@ export function PermissionUsersPanel({
   loadError,
   onRetry,
   onAdd,
+  onCheckUsername,
   onDelete,
   onReset,
   canResetPassword,
@@ -246,6 +319,8 @@ export function PermissionUsersPanel({
    * the step-up was cancelled; `false` means the login username was taken and
    * the dialog must stay open so the Owner can accept the suggestion. */
   onAdd: (input: NewPermissionUser) => Promise<unknown>;
+  /** Checks the login username BEFORE the password step. See CreateUserDialog. */
+  onCheckUsername: (username: string) => Promise<boolean>;
   /** A taken login username, with the next free name to offer. */
   usernameCollision: { requested: string; suggestion: string | null } | null;
   onClearUsernameCollision: () => void;
@@ -448,6 +523,7 @@ export function PermissionUsersPanel({
         <CreateUserDialog
           roles={roles}
           onAdd={onAdd}
+          onCheckUsername={onCheckUsername}
           onClose={() => {
             onClearUsernameCollision();
             setCreateOpen(false);

@@ -23,6 +23,7 @@ export function OwnerUsersSection() {
       loadError={userManagement.loadError}
       onRetry={userManagement.reload}
       onAdd={userManagement.createUser}
+      onCheckUsername={userManagement.checkUsername}
       onDelete={userManagement.deleteUser}
       onReset={userManagement.resetPassword}
       // The Owner may now reset ANY of their users, Manager roles included:

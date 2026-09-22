@@ -520,14 +520,40 @@ async function postOwnerUserMutation(
     : { status: "error", code: result.code, suggestion: result.suggestion };
 }
 
+/** Is this login username free, and if not, what is the next one that is?
+ * A read - it claims nothing, so the answer can go stale and the create call
+ * stays the authority. */
+export type OwnerUsernameCheck =
+  | { status: "ok"; available: boolean; suggestion: string | null }
+  | { status: "error" };
+
+export async function checkOwnerPermissionUsername(
+  accessToken: string,
+  username: string,
+): Promise<OwnerUsernameCheck> {
+  const result = await postOwnerAction(accessToken, {
+    op: "suggest_permission_user_username",
+    username,
+  });
+  if (!result.ok) return { status: "error" };
+  const d = result.data as { available?: unknown; suggestion?: unknown } | null;
+  if (!d || typeof d.available !== "boolean") return { status: "error" };
+  return {
+    status: "ok",
+    available: d.available,
+    suggestion: typeof d.suggestion === "string" ? d.suggestion : null,
+  };
+}
+
+/** No step-up proof: a signed-in Owner is not asked for their own password
+ * again. Authorization is the Owner JWT plus the server's own live workspace
+ * re-resolution, both unchanged. */
 export function createOwnerPermissionUser(
   accessToken: string,
-  proof: string,
   input: NewPermissionUser,
 ): Promise<OwnerUserMutationResult> {
   return postOwnerUserMutation(accessToken, {
     op: "create_permission_user",
-    reauthProof: proof,
     name: input.name,
     password: input.password,
     roleId: input.roleId,

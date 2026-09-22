@@ -4,6 +4,7 @@ import { useAsyncData } from "../../hooks/useAsyncData";
 import type { NewPermissionUser } from "../../services/api/types";
 import { ELECTION_DAY_TEXT } from "./election-day.constants";
 import {
+  checkOwnerPermissionUsername,
   createOwnerPermissionUser,
   deleteOwnerPermissionUser,
   fetchOwnerPermissionUsers,
@@ -51,8 +52,8 @@ export function useOwnerUserManagement() {
   } | null>(null);
 
   const { run: runCreate } = useAsyncAction(
-    async (proof: string, accessToken: string, input: NewPermissionUser) => {
-      const result = await createOwnerPermissionUser(accessToken, proof, input);
+    async (accessToken: string, input: NewPermissionUser) => {
+      const result = await createOwnerPermissionUser(accessToken, input);
       if (result.status === "ok") {
         setUsernameCollision(null);
         return true;
@@ -72,22 +73,53 @@ export function useOwnerUserManagement() {
   );
   const clearUsernameCollision = useCallback(() => setUsernameCollision(null), []);
 
+  /**
+   * Creating a user no longer opens the Owner password step-up. The Owner is
+   * already signed in; every check that actually authorizes this still runs,
+   * server-side, on every call (see owner-actions.ts).
+   *
+   * The refresh is the LAST thing this does on success and it is
+   * unconditional - it is not a side effect of whatever control flow the
+   * dialog happens to take. `reload()` re-reads the roster from the server,
+   * which is what both the list and the header count render from, so the two
+   * can never disagree or need a navigation to catch up.
+   */
   const createUser = useCallback(
-    (input: NewPermissionUser) =>
-      reauth.gate(
-        "create_permission_user",
-        {
-          title: ELECTION_DAY_TEXT.reauth.dialogTitle,
-          summary: ELECTION_DAY_TEXT.reauth.dialogs.addPermissionUser(input.name),
-          confirmLabel: ELECTION_DAY_TEXT.reauth.confirmButton,
-        },
-        async (proof, accessToken) => {
-          const result = await runCreate(proof, accessToken, input);
-          if (result) reload();
-          return result;
-        },
-      ),
-    [reauth, runCreate, reload],
+    async (input: NewPermissionUser) => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) return undefined;
+      const result = await runCreate(accessToken, input);
+      if (result === true) reload();
+      return result;
+    },
+    [getAccessToken, runCreate, reload],
+  );
+
+  /**
+   * The pre-check, run before the password step. It only ever REPORTS: a free
+   * name returns true, a taken one records the collision so the form can
+   * offer the next free name in one click. It claims nothing and grants
+   * nothing - the unique index enforced at create time stays the authority,
+   * and a name that is taken in between is caught there (the dialog then
+   * returns to this step with a fresh suggestion).
+   */
+  const checkUsername = useCallback(
+    async (username: string): Promise<boolean> => {
+      const accessToken = await getAccessToken();
+      if (!accessToken) return false;
+      const result = await checkOwnerPermissionUsername(accessToken, username);
+      if (result.status !== "ok") return false;
+      if (result.available) {
+        setUsernameCollision(null);
+        return true;
+      }
+      setUsernameCollision({
+        requested: username.trim(),
+        suggestion: result.suggestion,
+      });
+      return false;
+    },
+    [getAccessToken],
   );
 
   const { run: runDelete } = useAsyncAction(
@@ -158,6 +190,7 @@ export function useOwnerUserManagement() {
     loadError,
     reload,
     createUser,
+    checkUsername,
     deleteUser,
     resetPassword,
     reauthDialog: reauth.reauthDialog,

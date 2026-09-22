@@ -265,25 +265,88 @@ check("C0 Owner role read includes is_manager (מנהל=true, טלפן/ית=fals
 const managerPw = randomPassword();
 const ordinaryPw = randomPassword();
 {
-  const p = await proof(A.token, A.pw, "create_permission_user");
-  check("C1 Owner step-up for create_permission_user -> 200", p.status === 200 && !!p.value);
-  const r = await oPost({ op: "create_permission_user", reauthProof: p.value, name: "s9-manager", password: managerPw, roleId: mgrRoleA.id }, A.token);
-  check("C2 Owner creates the FIRST Manager", r.statusCode === 200, `${r.statusCode} ${r.body?.error ?? ""}`);
-  const again = await oPost({ op: "create_permission_user", reauthProof: p.value, name: "s9-other", password: managerPw, roleId: opsRoleA.id }, A.token);
-  check("C3 the same proof cannot be used twice (401)", again.statusCode === 401);
-  const p2 = await proof(A.token, A.pw, "create_permission_user");
-  const r2 = await oPost({ op: "create_permission_user", reauthProof: p2.value, name: "s9-ordinary", password: ordinaryPw, roleId: opsRoleA.id }, A.token);
-  check("C4 Owner creates an ordinary user", r2.statusCode === 200);
-  const p3 = await proof(A.token, A.pw, "create_permission_user");
-  const dup = await oPost({ op: "create_permission_user", reauthProof: p3.value, name: "s9-manager", password: "x", roleId: opsRoleA.id }, A.token);
+  // CONTRACT CHANGE: creating a user no longer asks the signed-in Owner for
+  // their password. The op takes NO client proof at all - the RPC's one-time
+  // action proof is minted server-side - so authorization rests on the Owner
+  // JWT plus the RPC's own live workspace re-resolution, both proven below.
+  const r = await oPost({ op: "create_permission_user", name: "s9-manager", password: managerPw, roleId: mgrRoleA.id }, A.token);
+  check("C1 Owner creates the FIRST Manager with NO step-up proof", r.statusCode === 200, `${r.statusCode} ${r.body?.error ?? ""}`);
+  const r2 = await oPost({ op: "create_permission_user", name: "s9-ordinary", password: ordinaryPw, roleId: opsRoleA.id }, A.token);
+  check("C2 ... and an ordinary user, again with no password re-entry", r2.statusCode === 200);
+  const stale = await proof(A.token, A.pw, "create_permission_user");
+  const withProof = await oPost({ op: "create_permission_user", reauthProof: stale.value, name: "s9-x", password: "x", roleId: opsRoleA.id }, A.token);
+  check("C3 a client-supplied proof is REFUSED outright (400) - the field is gone, not ignored", withProof.statusCode === 400, `${withProof.statusCode}`);
+  const anon = await oPost({ op: "create_permission_user", name: "s9-anon", password: "x", roleId: opsRoleA.id }, "");
+  check("C4 no Owner JWT -> 401: removing the step-up did NOT open the op up", anon.statusCode === 401, `${anon.statusCode}`);
+  const dup = await oPost({ op: "create_permission_user", name: "s9-manager", password: "x", roleId: opsRoleA.id }, A.token);
   check("C5 a duplicate name -> 409 DUPLICATE_NAME", dup.statusCode === 409 && dup.body?.error === "DUPLICATE_NAME", `${dup.statusCode} ${dup.body?.error}`);
-  const wrong = await proof(A.token, A.pw, "create_role");
-  const r3 = await oPost({ op: "create_permission_user", reauthProof: wrong.value, name: "s9-x", password: "x", roleId: opsRoleA.id }, A.token);
-  check("C6 a proof minted for another action is refused (401)", r3.statusCode === 401);
-  const bad = await proof(A.token, "definitely-wrong-password", "create_permission_user");
-  check("C7 a wrong Owner password mints no proof (401)", bad.status === 401 && !bad.value);
   const list = await oGet("list_permission_users", A.token);
   check("C8 the roster now lists exactly the two users", list.statusCode === 200 && list.body?.length === 2);
+}
+
+// ---------------------------------------------------------------------------
+// The username pre-check: base -> base1 -> base2, decided BEFORE the password
+// step, with the unique index still the only thing that enforces.
+// ---------------------------------------------------------------------------
+{
+  const chk = (username, token = A.token) =>
+    oPost({ op: "suggest_permission_user_username", username }, token);
+
+  const free = await chk("s9-brand-new");
+  check("N1 an unused login username reads as available, with itself as the name",
+    free.statusCode === 200 && free.body?.available === true && free.body?.suggestion === "s9-brand-new",
+    JSON.stringify(free.body));
+
+  const taken = await chk("s9-manager");
+  check("N2 a taken username reads as unavailable and suggests base1 - NO space",
+    taken.statusCode === 200 && taken.body?.available === false && taken.body?.suggestion === "s9-manager1",
+    JSON.stringify(taken.body));
+
+  // Claim base1, so the next suggestion has to move on to base2.
+  const c1 = await oPost({ op: "create_permission_user", name: "s9-mgr-two", password: randomPassword(), roleId: opsRoleA.id, username: "s9-manager1" }, A.token);
+  check("N3 the suggested name is actually creatable", c1.statusCode === 200, `${c1.statusCode} ${c1.body?.error ?? ""}`);
+  const taken2 = await chk("s9-manager");
+  check("N4 with base1 gone the suggestion becomes base2", taken2.body?.suggestion === "s9-manager2", JSON.stringify(taken2.body));
+
+  const c2 = await oPost({ op: "create_permission_user", name: "s9-mgr-three", password: randomPassword(), roleId: opsRoleA.id, username: "s9-manager2" }, A.token);
+  const taken3 = await chk("s9-manager");
+  check("N5 ... then base3, in order, with no separator ever", c2.statusCode === 200 && taken3.body?.suggestion === "s9-manager3", JSON.stringify(taken3.body));
+
+  // THE RACE the pre-check cannot prevent: it reports, it does not reserve.
+  const beforeRace = await chk("s9-race");
+  const raceA = await oPost({ op: "create_permission_user", name: "s9-race-a", password: randomPassword(), roleId: opsRoleA.id, username: "s9-race" }, A.token);
+  const raceB = await oPost({ op: "create_permission_user", name: "s9-race-b", password: randomPassword(), roleId: opsRoleA.id, username: "s9-race" }, A.token);
+  check("N6 a check that said AVAILABLE does not reserve the name", beforeRace.body?.available === true && raceA.statusCode === 200);
+  check("N7 the DB remains the final authority: the second create is refused 409 USERNAME_TAKEN",
+    raceB.statusCode === 409 && raceB.body?.error === "USERNAME_TAKEN", `${raceB.statusCode} ${raceB.body?.error}`);
+  check("N8 ... and that refusal carries the next free name, same rule as the pre-check",
+    raceB.body?.suggestion === "s9-race1", JSON.stringify(raceB.body));
+
+  const noAuth = await chk("s9-manager", "");
+  check("N9 the pre-check requires an Owner JWT (401)", noAuth.statusCode === 401, `${noAuth.statusCode}`);
+  const empty = await chk("   ");
+  check("N10 a blank username is refused (400)", empty.statusCode === 400, `${empty.statusCode}`);
+  const extra = await oPost({ op: "suggest_permission_user_username", username: "x", roleId: opsRoleA.id }, A.token);
+  check("N11 an unexpected body key is refused (400)", extra.statusCode === 400, `${extra.statusCode}`);
+
+  // DELETE still requires the Owner's password - only CREATE lost its
+  // step-up. Proving it here doubles as this section's own fixture cleanup,
+  // so the roster it borrowed is handed back exactly as it was found.
+  const scratch = ((await oGet("list_permission_users", A.token)).body ?? [])
+    .filter((u) => u.name.startsWith("s9-mgr-") || u.name.startsWith("s9-race-"));
+  const unproven = await oPost({ op: "delete_permission_user", targetUserId: scratch[0]?.id }, A.token);
+  check("N12 delete STILL demands a step-up proof - the removal was scoped to create alone",
+    unproven.statusCode === 400, `${unproven.statusCode}`);
+  let removed = 0;
+  for (const u of scratch) {
+    const dp = await proof(A.token, A.pw, "delete_permission_user");
+    const d = await oPost({ op: "delete_permission_user", reauthProof: dp.value, targetUserId: u.id }, A.token);
+    if (d.statusCode === 200) removed++;
+  }
+  // Three, not four: s9-race-b is the create the DB refused (N7), so it never
+  // existed to clean up - which is itself the point of that check.
+  check("N13 the section cleans up after itself, through the real delete op",
+    removed === scratch.length && scratch.length === 3, `${removed}/${scratch.length}`);
 }
 const usersA = (await oGet("list_permission_users", A.token)).body ?? [];
 const managerA = usersA.find((u) => u.name === "s9-manager");
@@ -326,12 +389,11 @@ section("D. SAME-WORKSPACE ENFORCEMENT (Owner B vs workspace A)");
   const pr = await proof(B.token, B.pw, "reset_permission_user_password");
   const rst = await oPost({ op: "reset_permission_user_password", reauthProof: pr.value, targetUserId: ordinaryA.id, newPassword: "hijack-1" }, B.token);
   check("D2 Owner B cannot reset a user of workspace A (404 USER_NOT_FOUND)", rst.statusCode === 404);
-  const pc = await proof(B.token, B.pw, "create_permission_user");
-  const cr = await oPost({ op: "create_permission_user", reauthProof: pc.value, name: "s9-intruder", password: "x", roleId: mgrRoleA.id }, B.token);
+  const cr = await oPost({ op: "create_permission_user", name: "s9-intruder", password: "x", roleId: mgrRoleA.id }, B.token);
   check("D3 Owner B cannot create a user with a role of workspace A (404 ROLE_NOT_FOUND)", cr.statusCode === 404 && cr.body?.error === "ROLE_NOT_FOUND");
   const lb = await oGet("list_permission_users", B.token);
   check("D4 Owner B's roster shows none of workspace A's users", lb.statusCode === 200 && lb.body?.length === 0);
-  const extra = await oPost({ op: "create_permission_user", reauthProof: pc.value, name: "s9-y", password: "x", roleId: mgrRoleA.id, workspaceId: A.wsId }, B.token);
+  const extra = await oPost({ op: "create_permission_user", name: "s9-y", password: "x", roleId: mgrRoleA.id, workspaceId: A.wsId }, B.token);
   check("D5 a client-supplied workspaceId is rejected outright (400)", extra.statusCode === 400);
 }
 
@@ -350,7 +412,7 @@ check("E0 the Manager signs in to Election Day normally", mgrLogin.status === 20
   const re = await callHandler(H.reauth, { method: "POST", url: "/api/election-day/reauth", headers: { origin: ORIGIN }, cookies: ck, body: { password: managerPw, action: "create_permission_user" } });
   check("E2 a Manager cannot even mint a user-management proof (400 INVALID_ACTION)", re.statusCode === 400 && re.body?.error === "INVALID_ACTION");
   const oa = await oGet("list_permission_users", null, ck);
-  const oc = await oPost({ op: "create_permission_user", reauthProof: "x", name: "x", password: "x", roleId: opsRoleA.id }, mgrLogin.cookie);
+  const oc = await oPost({ op: "create_permission_user", name: "x", password: "x", roleId: opsRoleA.id }, mgrLogin.cookie);
   check("E3 a Manager session cannot reach the Owner user API (401, with or without its token as a bearer)", oa.statusCode === 401 && oc.statusCode === 401);
   const rolesGet = await callHandler(H.ownerRoles, { method: "GET", url: "/api/election-day/owner-roles", headers: auth(mgrLogin.cookie) });
   check("E4 a Manager session cannot reach Owner role management (401)", rolesGet.statusCode === 401);
@@ -370,9 +432,8 @@ check("E0 the Manager signs in to Election Day normally", mgrLogin.status === 20
 // ---------------------------------------------------------------------------
 section("F. MODULE ENTITLEMENT ENFORCEMENT");
 {
-  const pd = await proof(D.token, D.pw, "create_permission_user");
   const rolesD = await ownerRoles(D.token);
-  const cr = await oPost({ op: "create_permission_user", reauthProof: pd.value, name: "s9-d-user", password: ordinaryPw, roleId: rolesD.find((r) => r.name === "טלפן/ית").id }, D.token);
+  const cr = await oPost({ op: "create_permission_user", name: "s9-d-user", password: ordinaryPw, roleId: rolesD.find((r) => r.name === "טלפן/ית").id }, D.token);
   check("F1 Budget-only workspace: Owner administration still works (create user 200)", cr.statusCode === 200);
   const lv = await oGet("list_voters", D.token);
   const lc = await oGet("list_coordinators", D.token);

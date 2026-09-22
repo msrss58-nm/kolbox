@@ -775,6 +775,13 @@ export const ELECTION_DAY_TEXT = {
     usernameTakenSuggestion: (name: string) => `השם הפנוי הבא: ${name}`,
     usernameTakenNoSuggestion: "בחרו שם משתמש אחר לכניסה.",
     usernameUseSuggestion: "השתמשו בשם המוצע",
+    usernameCheckFailed: "לא הצלחנו לבדוק את שם המשתמש. נסו שוב.",
+    /** Two steps: the details are settled - and the login username proven free
+     * - before a password is ever typed. */
+    stepDetails: "שלב 1 מתוך 2 · פרטי המשתמש",
+    stepPassword: "שלב 2 מתוך 2 · סיסמה",
+    continueButton: "המשך",
+    backButton: "חזרה",
     passwordLabel: "סיסמה",
     passwordPlaceholder: "סיסמה",
     showPasswordAriaLabel: "הצג סיסמה",

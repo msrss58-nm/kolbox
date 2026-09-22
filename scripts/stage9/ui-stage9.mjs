@@ -382,8 +382,11 @@ try {
   await ownerAdmin(ePage);
   const usersCard = ePage.locator('[data-testid="owner-users-card"]');
   await usersCard.waitFor({ timeout: 25000 });
-  async function addUser(name, password, roleName) {
-    // Admin shell: "add user" opens a dialog; the Owner step-up stacks on it.
+  /**
+   * TWO STEPS now, and NO Owner password: step 1 is the details plus the
+   * server-side username check, step 2 is the new user's password.
+   */
+  async function addUser(name, password, roleName, username) {
     try {
       await usersCard.getByRole("button", { name: "הוספת משתמש" }).click({ timeout: 20000 });
     } catch (e) {
@@ -399,10 +402,16 @@ try {
     }
     const dlg = ePage.getByRole("dialog").filter({ hasText: "הוספת משתמש" });
     await dlg.locator('input[name="new-permission-user-name"]').fill(name);
-    await dlg.locator('input[name="new-permission-user-password"]').fill(password);
+    if (username !== undefined) {
+      await dlg.locator('input[name="new-permission-user-username"]').fill(username);
+    }
     await dlg.locator("select").selectOption({ label: roleName });
+    // Step 1 -> step 2. The password field does not exist until the username
+    // has been checked, which is the whole point of the split.
+    await dlg.getByRole("button", { name: "המשך", exact: true }).click();
+    await dlg.locator('input[name="new-permission-user-password"]').waitFor({ timeout: 15000 });
+    await dlg.locator('input[name="new-permission-user-password"]').fill(password);
     await dlg.getByRole("button", { name: "הוספה", exact: true }).click();
-    await reauthConfirm(ePage, ownerPw);
     await usersCard.getByText(name, { exact: true }).waitFor({ timeout: 15000 });
     await dlg.waitFor({ state: "detached", timeout: 10000 });
   }
@@ -410,6 +419,64 @@ try {
   check("U1 Owner creates the first Manager from administration", true);
   await addUser("s9ui-ordinary", ordinaryPw, "טלפן/ית");
   check("U2 Owner creates an ordinary user", true);
+
+  // ---------------------------------------------------------------------
+  // The three UX fixes, asserted on the real screen.
+  // ---------------------------------------------------------------------
+  // 1. THE LIST AND THE COUNT ARE CURRENT, with no navigation and no reload.
+  //    The count is read from the card's own header, not inferred from rows.
+  const countText = async () =>
+    (await usersCard.innerText()).replace(/\s+/g, " ");
+  check("X1 the roster shows both new users immediately, without navigating away",
+    (await countText()).includes("s9ui-manager") && (await countText()).includes("s9ui-ordinary"));
+  // The card header renders "<n> משתמשים" - an exact string, so a count that
+  // lagged the list by one would fail here rather than pass on a loose match.
+  check("X2 the header count moved to 2 in the same breath - no manual refresh",
+    (await countText()).includes("2 משתמשים"), (await countText()).slice(0, 120));
+  check("X3 the URL never changed - nothing navigated to make this happen",
+    ePage.url().endsWith("/election-day/owner/users"), ePage.url());
+
+  // 2. NO OWNER PASSWORD ANYWHERE IN THE CREATE FLOW.
+  await usersCard.getByRole("button", { name: "הוספת משתמש" }).click();
+  const cDlg = ePage.getByRole("dialog").filter({ hasText: "הוספת משתמש" });
+  await cDlg.locator('input[name="new-permission-user-name"]').waitFor({ timeout: 15000 });
+  check("X4 step 1 is the details - the new user's password is not on screen yet",
+    (await cDlg.locator('input[name="new-permission-user-password"]').count()) === 0 &&
+      (await cDlg.getByTestId("create-user-step").innerText()).includes("שלב 1"));
+  check("X5 no Owner password field is present at step 1",
+    (await cDlg.locator('input[autocomplete="current-password"]').count()) === 0);
+
+  // 3. A TAKEN USERNAME IS CAUGHT HERE, BEFORE ANY PASSWORD IS TYPED.
+  await cDlg.locator('input[name="new-permission-user-name"]').fill("s9ui-clash");
+  await cDlg.locator('input[name="new-permission-user-username"]').fill("s9ui-manager");
+  await cDlg.getByRole("button", { name: "המשך", exact: true }).click();
+  await cDlg.getByTestId("username-collision").waitFor({ timeout: 15000 });
+  check("X6 the clash is shown at step 1 and the step does NOT advance",
+    (await cDlg.getByTestId("create-user-step").innerText()).includes("שלב 1") &&
+      (await cDlg.locator('input[name="new-permission-user-password"]').count()) === 0);
+  const suggestionText = (await cDlg.getByTestId("username-collision").innerText()).replace(/\s+/g, " ");
+  check("X7 it offers base1 - the suffix is appended with NO space",
+    suggestionText.includes("s9ui-manager1") && !suggestionText.includes("s9ui-manager 1"),
+    suggestionText.slice(0, 120));
+
+  await cDlg.getByRole("button", { name: "השתמשו בשם המוצע" }).click();
+  check("X8 accepting the suggestion fills the field with the exact name",
+    (await cDlg.locator('input[name="new-permission-user-username"]').inputValue()) === "s9ui-manager1");
+  await cDlg.getByRole("button", { name: "המשך", exact: true }).click();
+  await cDlg.locator('input[name="new-permission-user-password"]').waitFor({ timeout: 15000 });
+  check("X9 a free name advances to the password step",
+    (await cDlg.getByTestId("create-user-step").innerText()).includes("שלב 2"));
+  check("X10 step 2 asks for the NEW user's password only - never the Owner's",
+    (await cDlg.locator('input[autocomplete="new-password"]').count()) === 1 &&
+      (await cDlg.locator('input[autocomplete="current-password"]').count()) === 0);
+  await cDlg.locator('input[name="new-permission-user-password"]').fill(randomPassword());
+  await cDlg.getByRole("button", { name: "הוספה", exact: true }).click();
+  await usersCard.getByText("s9ui-clash", { exact: true }).waitFor({ timeout: 15000 });
+  check("X11 the user is created with no Owner password prompt at any point",
+    (await ePage.getByRole("dialog").count()) === 0);
+  check("X12 the roster and its count both moved to 3, immediately",
+    (await countText()).includes("s9ui-clash") && (await countText()).includes("3 משתמשים"),
+    (await countText()).slice(0, 140));
   const mgrRow = usersCard.locator("li").filter({ hasText: "s9ui-manager" });
   const ordRow = usersCard.locator("li").filter({ hasText: "s9ui-ordinary" });
   // CONTRACT CHANGE (unified identity): the Owner may now reset ANY of their
@@ -527,7 +594,11 @@ try {
 
   // -------------------------------------------------------------------------
   section("OWNER DELETES USERS -> back to zero, still administrable");
-  for (const name of ["s9ui-ordinary", "s9ui-manager"]) {
+  // s9ui-clash is the user the two-step section created; it is deleted here
+  // with the other two so "back to zero" still means zero. Deleting it also
+  // exercises the step-up that create no longer has - the dialog below asks
+  // for the Owner's password, and must.
+  for (const name of ["s9ui-clash", "s9ui-ordinary", "s9ui-manager"]) {
     await ePage.reload();
     await ownerAdmin(ePage);
     const row = usersCard.locator("li").filter({ hasText: name });

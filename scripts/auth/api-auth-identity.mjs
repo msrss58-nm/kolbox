@@ -484,34 +484,28 @@ process.env.KOLBOX_SELF_ORIGIN = AUTH_ORIGIN;
 section("WORKER LOGIN USERNAME: DEFAULT, COLLISION AND SUGGESTION");
 
 const ownerToken = (await signIn(`eo-${stamp}@kolbox.test`, PW)).token;
-const ownerProof = async () => {
-  // This section mints far more step-ups than one rate-limit window allows.
-  psql("delete from public.election_day_login_attempts;");
-  const pr = await callHandler(H.ownerReauth, {
-    method: "POST",
-    url: "/api/election-day/owner-reauth",
-    headers: { authorization: `Bearer ${ownerToken}`, origin: ELECTION_ORIGIN },
-    body: { password: PW, action: "create_permission_user" },
-  });
-  return pr.body?.reauthProof ?? "";
-};
+// This section used to mint one Owner step-up per creation, far more than a
+// single rate-limit window allows - hence the reset. The step-ups are gone
+// with the password prompt; the reset stays, because the sign-ins above still
+// count against the same buckets.
+psql("delete from public.election_day_login_attempts;");
 const roleA = q1(`select id from public.election_day_roles where workspace_id='${wsA}' limit 1;`);
-const createWorker = async (name, username) => {
-  const proofValue = await ownerProof();
-  return callHandler(H.ownerActions, {
+// No reauthProof: creating a user no longer asks the signed-in Owner for
+// their password (the RPC's one-time proof is minted server-side). The Owner
+// JWT below is still required and still the authorization.
+const createWorker = async (name, username) =>
+  callHandler(H.ownerActions, {
     method: "POST",
     url: "/api/election-day/owner-actions",
     headers: { authorization: `Bearer ${ownerToken}`, origin: ELECTION_ORIGIN },
     body: {
       op: "create_permission_user",
-      reauthProof: proofValue,
       name,
       password: PW,
       roleId: roleA,
       ...(username === undefined ? {} : { username }),
     },
   });
-};
 
 process.env.SESSION_ALLOWED_ORIGIN = ELECTION_ORIGIN;
 let c = await createWorker("אלי כהן", undefined);
@@ -551,9 +545,11 @@ check(
   c.statusCode === 409 && c.body?.error === "USERNAME_TAKEN",
   `status=${c.statusCode} ${JSON.stringify(c.body)}`,
 );
+// The offered sequence is base -> base1 -> base2 -> base3. The suffix is
+// appended with no separator, and it starts at 1.
 check(
-  "N5 ... and it carries the next free suggestion 'אלי כהן2' - no space before the number",
-  c.body?.suggestion === "אלי כהן2",
+  "N5 ... and it carries the next free suggestion 'אלי כהן1' - no space before the number",
+  c.body?.suggestion === "אלי כהן1",
   JSON.stringify(c.body),
 );
 check(
@@ -562,7 +558,7 @@ check(
       where name='אלי כהן ב' and workspace_id='${wsA}';`) === "0",
 );
 
-c = await createWorker("אלי כהן ב", "אלי כהן2");
+c = await createWorker("אלי כהן ב", "אלי כהן1");
 check(
   "N7 accepting the suggestion succeeds",
   c.statusCode === 200,
@@ -571,8 +567,8 @@ check(
 
 c = await createWorker("אלי כהן ג", "אלי כהן");
 check(
-  "N8a the next collision advances the suggestion to 'אלי כהן3'",
-  c.statusCode === 409 && c.body?.suggestion === "אלי כהן3",
+  "N8a the next collision advances the suggestion to 'אלי כהן2'",
+  c.statusCode === 409 && c.body?.suggestion === "אלי כהן2",
   JSON.stringify(c.body),
 );
 
