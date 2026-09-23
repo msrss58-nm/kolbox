@@ -33,6 +33,7 @@ import {
   psql,
   randomPassword,
   section,
+  seedOwnerSession,
   signIn,
   sleep,
   tally,
@@ -550,11 +551,60 @@ try {
   await pwInputs.nth(1).fill(eoPw);
   await ePage.getByRole("button", { name: "שמירת סיסמה" }).click();
   await ePage.getByText("הסיסמה נשמרה").waitFor({ timeout: 15000 });
+  // CUTOVER (a6c5abe): the per-origin `כניסת בעלים` screen is retired. "Go to
+  // login" now lands on /election-day/owner-login, which renders a bounce and
+  // then does window.location.replace() to the ONE shared login on the auth
+  // origin. That origin is not served by this local harness, so the hop is
+  // intercepted - this suite must never reach out to Production.
+  //
+  // The interceptor HOLDS the response open and only releases it once the
+  // assertions are done. A navigation that has not received a response has not
+  // committed, so the bounce document stays alive and can be read exactly -
+  // sampling for it is a race the redirect reliably wins, and aborting the
+  // navigation replaces the document with a browser error page.
+  let bouncedTo = null;
+  await ePage.route("https://kolbox-auth.vercel.app/**", async (route) => {
+    bouncedTo = route.request().url();
+    // 204 to a top-level navigation means "nothing to show" - the browser
+    // stays put. The bounce document therefore survives with NO navigation
+    // pending, which is what makes the reads below deterministic: holding the
+    // response open instead leaves a pending navigation, and Playwright will
+    // not query a page in that state.
+    await route.fulfill({ status: 204 });
+  });
   await ePage.getByRole("button", { name: "מעבר להתחברות" }).click();
-  await ePage.getByRole("heading", { name: "כניסת בעלים" }).waitFor({ timeout: 15000 });
-  await ePage.locator('input[type="email"]').fill(email("eo1"));
-  await ePage.locator('input[autocomplete="current-password"]').fill(eoPw);
-  await ePage.getByRole("button", { name: "התחברות" }).click();
+  await ePage
+    .getByText("הכניסה לבעלים עברה למסך הכניסה המשותף")
+    .waitFor({ timeout: 15000 });
+
+  const bounce = await ePage.evaluate(() => ({
+    path: location.pathname,
+    emails: document.querySelectorAll('input[type="email"]').length,
+    passwords: document.querySelectorAll('input[type="password"]').length,
+    href: document.querySelector('a[href*="/login"]')?.getAttribute("href") ?? null,
+  }));
+  check(
+    "E2 'go to login' reaches the retired route, which offers NO credential form",
+    bounce.path === "/election-day/owner-login" &&
+      bounce.emails === 0 &&
+      bounce.passwords === 0,
+    JSON.stringify(bounce),
+  );
+  check(
+    "E2b the bounce - and its no-script fallback link - target the SHARED login",
+    bounce.href === "https://kolbox-auth.vercel.app/login" &&
+      String(bouncedTo).startsWith("https://kolbox-auth.vercel.app/login"),
+    `href=${bounce.href} navigated=${bouncedTo}`,
+  );
+  await ePage.unroute("https://kolbox-auth.vercel.app/**");
+
+  // E2's ORIGINAL claim, unchanged and still proven: the password just set
+  // really works and the approval is live, so this Owner reaches workspace
+  // setup. Only the TYPING moves - seedOwnerSession signs in with that exact
+  // password through the real Auth server and installs the real session, so
+  // every guard, bootstrap and server call behaves as it does for a human.
+  await seedOwnerSession(ePage, EBASE, email("eo1"), eoPw);
+  await ePage.goto(`${EBASE}/election-day`, { waitUntil: "domcontentloaded" });
   const setupShown = await ePage
     .getByText("הקמת מערכת הבחירות")
     .first()
@@ -565,7 +615,7 @@ try {
     );
   await shot(ePage, "05-owner-setup-390");
   check(
-    "E2 owner signs in and reaches workspace setup (approval is live again)",
+    "E2d owner signs in with the new password and reaches workspace setup (approval is live again)",
     setupShown,
   );
   await ePage.close();
@@ -618,6 +668,21 @@ try {
   check("M2 the modal closed on success", closedAfterProvision);
   await shot(page, "06-me-provisioned-390");
 
+  // The owners list is COMPACT: replace and remove live inside an owner's
+  // expanded view, so the row has to be opened before either is reachable.
+  // (This section is currently unreached because E2 above aborts on a screen
+  // that was retired; it was verified through a scratchpad copy with that leg
+  // skipped, so this stays correct for whenever E2 is fixed.)
+  const openOwner = async () => {
+    const row = page.locator('[data-testid="multi-entity-owner-row"]').first();
+    await row.waitFor({ timeout: 15000 });
+    if ((await row.getAttribute("data-open")) !== "true") {
+      await row.locator('[data-testid="owner-open"]').click();
+      await page.locator('[data-testid="owner-expanded"]').waitFor({ timeout: 15000 });
+    }
+  };
+  await openOwner();
+
   await page.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();
   dialog = page.getByRole("dialog");
   check(
@@ -642,6 +707,7 @@ try {
     (await page.getByRole("dialog").count()) === 1,
   );
   await page.getByRole("dialog").getByRole("button", { name: "סגירה" }).click();
+  await openOwner();
   await page.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();
   dialog = page.getByRole("dialog");
   check(
@@ -681,6 +747,8 @@ try {
       () => false,
     );
   check("M6 the modal closed on a successful replacement", closedAfterReplace);
+  // A replacement re-renders the list, so the row must be re-opened.
+  await openOwner();
   await page.getByRole("button", { name: "החלפת בעל רב-מערכות" }).click();
   dialog = page.getByRole("dialog");
   check(

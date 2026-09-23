@@ -53,6 +53,7 @@ export function AdminSection({
   title,
   description,
   actions,
+  actionsEnd,
   toolbar,
   count,
   children,
@@ -64,6 +65,11 @@ export function AdminSection({
   /** Primary section actions (e.g. "add"): beside the title on desktop, in
    * the fixed bottom bar on phones. */
   actions?: ReactNode;
+  /** Section actions pinned to the END of the header row - the LEFT side in
+   * RTL, opposite the title - for a section whose primary action reads better
+   * away from the heading. On phones it joins the same fixed bottom bar as
+   * `actions`, so there is still one place a primary action lives. */
+  actionsEnd?: ReactNode;
   /** Search / filter controls, grouped after the title and actions. */
   toolbar?: ReactNode;
   /** A short count (e.g. "26 משתמשים"): closes the toolbar on desktop, sits
@@ -80,7 +86,7 @@ export function AdminSection({
       data-testid={testId}
       className={cn(
         "flex h-full min-h-0 flex-col p-4 lg:px-8 lg:pt-7 lg:pb-8",
-        actions && "max-md:pb-[5.5rem]",
+        (actions || actionsEnd) && "max-md:pb-[5.5rem]",
       )}
     >
       <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-3 lg:gap-3.5">
@@ -121,6 +127,14 @@ export function AdminSection({
                 )}
               </div>
             )}
+            {actionsEnd && (
+              <div
+                data-testid="section-actions-end"
+                className="ms-auto hidden flex-wrap items-center gap-2 md:flex"
+              >
+                {actionsEnd}
+              </div>
+            )}
           </div>
           {description && (
             <p className="mt-1.5 text-xs text-slate-500 md:text-sm">{description}</p>
@@ -141,10 +155,13 @@ export function AdminSection({
           {children}
         </div>
       </div>
-      {/* Phones: the primary action stays reachable at the bottom. */}
-      {actions && (
+      {/* Phones: the primary action stays reachable at the bottom. An
+          end-aligned desktop action joins it here rather than getting its own
+          bar - on a phone there is no "other end" to align to. */}
+      {(actions || actionsEnd) && (
         <div className="fixed inset-x-0 bottom-0 z-30 flex gap-2 border-t border-slate-200 bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden *:flex-1">
           {actions}
+          {actionsEnd}
         </div>
       )}
     </section>

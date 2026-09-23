@@ -539,6 +539,23 @@ export async function provisionMultiEntityOwner(
   );
 }
 
+/** Mints a FRESH one-time set-password link for an existing owner, through
+ * the same server helper provisioning uses. Creates nothing and changes no
+ * owner data; the previous link for that account stops working. */
+export async function reissueMultiEntityPasswordLink(
+  accessToken: string,
+  ownerId: string,
+): Promise<MultiEntityResult<{ passwordLink: string | null }>> {
+  return postOp(
+    accessToken,
+    { op: "reissue_multi_entity_password_link", ownerId },
+    (parsed) => {
+      const o = rec(parsed);
+      return { passwordLink: o ? str(o.activationLink) : null };
+    },
+  );
+}
+
 /** Revokes ONE owner. Their assignments go with them; every other owner,
  * including any sharing the same workspaces, is untouched. */
 export async function removeMultiEntityOwner(

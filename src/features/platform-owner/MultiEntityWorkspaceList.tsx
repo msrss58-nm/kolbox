@@ -34,6 +34,7 @@ export function MultiEntityWorkspaceList({
   workspaces,
   loading,
   selectedOwner,
+  hasOwners,
   assignedCount,
   isBusy,
   anyBusy,
@@ -47,6 +48,9 @@ export function MultiEntityWorkspaceList({
    * (or none exists): every action is inert and the row says why, rather than
    * silently acting on an owner the operator did not choose. */
   selectedOwner: MultiEntitySeat | null;
+  /** Whether ANY owner exists - distinguishes "nobody to assign to" from
+   * "nobody open". */
+  hasOwners: boolean;
   assignedCount: number;
   isBusy: (key: string) => boolean;
   anyBusy: boolean;
@@ -99,9 +103,12 @@ export function MultiEntityWorkspaceList({
           )}
         </div>
 
+        {/* Two DIFFERENT situations, and telling them apart is the whole
+            point: there is nobody to assign to, versus there is nobody OPEN
+            to assign to. The second is one click away from being solved. */}
         {!loading && selectedOwner === null && workspaces.length > 0 && (
           <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
-            {text.blocked}
+            {hasOwners ? text.noOwnerSelected : text.blocked}
           </p>
         )}
 

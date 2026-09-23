@@ -12,6 +12,7 @@ import {
   provisionMultiEntityOwner,
   purgeProvisioningOrphan,
   purgeReplacedAuthUser,
+  reissueMultiEntityPasswordLink,
   removeMultiEntityOwner,
   unassignWorkspace,
   type MultiEntityResult,
@@ -236,6 +237,27 @@ export function useMultiEntityManagement() {
     [run, load],
   );
 
+  /** Mints a fresh set-password link for an existing owner. Lands in the same
+   * memory-only `passwordLink` panel a provisioning does, because it is the
+   * same kind of value and must be treated the same way. `replaced: false` -
+   * nobody was displaced, so the panel must not imply anyone was. */
+  const reissueLink = useCallback(
+    async (ownerId: string) => {
+      const ok = await run(
+        BUSY.owner(ownerId),
+        (t) => reissueMultiEntityPasswordLink(t, ownerId),
+        (data) => {
+          setPasswordLink({ link: data.passwordLink, replaced: false });
+          return null;
+        },
+      );
+      // Deliberately NO refetch: nothing about the owner list changed, and a
+      // reload here would only add latency to a read the panel does not use.
+      return ok;
+    },
+    [run],
+  );
+
   /** Revokes ONE owner. Their Auth account is NOT deleted here - it joins the
    * same durable cleanup queue a replaced account does, and is purged by the
    * separate, separately-approved step. */
@@ -332,6 +354,7 @@ export function useMultiEntityManagement() {
     clearUsernameSuggestion: () => setUsernameSuggestion(null),
 
     provision,
+    reissueLink,
     removeOwner,
     assign,
     unassign,

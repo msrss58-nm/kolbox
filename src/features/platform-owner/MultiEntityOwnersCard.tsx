@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { UserCog, UserPlus } from "lucide-react";
+import { KeyRound, UserCog, UserPlus } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Card, CardTitle } from "../../components/ui/Card";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
@@ -10,7 +10,7 @@ import { cn } from "../../lib/utils";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { formatDateTime } from "./multiEntityFormat";
 import { LtrValue } from "./MultiEntityLtrValue";
-import type { MultiEntitySeat } from "./platformOwnerClient";
+import type { MultiEntitySeat, MultiEntityWorkspace } from "./platformOwnerClient";
 
 const text = PLATFORM_OWNER_TEXT.multiEntity.seat;
 
@@ -34,48 +34,69 @@ function Row({ label, value, ltr = false }: { label: string; value: string; ltr?
 }
 
 /**
- * EVERY Multi-Entity Owner, not a single seat.
+ * EVERY Multi-Entity Owner, as a COMPACT list that stays readable with many
+ * of them on one screen.
  *
- * Selecting one scopes the workspace list beside it, because with several
- * owners "assign this workspace" is only a complete instruction once it says
- * to whom. The selected owner is the one the operator is administering; it
- * confers nothing and is never sent anywhere on its own.
+ * A collapsed row carries only what identifies a person - name, login
+ * username, e-mail, phone - plus how many systems they hold and a "פתח"
+ * action. Everything else lives in the expanded view, so twenty owners are
+ * twenty short rows rather than twenty detail panels.
  *
- * Each owner carries the same durable hand-off details the single seat did -
- * name, login username, e-mail, the shared-login address - so a reload never
- * loses what the operator needs to finish onboarding. The one-time
- * password-setting link remains the deliberate exception: it is a credential,
- * shown once by `MultiEntityPasswordLinkPanel`, and never persisted.
+ * ONE owner is open at a time (an accordion). That is also what scopes the
+ * workspace list beside this card: with several owners, "assign this
+ * workspace" is only a complete instruction once it says to whom, and having
+ * the open owner BE the assignment target keeps that a single, visible idea
+ * rather than two independent selections the operator has to keep in sync.
+ * Opening is always available and never latches - a row can be closed and
+ * reopened freely, and after a reload the list renders from server state with
+ * every row openable again.
  *
  * Replace and Remove are DIFFERENT operations and are presented as such:
  * replace hands one owner's seat to a new identity keeping their workspaces,
  * remove ends that owner entirely. Neither deletes an Auth account - that is
  * a separate, separately-approved step surfaced by its own card.
+ *
+ * The one-time set-password link is NOT shown here and is never stored. When
+ * it is lost, the expanded view offers to mint a fresh one, which invalidates
+ * whatever link was circulating before.
  */
 export function MultiEntityOwnersCard({
   owners,
-  selectedOwnerId,
+  workspaces,
+  openOwnerId,
+  formOpen,
   loading,
   disabled,
   isBusy,
   errorFor,
-  onSelect,
+  onOpen,
   onAdd,
   onReplace,
   onRemove,
+  onReissueLink,
 }: {
   owners: MultiEntitySeat[];
-  selectedOwnerId: string | null;
+  /** Used only to name an owner's assigned systems in the expanded view. */
+  workspaces: MultiEntityWorkspace[];
+  openOwnerId: string | null;
+  /** True while the provision/replace dialog is open. Replace shares this
+   * owner's busy/error key with the dialog, so without this the SAME failure
+   * would be rendered twice - once in the dialog, once in the row behind it. */
+  formOpen: boolean;
   loading: boolean;
   disabled: boolean;
   isBusy: (key: string) => boolean;
   errorFor: (key: string) => string | null;
-  onSelect: (ownerId: string) => void;
+  /** Null closes the open row. */
+  onOpen: (ownerId: string | null) => void;
   onAdd: () => void;
   onReplace: (owner: MultiEntitySeat) => void;
   onRemove: (owner: MultiEntitySeat) => void;
+  onReissueLink: (owner: MultiEntitySeat) => void;
 }) {
   const [confirmRemove, setConfirmRemove] = useState<MultiEntitySeat | null>(null);
+  const nameOf = (id: string) =>
+    workspaces.find((w) => w.workspaceId === id)?.name ?? id;
 
   return (
     <>
@@ -118,60 +139,115 @@ export function MultiEntityOwnersCard({
           <>
             <ul className="space-y-2" data-testid="multi-entity-owner-list">
               {owners.map((owner) => {
-                const selected = owner.ownerId === selectedOwnerId;
+                const open = owner.ownerId === openOwnerId;
                 const busy = isBusy(`owner:${owner.ownerId}`);
                 const error = errorFor(`owner:${owner.ownerId}`);
+                const assigned = owner.assignedWorkspaceIds;
                 return (
                   <li
                     key={owner.ownerId}
                     data-testid="multi-entity-owner-row"
-                    data-selected={selected ? "true" : "false"}
+                    data-open={open ? "true" : "false"}
                     className={cn(
                       "rounded-xl p-3 ring-1 transition-colors",
-                      selected ? "bg-primary-50/50 ring-primary-300" : "bg-white ring-slate-200",
+                      open ? "bg-primary-50/50 ring-primary-300" : "bg-white ring-slate-200",
                     )}
                   >
-                    {/* The whole row selects, so the operator never has to hunt
-                        for a small control to change who they are editing. */}
-                    <button
-                      type="button"
-                      onClick={() => onSelect(owner.ownerId)}
-                      aria-pressed={selected}
-                      className="w-full rounded-lg text-start focus-visible:outline-2 focus-visible:outline-primary-500"
-                    >
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 truncate font-bold text-slate-800">
-                          {owner.name}
-                        </span>
-                        <span className="shrink-0 text-xs font-semibold text-slate-500">
-                          {selected ? text.selected : text.select}
-                        </span>
-                      </span>
-                      <span className="mt-0.5 block text-xs font-semibold text-slate-500">
-                        {text.assignedCount(owner.assignedWorkspaceIds.length)}
-                      </span>
-                    </button>
-
-                    {selected && (
-                      <div className="mt-2">
-                        <Row
-                          label={text.usernameLabel}
-                          value={owner.username ?? text.noUsername}
-                          ltr={!!owner.username}
+                    {/* COMPACT SUMMARY - identity down to the phone, nothing more. */}
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0 space-y-0.5">
+                        <p className="truncate font-bold text-slate-800">{owner.name}</p>
+                        <p className="truncate text-xs font-semibold text-slate-600">
+                          <span className="text-slate-400">{text.usernameLabel}: </span>
+                          {owner.username ?? text.noUsername}
+                        </p>
+                        <LtrValue
+                          value={owner.email}
+                          className="block truncate text-xs text-slate-500"
                         />
-                        <Row label={text.emailLabel} value={owner.email} ltr />
-                        <Row
-                          label={text.phoneLabel}
+                        <LtrValue
                           value={owner.phone ?? text.noPhone}
-                          ltr={!!owner.phone}
+                          className="block truncate text-xs text-slate-500"
                         />
+                        <p className="text-xs font-semibold text-slate-500">
+                          {text.assignedCount(assigned.length)}
+                        </p>
+                      </div>
+                      <Button
+                        variant={open ? "secondary" : "primary"}
+                        size="sm"
+                        data-testid="owner-open"
+                        aria-expanded={open}
+                        onClick={() => onOpen(open ? null : owner.ownerId)}
+                        className="shrink-0"
+                      >
+                        {open ? text.close : text.open}
+                      </Button>
+                    </div>
+
+                    {open && (
+                      <div className="mt-3 border-t border-primary-200 pt-3" data-testid="owner-expanded">
+                        <Row label={text.emailLabel} value={owner.email} ltr />
                         <Row label={text.authIdLabel} value={owner.authUserId} ltr />
                         <Row label={text.loginUrlLabel} value={OWNER_LOGIN_URL} ltr />
                         <Row
                           label={text.createdAtLabel}
                           value={formatDateTime(owner.createdAt)}
                         />
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        <Row
+                          label={text.updatedAtLabel}
+                          value={formatDateTime(owner.updatedAt)}
+                        />
+
+                        {/* The workspaces THIS owner holds, by name. */}
+                        <div className="py-2">
+                          <p className="text-xs font-semibold text-slate-500">
+                            {text.assignmentsLabel}
+                          </p>
+                          {assigned.length === 0 ? (
+                            <p className="mt-1 text-sm text-slate-500">
+                              {text.noAssignments}
+                            </p>
+                          ) : (
+                            <ul
+                              className="mt-1 flex flex-wrap gap-1.5"
+                              data-testid="owner-assignments"
+                            >
+                              {assigned.map((id) => (
+                                <li
+                                  key={id}
+                                  className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200"
+                                >
+                                  {nameOf(id)}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <p className="mt-1.5 text-xs text-slate-500">
+                            {text.openedHint}
+                          </p>
+                        </div>
+
+                        {/* Set-password hand-off. The link itself is never kept;
+                            this mints a fresh one and kills the previous. */}
+                        <div className="border-t border-slate-100 py-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            data-testid="owner-reissue-link"
+                            loading={busy}
+                            disabled={disabled}
+                            onClick={() => onReissueLink(owner)}
+                          >
+                            <KeyRound className="me-1 size-4" aria-hidden />
+                            {text.reissue}
+                          </Button>
+                          <p className="mt-1.5 text-xs text-slate-500">
+                            {text.reissueHint}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-2">
                           <Button
                             variant="secondary"
                             size="sm"
@@ -190,7 +266,9 @@ export function MultiEntityOwnersCard({
                             {text.remove}
                           </Button>
                         </div>
-                        {error && (
+
+                        {/* The dialog owns the message while it is open. */}
+                        {error && !formOpen && (
                           <p role="alert" className="mt-2 text-sm font-medium text-opponent">
                             {error}
                           </p>
@@ -205,10 +283,6 @@ export function MultiEntityOwnersCard({
             <p className="text-xs text-slate-500" data-testid="seat-handoff-hint">
               {text.handoffHint}
             </p>
-
-            <Button variant="secondary" onClick={onAdd} disabled={disabled} className="w-full sm:w-auto">
-              {text.add}
-            </Button>
           </>
         )}
       </Card>

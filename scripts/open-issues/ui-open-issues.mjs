@@ -498,7 +498,17 @@ section("D. MULTI-ENTITY - durable hand-off, and MANY owners");
   await po.locator('[data-testid="seat-handoff-hint"]').waitFor({ timeout: 30000 });
   const after = await ownerText();
   check("D3 AFTER A RELOAD the owner's login username is still shown", after.includes(`me-one-${stamp}`), after.slice(0, 200).replace(/\s+/g, " "));
-  check("D4 ... and so is the login address they must be sent to", after.includes("/login"), "");
+  // The list is COMPACT now: the login address lives in the expanded view, so
+  // this opens the owner rather than expecting it in the summary row.
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().locator('[data-testid="owner-open"]').click();
+  await po.locator('[data-testid="owner-expanded"]').waitFor({ timeout: 15000 });
+  check(
+    "D4 ... and the login address they must be sent to is in the expanded view",
+    (await po.locator('[data-testid="owner-expanded"]').innerText()).includes("/login"),
+    "",
+  );
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().locator('[data-testid="owner-open"]').click();
+  await po.waitForTimeout(400);
   check("D5 ... and the e-mail and name survive too", after.includes(email(`me-one-${stamp}`)) && after.includes("בעל רב-מערכות one"));
   check(
     "D6 the ONE-TIME password link is NOT persisted (it is a credential)",
@@ -533,31 +543,34 @@ section("D. MULTI-ENTITY - durable hand-off, and MANY owners");
     psql("select count(*) from public.multi_entity_owner;").trim() === "2",
     psql("select count(*) from public.multi_entity_owner;").trim(),
   );
+  // The list is COMPACT and nothing is open by default, so OPEN owner one -
+  // which is also what scopes the assignment list to them.
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().locator('[data-testid="owner-open"]').click();
+  await po.locator('[data-testid="assignment-target"]').waitFor({ timeout: 20000 });
   check(
-    "D10 selecting an owner scopes the workspace list to THEM by name",
+    "D10 opening an owner scopes the workspace list to THEM by name",
     (await po.locator('[data-testid="assignment-target"]').innerText()).includes("בעל רב-מערכות"),
     await po.locator('[data-testid="assignment-target"]').innerText(),
   );
   check(
-    "D11 the selected owner offers BOTH replace and remove (distinct operations now)",
+    "D11 the opened owner offers BOTH replace and remove (distinct operations now)",
     (await po.getByRole("button", { name: "החלפת בעל רב-מערכות" }).count()) === 1 &&
       (await po.getByRole("button", { name: "הסרת בעל רב-מערכות" }).count()) === 1,
   );
 
   // Assign the SAME workspace to both owners - impossible before this change.
-  // Owner ONE is selected (the effect keeps a still-valid selection), so this
-  // first assignment is theirs.
+  // Owner ONE is open, so this first assignment is theirs.
   await po
     .locator('[data-testid="multi-entity-workspace-row"]')
     .first()
     .getByRole("button", { name: "שיוך", exact: true })
     .click();
   await po.waitForTimeout(2500);
-  // Now switch to owner TWO and assign the SAME workspace to them as well.
-  // Selecting the row that is ALREADY selected would have re-assigned owner
+  // Now OPEN owner TWO and assign the SAME workspace to them as well. Opening
+  // the row that is ALREADY open would have closed it and re-assigned owner
   // one - which is what made an earlier version of this check pass vacuously
   // with a single assignment row.
-  await po.locator('[data-testid="multi-entity-owner-row"]').nth(1).click();
+  await po.locator('[data-testid="multi-entity-owner-row"]').nth(1).locator('[data-testid="owner-open"]').click();
   await po.waitForTimeout(1500);
   await po
     .locator('[data-testid="multi-entity-workspace-row"]')
@@ -577,6 +590,183 @@ section("D. MULTI-ENTITY - durable hand-off, and MANY owners");
     (await po.locator('[data-testid="shared-with"]').count()) >= 1,
     String(await po.locator('[data-testid="shared-with"]').count()),
   );
+}
+
+
+// =========================================================================
+section("E. THE OWNERS LIST - compact, openable, and re-openable");
+// =========================================================================
+{
+  // Two owners already exist from section D, which left one of them open.
+  // Reload first: "expanded by default" is a property of a FRESH load, not of
+  // whatever the previous section happened to leave behind.
+  await po.reload({ waitUntil: "domcontentloaded" });
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().waitFor({ timeout: 25000 });
+  const rows = po.locator('[data-testid="multi-entity-owner-row"]');
+  const open = () => po.locator('[data-testid="multi-entity-owner-row"][data-open="true"]');
+
+  check(
+    "E1 the ADD action sits in the SECTION HEADER's end slot, not inside the owners card",
+    (await po.locator('[data-testid="section-actions-end"] [data-testid="add-owner"]').count()) === 1 &&
+      (await po.locator('[data-testid="multi-entity-owners"] [data-testid="add-owner"]').count()) === 0,
+  );
+  // ... and on the LEFT of the header in RTL: its box starts left of the title's.
+  const geom = await po.evaluate(() => {
+    const h = document.querySelector('[data-testid="platform-multi-entity-section"] h2');
+    const a = document.querySelector('[data-testid="add-owner"]');
+    if (!h || !a) return null;
+    return { title: h.getBoundingClientRect().left, add: a.getBoundingClientRect().left };
+  });
+  check(
+    "E2 ... and it is positioned to the LEFT of the section title (the end side in RTL)",
+    geom !== null && geom.add < geom.title,
+    JSON.stringify(geom),
+  );
+
+  check("E3 one compact row per owner", (await rows.count()) === 2, String(await rows.count()));
+  check(
+    "E4 NOTHING is expanded by default - the list stays compact with many owners",
+    (await open().count()) === 0,
+    String(await open().count()),
+  );
+  const firstRowText = (await rows.first().innerText()).trim();
+  check(
+    "E5 a collapsed row carries the summary fields up to the phone, and no more",
+    firstRowText.includes("שם משתמש לכניסה") &&
+      /05\d/.test(firstRowText) &&
+      !firstRowText.includes("מזהה חשבון") &&
+      !firstRowText.includes("כתובת כניסה"),
+    firstRowText.replace(/\s+/g, " ").slice(0, 140),
+  );
+  check(
+    "E6 every row offers a פתח action",
+    (await po.locator('[data-testid="owner-open"]').count()) === 2,
+  );
+
+  // OPEN.
+  await rows.first().locator('[data-testid="owner-open"]').click();
+  await po.locator('[data-testid="owner-expanded"]').waitFor({ timeout: 15000 });
+  check("E7 opening one owner expands exactly that one", (await open().count()) === 1);
+  const expanded = (await po.locator('[data-testid="owner-expanded"]').innerText()).trim();
+  check(
+    "E8 the expanded view shows the persistent details the summary omits",
+    expanded.includes("מזהה חשבון") &&
+      expanded.includes("כתובת כניסה") &&
+      expanded.includes("הוקצה בתאריך"),
+    expanded.replace(/\s+/g, " ").slice(0, 160),
+  );
+  check("E9 ... and this owner's workspace assignments", expanded.includes("מערכות משויכות"));
+  check(
+    "E10 opening also scopes the assignment list to that owner",
+    (await po.locator('[data-testid="assignment-target"]').innerText()).includes("בעל רב-מערכות"),
+    await po.locator('[data-testid="assignment-target"]').innerText(),
+  );
+
+  // CLOSE - and it must actually close, not immediately re-open.
+  await rows.first().locator('[data-testid="owner-open"]').click();
+  await po.waitForTimeout(600);
+  check("E11 סגירה really closes it (it does not latch back open)", (await open().count()) === 0);
+
+  // Opening the OTHER owner works, and only one is open at a time.
+  await rows.nth(1).locator('[data-testid="owner-open"]').click();
+  await po.locator('[data-testid="owner-expanded"]').waitFor({ timeout: 15000 });
+  check(
+    "E12 a different owner can be opened, and only one is open at a time",
+    (await open().count()) === 1 && (await rows.nth(1).getAttribute("data-open")) === "true",
+  );
+
+  // RE-OPENABLE after a full reload, and after leaving the section and coming back.
+  await po.reload({ waitUntil: "domcontentloaded" });
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().waitFor({ timeout: 25000 });
+  check("E13 after a RELOAD the list renders compact again", (await open().count()) === 0);
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().locator('[data-testid="owner-open"]').click();
+  await po.locator('[data-testid="owner-expanded"]').waitFor({ timeout: 15000 });
+  check("E14 ... and an owner can be RE-OPENED after the reload", (await open().count()) === 1);
+
+  await po.getByRole("link", { name: "בעלי מערכות" }).first().click();
+  await po.waitForTimeout(1000);
+  await po.getByRole("link", { name: "רב-מערכות" }).first().click();
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().waitFor({ timeout: 25000 });
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().locator('[data-testid="owner-open"]').click();
+  await po.locator('[data-testid="owner-expanded"]').waitFor({ timeout: 15000 });
+  check("E15 ... and after NAVIGATING away and back", (await open().count()) === 1);
+}
+
+// =========================================================================
+section("F. RE-ISSUING A SET-PASSWORD LINK FROM THE EXPANDED VIEW");
+// =========================================================================
+{
+  const linkPanel = po.locator('[data-testid="multi-entity-destination"]');
+  check("F1 no set-password link is on screen before asking for one", (await linkPanel.count()) === 0);
+  check(
+    "F2 the regenerate action lives INSIDE the expanded owner view",
+    (await po.locator('[data-testid="owner-expanded"] [data-testid="owner-reissue-link"]').count()) === 1,
+  );
+
+  await po.locator('[data-testid="owner-reissue-link"]').click();
+  await linkPanel.waitFor({ timeout: 25000 });
+  const panelText = (await po.locator("main").innerText()).trim();
+  check(
+    "F3 a fresh link is produced and shown with a copy action",
+    panelText.includes("/multi-entity/set-password") &&
+      (await po.getByRole("button", { name: "העתקה", exact: true }).count()) >= 1,
+  );
+  check(
+    "F4 ... and the login address to send alongside it",
+    (await linkPanel.innerText()).includes("/login"),
+  );
+  // Scoped to the PANEL. "הוחלף" also appears in the replacement-cleanup card
+  // from an earlier section, so a page-wide match would fail for a reason that
+  // has nothing to do with this link.
+  check(
+    "F5 re-issue reported no replacement - nobody was displaced by minting a link",
+    !(await po.locator('[data-testid="multi-entity-destination"]').locator("xpath=ancestor::*[contains(@class,'ring-primary-200')][1]").innerText())
+      .includes("ההחלפה הושלמה"),
+  );
+
+  // The link is a credential: it must not be persisted anywhere in the browser.
+  const storage = await po.evaluate(() => {
+    const read = (st) => {
+      try {
+        return Object.entries({ ...st });
+      } catch {
+        return [];
+      }
+    };
+    const all = [...read(localStorage), ...read(sessionStorage)];
+    const pattern = /set-password|token_hash|passwordLink|activationLink/i;
+    return {
+      leaked: all.some(([k, v]) => pattern.test(k) || pattern.test(String(v))),
+      keys: all.map(([k]) => k),
+    };
+  });
+  check("F6 the link is in NO browser storage", storage.leaked === false, `keys=${JSON.stringify(storage.keys)}`);
+  check("F7 ... and not in the address bar either", !/token_hash|set-password/.test(po.url()), po.url());
+
+  // A reload must NOT bring a used/old link back: it was never stored.
+  await po.reload({ waitUntil: "domcontentloaded" });
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().waitFor({ timeout: 25000 });
+  check(
+    "F8 after a reload the old link is GONE, not presented as still valid",
+    (await po.locator('[data-testid="multi-entity-destination"]').count()) === 0,
+  );
+  await po.locator('[data-testid="multi-entity-owner-row"]').first().locator('[data-testid="owner-open"]').click();
+  await po.locator('[data-testid="owner-expanded"]').waitFor({ timeout: 15000 });
+  check(
+    "F9 ... and the way back is to mint a new one, which is still offered",
+    (await po.locator('[data-testid="owner-reissue-link"]').count()) === 1,
+  );
+
+  // The assignment UI still works after all of this.
+  const before = psql("select count(*) from public.multi_entity_assignments;").trim();
+  await po
+    .locator('[data-testid="multi-entity-workspace-row"]')
+    .nth(1)
+    .getByRole("button", { name: "שיוך", exact: true })
+    .click();
+  await po.waitForTimeout(2500);
+  const after = psql("select count(*) from public.multi_entity_assignments;").trim();
+  check("F10 assignment still works from the workspace list", after === String(Number(before) + 1), `${before} -> ${after}`);
 }
 
 

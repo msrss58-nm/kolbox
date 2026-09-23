@@ -150,6 +150,7 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   // one would silently grant or revoke the wrong person's visibility.
   provision_multi_entity_owner: ["name", "email", "phone", "username", "ownerId"],
   remove_multi_entity_owner: ["ownerId"],
+  reissue_multi_entity_password_link: ["ownerId"],
   assign_workspace: ["ownerId", "workspaceId"],
   unassign_workspace: ["ownerId", "workspaceId"],
   purge_replaced_auth_user: ["previousAuthUserId"],
@@ -869,6 +870,38 @@ async function handleCreateOwnerAccess(
 }
 
 /**
+ * The MULTI-ENTITY Owner's one-time set-password link for an EXISTING Auth
+ * account, or null when GoTrue could not mint one.
+ *
+ * THE ONLY place a Multi-Entity set-password link is created - provisioning
+ * and re-issuing both call this, so there is exactly one credential flow and
+ * the two can never diverge in mechanism, origin or token type.
+ *
+ * Security property, verified empirically against the pinned GoTrue rather
+ * than assumed: minting a recovery link REPLACES the account's previous
+ * recovery token, so issuing a new one invalidates any earlier link for that
+ * account, and redeeming a link consumes it so it cannot be replayed. That is
+ * what makes re-issue safe - an operator who re-issues has, by that act,
+ * killed whatever link was circulating before.
+ */
+async function mintMultiEntityActivationLink(
+  supabase: ReturnType<typeof getServiceClient>,
+  email: string,
+  baseUrl: string,
+): Promise<string | null> {
+  const redirectTo = `${baseUrl}${MULTI_ENTITY_SET_PASSWORD_PATH}`;
+  const { data: link, error: linkErr } = await supabase.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: { redirectTo },
+  });
+  const hashedToken = link?.properties?.hashed_token;
+  return !linkErr && typeof hashedToken === "string" && hashedToken
+    ? `${redirectTo}?${new URLSearchParams({ token_hash: hashedToken, type: "recovery" }).toString()}`
+    : null;
+}
+
+/**
  * The Election Owner's direct token_hash set-password link for an EXISTING
  * Auth account, or null when GoTrue could not mint one. A recovery link
  * replaces the account's previous recovery token, so issuing a new one
@@ -1088,6 +1121,110 @@ async function handleMultiEntityState(
 }
 
 /**
+ * Re-issue a Multi-Entity Owner's one-time set-password link.
+ *
+ * WHY THIS EXISTS. The link is minted once, at provisioning, and held in the
+ * console's memory only - never persisted, because it is a credential. That
+ * is the right rule, but until now it left no way back: an operator who lost
+ * the link before handing it over had to REPLACE the owner (to a temporary
+ * address, purge, replace back) just to mint another. That is a destructive
+ * workaround for a non-destructive problem.
+ *
+ * THIS INVENTS NO SECOND CREDENTIAL FLOW. It mints through exactly the same
+ * helper provisioning uses, for the same account, with the same recovery
+ * token type and the same Multi-Entity redirect. The only difference is that
+ * no account is created.
+ *
+ * AUTHORIZATION. The caller is already a verified Platform Owner (checked
+ * before dispatch). `platform_get_multi_entity_state` re-resolves that
+ * independently and is the ONLY source of which owners exist, so an ownerId
+ * that is not a live Multi-Entity Owner cannot be turned into a link - the
+ * op can never mint a recovery link for an arbitrary account.
+ *
+ * The e-mail is read from GoTrue by the owner's auth id rather than taken
+ * from the console, mirroring the Stage 8B reissue: the address the link is
+ * sent to must be the account's own, never one supplied by the caller.
+ *
+ * Re-issuing INVALIDATES the previous link for that account (a new recovery
+ * token replaces the old one), so this cannot leave two live links behind.
+ */
+async function handleReissueMultiEntityPasswordLink(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const ownerId = str(body.ownerId);
+  if (!ownerId || !UUID_PATTERN.test(ownerId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  // Resolved BEFORE anything else, exactly as provisioning does: a missing
+  // production configuration must never produce a link pointing somewhere
+  // else, and must fail closed instead.
+  const multiEntityBaseUrl = multiEntityAppBaseUrl();
+  if (!multiEntityBaseUrl) {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_get_multi_entity_state", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  const owners = Array.isArray((data as { owners?: unknown })?.owners)
+    ? ((data as { owners: unknown[] }).owners as Array<{
+        owner_id?: unknown;
+        auth_user_id?: unknown;
+      }>)
+    : [];
+  const owner = owners.find((o) => o.owner_id === ownerId);
+  if (!owner || typeof owner.auth_user_id !== "string") {
+    sendError(res, 404, "MULTI_ENTITY_OWNER_NOT_FOUND");
+    return;
+  }
+
+  const { data: account, error: accountErr } = await supabase.auth.admin.getUserById(
+    owner.auth_user_id,
+  );
+  const accountEmail = !accountErr ? (account?.user?.email ?? null) : null;
+  if (!accountEmail) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  const activationLink = await mintMultiEntityActivationLink(
+    supabase,
+    accountEmail,
+    multiEntityBaseUrl,
+  );
+  if (!activationLink) {
+    // Nothing was changed by a failed mint; the operator can simply retry.
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  // The link is returned to the caller and NOWHERE else: not logged, not
+  // stored, not audited. It is a credential, and the console holds it in
+  // memory only for as long as its panel is on screen.
+  res.status(200).json({ ownerId, activationLink });
+}
+
+/**
  * Revoke ONE Multi-Entity Owner.
  *
  * With a single seat, "replace" WAS revocation - there was no way to end the
@@ -1130,7 +1267,10 @@ async function handleRemoveMultiEntityOwner(
     return;
   }
 
-  const row = rpcRow<{ previous_auth_user_id?: unknown; assignments_removed?: unknown }>(data);
+  const row = rpcRow<{
+    previous_auth_user_id?: unknown;
+    assignments_removed?: unknown;
+  }>(data);
 
   res.status(200).json({
     removed: true,
@@ -1360,18 +1500,12 @@ async function handleProvisionMultiEntityOwner(
     typeof row.previous_auth_user_id === "string" ? row.previous_auth_user_id : null;
 
   // --- 4. One-time set-password link (Multi-Entity origin, Stage 5) --------
-  const redirectTo = `${multiEntityBaseUrl}${MULTI_ENTITY_SET_PASSWORD_PATH}`;
-  const { data: link, error: linkErr } = await supabase.auth.admin.generateLink({
-    type: "recovery",
+  // Through the SHARED minter, so provisioning and re-issue cannot drift.
+  const activationLink = await mintMultiEntityActivationLink(
+    supabase,
     email,
-    options: { redirectTo },
-  });
-
-  const hashedToken = link?.properties?.hashed_token;
-  const activationLink =
-    !linkErr && typeof hashedToken === "string" && hashedToken
-      ? `${redirectTo}?${new URLSearchParams({ token_hash: hashedToken, type: "recovery" }).toString()}`
-      : null;
+    multiEntityBaseUrl,
+  );
 
   // requiresDestructiveApproval is surfaced explicitly rather than quietly
   // leaving an orphaned Auth account behind: the console must show this as an
@@ -1957,6 +2091,9 @@ export default async function handler(
       return;
     case "remove_multi_entity_owner":
       await handleRemoveMultiEntityOwner(req, res, verified.authUserId);
+      return;
+    case "reissue_multi_entity_password_link":
+      await handleReissueMultiEntityPasswordLink(req, res, verified.authUserId);
       return;
     case "purge_replaced_auth_user":
       await handlePurgeReplacedAuthUser(req, res, verified.authUserId);

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AdminSection } from "../../components/admin/AdminSection";
+import { UserPlus } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
@@ -37,16 +38,20 @@ export function PlatformOwnerMultiEntityPage() {
   const [form, setForm] = useState<{ ownerId: string | null } | null>(null);
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
 
-  // Keep the selection pointing at a real owner: the first one by default, and
-  // never at one that has just been removed or replaced away.
+  // NOTHING is open by default, and closing means closed. An earlier version
+  // fell back to the first owner, which made the list open-by-default (wrong
+  // for a compact list of many) and made "סגירה" a no-op, because the fallback
+  // re-opened the row on the very next render.
+  //
+  // The only thing reconciled here is an open row that has ceased to exist -
+  // removed, or replaced away - which closes rather than dangling.
   //
   // Done with the render-phase compare CLAUDE.md prescribes, not an effect: a
-  // setState inside useEffect would re-render on every load, and the selection
-  // is derived from `owners` rather than being an independent piece of state.
+  // setState inside useEffect would re-render on every load.
   const validOwnerId =
     selectedOwnerId !== null && m.owners.some((o) => o.ownerId === selectedOwnerId)
       ? selectedOwnerId
-      : (m.owners[0]?.ownerId ?? null);
+      : null;
   if (validOwnerId !== selectedOwnerId) setSelectedOwnerId(validOwnerId);
 
   const selectedOwner = m.owners.find((o) => o.ownerId === validOwnerId) ?? null;
@@ -85,6 +90,21 @@ export function PlatformOwnerMultiEntityPage() {
         testId="platform-multi-entity-section"
         title={text.title}
         description={text.stageNote}
+        /* Pinned to the END of the header row - the LEFT side in RTL - so the
+           section's primary action sits opposite the heading rather than
+           buried inside the owners card. */
+        actionsEnd={
+          m.readError ? null : (
+            <Button
+              data-testid="add-owner"
+              onClick={() => openForm(null)}
+              disabled={m.anyBusy}
+            >
+              <UserPlus className="me-1 size-4" aria-hidden />
+              {PLATFORM_OWNER_TEXT.multiEntity.seat.add}
+            </Button>
+          )
+        }
       >
         {m.readError ? (
           <Card className="space-y-3">
@@ -118,15 +138,18 @@ export function PlatformOwnerMultiEntityPage() {
 
               <MultiEntityOwnersCard
                 owners={m.owners}
-                selectedOwnerId={validOwnerId}
+                workspaces={m.workspaces}
+                openOwnerId={validOwnerId}
+                formOpen={form !== null}
                 loading={m.loading}
                 disabled={m.anyBusy}
                 isBusy={m.isBusy}
                 errorFor={m.errorFor}
-                onSelect={setSelectedOwnerId}
+                onOpen={setSelectedOwnerId}
                 onAdd={() => openForm(null)}
                 onReplace={(owner) => openForm(owner.ownerId)}
                 onRemove={(owner) => void m.removeOwner(owner.ownerId)}
+                onReissueLink={(owner) => void m.reissueLink(owner.ownerId)}
               />
 
               {/* Shown once, straight after a successful provision /
@@ -145,6 +168,7 @@ export function PlatformOwnerMultiEntityPage() {
               workspaces={m.workspaces}
               loading={m.loading}
               selectedOwner={selectedOwner}
+              hasOwners={m.owners.length > 0}
               assignedCount={m.assignedCount}
               isBusy={m.isBusy}
               anyBusy={m.anyBusy}

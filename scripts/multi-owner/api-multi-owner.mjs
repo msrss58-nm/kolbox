@@ -14,6 +14,7 @@
 import { buildHandlers } from "../stage5/buildHandlers.mjs";
 import {
   admin,
+  anon,
   callHandler,
   check,
   enrollTotp,
@@ -414,6 +415,117 @@ check(
   "F5 the third owner, untouched throughout, is still there and still sees nothing",
   (await meGet("session", live3.token)).statusCode === 200 &&
     ((await meGet("session", live3.token)).body?.workspaces ?? []).length === 0,
+);
+
+// =========================================================================
+section("G. RE-ISSUING A SET-PASSWORD LINK - one flow, old link killed");
+// =========================================================================
+// The link is a credential: minted once at provisioning, held in memory, never
+// stored. Re-issue exists so losing it is not a reason to replace a person.
+const OWNER_LIVE = OWNER_3;
+const first = await pPost(
+  { op: "reissue_multi_entity_password_link", ownerId: OWNER_LIVE },
+  PO,
+);
+check(
+  "G1 a fresh set-password link can be minted for an existing owner",
+  first.statusCode === 200 && typeof first.body?.activationLink === "string",
+  `${first.statusCode} link=${typeof first.body?.activationLink === "string" ? "minted" : "none"}`,
+);
+// The token is a credential: only its PRESENCE and the destination are
+// reported, never any part of its value (see lib.mjs's own rule).
+const destOf = (l) => `${new URL(l).origin}${new URL(l).pathname}`;
+check(
+  "G2 it targets the MULTI-ENTITY set-password screen, not any other origin",
+  String(first.body.activationLink).includes("/multi-entity/set-password?") &&
+    new URL(first.body.activationLink).searchParams.get("type") === "recovery" &&
+    !!new URL(first.body.activationLink).searchParams.get("token_hash"),
+  destOf(first.body.activationLink),
+);
+check(
+  "G3 ... and never the Election Owner screen (one flow, not two)",
+  !String(first.body.activationLink).includes("/election-day/"),
+);
+
+const second = await pPost(
+  { op: "reissue_multi_entity_password_link", ownerId: OWNER_LIVE },
+  PO,
+);
+const tokenOf = (l) => new URL(l).searchParams.get("token_hash");
+check(
+  "G4 re-issuing again mints a DIFFERENT token",
+  second.statusCode === 200 && tokenOf(second.body.activationLink) !== tokenOf(first.body.activationLink),
+);
+
+// THE SECURITY PROPERTY, exercised rather than assumed: the older link must
+// already be dead, so a re-issue cannot leave two live links behind.
+
+const oldRedeem = await anon().auth.verifyOtp({
+  type: "recovery",
+  token_hash: tokenOf(first.body.activationLink),
+});
+check(
+  "G5 the PREVIOUS link is already invalid - re-issue killed it",
+  !!oldRedeem.error,
+  oldRedeem.error?.message ?? "ACCEPTED - STALE LINK STILL LIVE",
+);
+
+const newRedeem = await anon().auth.verifyOtp({
+  type: "recovery",
+  token_hash: tokenOf(second.body.activationLink),
+});
+check(
+  "G6 the NEWEST link works (G5 is not a blanket failure)",
+  !newRedeem.error,
+  newRedeem.error?.message ?? "",
+);
+
+const replayRedeem = await anon().auth.verifyOtp({
+  type: "recovery",
+  token_hash: tokenOf(second.body.activationLink),
+});
+check(
+  "G7 ... and a USED link cannot be replayed",
+  !!replayRedeem.error,
+  replayRedeem.error?.message ?? "ACCEPTED - USED LINK REPLAYABLE",
+);
+
+// Authorization + shape.
+const reissueUnknown = await pPost(
+  { op: "reissue_multi_entity_password_link", ownerId: "00000000-0000-4000-8000-000000000000" },
+  PO,
+);
+check(
+  "G8 re-issuing for an owner that does not exist is refused (404) - no arbitrary account can be targeted",
+  reissueUnknown.statusCode === 404,
+  `${reissueUnknown.statusCode} ${JSON.stringify(reissueUnknown.body)}`,
+);
+const reissueBad = await pPost(
+  { op: "reissue_multi_entity_password_link", ownerId: "not-a-uuid" },
+  PO,
+);
+check("G9 a malformed ownerId is refused (400)", reissueBad.statusCode === 400, String(reissueBad.statusCode));
+const reissueExtra = await pPost(
+  { op: "reissue_multi_entity_password_link", ownerId: OWNER_LIVE, email: "attacker@evil.test" },
+  PO,
+);
+check(
+  "G10 an e-mail supplied by the caller is refused outright - the address comes from the account",
+  reissueExtra.statusCode === 400,
+  String(reissueExtra.statusCode),
+);
+check(
+  "G11 re-issue creates NO owner and NO assignment - it only mints a link",
+  psql("select count(*) from public.multi_entity_owner;").trim() === "2" &&
+    psql("select count(*) from public.multi_entity_assignments;").trim() ===
+      psql("select count(*) from public.multi_entity_assignments;").trim(),
+  psql("select count(*) from public.multi_entity_owner;").trim(),
+);
+check(
+  "G12 ... and writes NO audit row (a link is not an owner event)",
+  psql(
+    "select count(*) from public.multi_entity_audit where action not in ('provisioned','replaced','removed','assigned','unassigned','previous_auth_deleted','previous_auth_delete_failed','provisioning_auth_minted','provisioning_orphan_deleted','provisioning_orphan_delete_failed');",
+  ).trim() === "0",
 );
 
 tally("MULTI-OWNER API");
