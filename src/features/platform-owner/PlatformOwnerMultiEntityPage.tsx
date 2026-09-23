@@ -7,7 +7,7 @@ import { MultiEntityPasswordLinkPanel } from "./MultiEntityPasswordLinkPanel";
 import { MultiEntityProvisionModal } from "./MultiEntityProvisionModal";
 import { MultiEntityProvisioningOrphanCard } from "./MultiEntityProvisioningOrphanCard";
 import { MultiEntityReplacementCleanupCard } from "./MultiEntityReplacementCleanupCard";
-import { MultiEntitySeatCard } from "./MultiEntitySeatCard";
+import { MultiEntityOwnersCard } from "./MultiEntityOwnersCard";
 import { MultiEntityWorkspaceList } from "./MultiEntityWorkspaceList";
 import { BUSY, useMultiEntityManagement } from "./useMultiEntityManagement";
 
@@ -31,18 +31,37 @@ const text = PLATFORM_OWNER_TEXT.multiEntity.page;
  */
 export function PlatformOwnerMultiEntityPage() {
   const m = useMultiEntityManagement();
-  const [formOpen, setFormOpen] = useState(false);
+  /** null = the form is closed. `{ownerId: null}` = add. `{ownerId}` = replace
+   * THAT owner - the two are different operations and never inferred from how
+   * many owners happen to exist. */
+  const [form, setForm] = useState<{ ownerId: string | null } | null>(null);
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
 
-  const provisionError = m.errorFor(BUSY.provision);
-  const provisionBusy = m.isBusy(BUSY.provision);
+  // Keep the selection pointing at a real owner: the first one by default, and
+  // never at one that has just been removed or replaced away.
+  //
+  // Done with the render-phase compare CLAUDE.md prescribes, not an effect: a
+  // setState inside useEffect would re-render on every load, and the selection
+  // is derived from `owners` rather than being an independent piece of state.
+  const validOwnerId =
+    selectedOwnerId !== null && m.owners.some((o) => o.ownerId === selectedOwnerId)
+      ? selectedOwnerId
+      : (m.owners[0]?.ownerId ?? null);
+  if (validOwnerId !== selectedOwnerId) setSelectedOwnerId(validOwnerId);
+
+  const selectedOwner = m.owners.find((o) => o.ownerId === validOwnerId) ?? null;
+
+  const formKey = form?.ownerId ? BUSY.owner(form.ownerId) : BUSY.provision;
+  const provisionError = m.errorFor(formKey);
+  const provisionBusy = m.isBusy(formKey);
 
   // Stage 8B: every open starts clean - no error left over from an earlier
   // attempt. The modal is also only MOUNTED while open (below), so its fields
   // and confirmation step reset after a success as well as after a cancel.
-  const openForm = () => {
+  const openForm = (ownerId: string | null) => {
     m.clearError();
     m.clearUsernameSuggestion();
-    setFormOpen(true);
+    setForm({ ownerId });
   };
 
   const submit = async (input: {
@@ -51,10 +70,13 @@ export function PlatformOwnerMultiEntityPage() {
     phone?: string;
     username: string;
   }) => {
-    const ok = await m.provision(input);
+    const ok = await m.provision({
+      ...input,
+      ...(form?.ownerId ? { ownerId: form.ownerId } : {}),
+    });
     // The modal stays open on failure so the operator keeps what they typed
     // and can read the inline reason next to the fields.
-    if (ok) setFormOpen(false);
+    if (ok) setForm(null);
   };
 
   return (
@@ -94,12 +116,17 @@ export function PlatformOwnerMultiEntityPage() {
                 onPurge={(id) => void m.purgeOrphan(id)}
               />
 
-              <MultiEntitySeatCard
-                seat={m.seat}
+              <MultiEntityOwnersCard
+                owners={m.owners}
+                selectedOwnerId={validOwnerId}
                 loading={m.loading}
                 disabled={m.anyBusy}
-                onProvision={openForm}
-                onReplace={openForm}
+                isBusy={m.isBusy}
+                errorFor={m.errorFor}
+                onSelect={setSelectedOwnerId}
+                onAdd={() => openForm(null)}
+                onReplace={(owner) => openForm(owner.ownerId)}
+                onRemove={(owner) => void m.removeOwner(owner.ownerId)}
               />
 
               {/* Shown once, straight after a successful provision /
@@ -117,27 +144,34 @@ export function PlatformOwnerMultiEntityPage() {
             <MultiEntityWorkspaceList
               workspaces={m.workspaces}
               loading={m.loading}
-              hasSeat={m.seat !== null}
+              selectedOwner={selectedOwner}
               assignedCount={m.assignedCount}
               isBusy={m.isBusy}
               anyBusy={m.anyBusy}
               errorFor={m.errorFor}
-              onAssign={(id) => void m.assign(id)}
-              onUnassign={(id) => void m.unassign(id)}
+              onAssign={(id) => {
+                if (validOwnerId) void m.assign(validOwnerId, id);
+              }}
+              onUnassign={(id) => {
+                if (validOwnerId) void m.unassign(validOwnerId, id);
+              }}
             />
           </div>
         )}
       </AdminSection>
 
-      {formOpen && (
+      {form && (
         <MultiEntityProvisionModal
           open
-          seat={m.seat}
+          /* The MODE comes from what the operator clicked, never from whether
+             an owner happens to exist - with several owners that inference is
+             meaningless, and getting it wrong would replace someone. */
+          replacing={m.owners.find((o) => o.ownerId === form.ownerId) ?? null}
           busy={provisionBusy}
           error={provisionError}
           usernameSuggestion={m.usernameSuggestion}
           onSubmit={(input) => void submit(input)}
-          onClose={() => setFormOpen(false)}
+          onClose={() => setForm(null)}
         />
       )}
     </>

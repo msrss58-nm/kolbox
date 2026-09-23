@@ -144,9 +144,14 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   set_workspace_modules: ["workspaceId", "modules"],
   // Gate 4: a module's GLOBAL availability (the platform-wide kill switch).
   set_module_availability: ["moduleKey", "available"],
-  provision_multi_entity_owner: ["name", "email", "phone", "username"],
-  assign_workspace: ["workspaceId"],
-  unassign_workspace: ["workspaceId"],
+  // `ownerId` is OPTIONAL on provision: absent means ADD a new owner, present
+  // means REPLACE that owner's identity. It is REQUIRED on assign/unassign -
+  // with several owners there is no "the" owner to fall back on, and guessing
+  // one would silently grant or revoke the wrong person's visibility.
+  provision_multi_entity_owner: ["name", "email", "phone", "username", "ownerId"],
+  remove_multi_entity_owner: ["ownerId"],
+  assign_workspace: ["ownerId", "workspaceId"],
+  unassign_workspace: ["ownerId", "workspaceId"],
   purge_replaced_auth_user: ["previousAuthUserId"],
   purge_provisioning_orphan: ["authUserId"],
   reissue_owner_access: ["pendingId"],
@@ -286,6 +291,12 @@ function mapRpcError(message: string): { status: number; code: string } {
   }
   if (m.includes("IDENTITY_ALREADY_PRINCIPAL")) {
     return { status: 409, code: "IDENTITY_ALREADY_PRINCIPAL" };
+  }
+  // Distinct from NOT_PROVISIONED on purpose: "no owner exists yet" and "the
+  // owner you named is not there" are different operator situations, and with
+  // several owners the second is the one that actually happens.
+  if (m.includes("MULTI_ENTITY_OWNER_NOT_FOUND")) {
+    return { status: 404, code: "MULTI_ENTITY_OWNER_NOT_FOUND" };
   }
   if (m.includes("MULTI_ENTITY_OWNER_NOT_PROVISIONED")) {
     return { status: 409, code: "MULTI_ENTITY_OWNER_NOT_PROVISIONED" };
@@ -1050,27 +1061,87 @@ async function handleMultiEntityState(
     return;
   }
 
-  // The seat's own login username, merged in from the identity directory.
+  // Each owner's own login username, merged in from the identity directory.
   // The RPC above cannot return it (auth_identities is a separate concern with
   // its own DEFINER accessor), and without it the hand-off details the console
   // shows after provisioning are unrecoverable on the next page load - the
-  // operator is left knowing the seat holder's e-mail but not the name they
-  // must actually type to sign in. Additive and non-fatal: unreadable means
-  // the row is simply absent, never a failed read of the whole section.
-  const state = (data ?? { seat: null, workspaces: [] }) as {
-    seat?: { auth_user_id?: unknown } | null;
+  // operator is left knowing an owner's e-mail but not the name they must
+  // actually type to sign in. Additive and non-fatal: unreadable means the
+  // field is simply absent, never a failed read of the whole section.
+  //
+  // Resolved in PARALLEL, not in a loop: this is now N round trips rather than
+  // one, and N grows with the number of owners.
+  const state = (data ?? { owners: [], workspaces: [] }) as {
+    owners?: unknown;
   };
-  const seatAuthUserId =
-    state.seat && typeof state.seat.auth_user_id === "string"
-      ? state.seat.auth_user_id
-      : null;
-  if (seatAuthUserId) {
-    const username = await readOwnUsername(seatAuthUserId);
-    res.status(200).json({ ...state, seat: { ...state.seat, username } });
+  const owners = Array.isArray(state.owners) ? state.owners : [];
+  const withUsernames = await Promise.all(
+    owners.map(async (owner) => {
+      const row = owner as { auth_user_id?: unknown };
+      const authUserId = typeof row.auth_user_id === "string" ? row.auth_user_id : null;
+      if (!authUserId) return owner;
+      return { ...row, username: await readOwnUsername(authUserId) };
+    }),
+  );
+
+  res.status(200).json({ ...state, owners: withUsernames });
+}
+
+/**
+ * Revoke ONE Multi-Entity Owner.
+ *
+ * With a single seat, "replace" WAS revocation - there was no way to end the
+ * capability except by handing it to someone else. With several owners that
+ * conflation breaks down, so removal is its own operation.
+ *
+ * Like replacement, it deliberately does NOT delete the Auth account: that
+ * stays a separate, separately-approved destructive step, and the removed
+ * account shows up in the same durable cleanup queue a replaced one does.
+ */
+async function handleRemoveMultiEntityOwner(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const ownerId = str(body.ownerId);
+
+  if (!ownerId || !UUID_PATTERN.test(ownerId)) {
+    sendError(res, 400, "INVALID_REQUEST");
     return;
   }
 
-  res.status(200).json(state);
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_remove_multi_entity_owner", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_owner_id: ownerId,
+  });
+
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  const row = rpcRow<{ previous_auth_user_id?: unknown; assignments_removed?: unknown }>(data);
+
+  res.status(200).json({
+    removed: true,
+    ownerId,
+    // Returned so the console can point the operator at the purge step; the
+    // queue itself still comes from durable server state, never from here.
+    previousAuthUserId:
+      typeof row?.previous_auth_user_id === "string" ? row.previous_auth_user_id : null,
+    assignmentsRemoved:
+      typeof row?.assignments_removed === "number" ? row.assignments_removed : 0,
+  });
 }
 
 /**
@@ -1097,10 +1168,19 @@ async function handleProvisionMultiEntityOwner(
   const email = str(body.email).toLowerCase();
   const phone = str(body.phone);
   const meUsername = str(body.username).trim();
+  // ABSENT  -> add a NEW Multi-Entity Owner alongside any existing ones.
+  // PRESENT -> replace THAT owner's Auth identity, keeping their assignments.
+  // An empty string is not "absent": it is a malformed selector, and treating
+  // it as "add" would turn a client bug into a surprise extra owner.
+  const meOwnerId = Object.hasOwn(body, "ownerId") ? str(body.ownerId) : null;
 
   // Required here too, so the two provisioning paths cannot drift apart.
   const meNormalizedPhone = normalizedIsraeliPhone(phone);
   if (!name || !email || !looksLikeEmail(email) || !meUsername || !meNormalizedPhone) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  if (meOwnerId !== null && !UUID_PATTERN.test(meOwnerId)) {
     sendError(res, 400, "INVALID_REQUEST");
     return;
   }
@@ -1210,14 +1290,19 @@ async function handleProvisionMultiEntityOwner(
   }
 
   // --- 2. Seat -------------------------------------------------------------
+  // The _v2 contract (EXPAND migration 20260926000000). The 5-argument
+  // original still exists during the overlap window for the PREVIOUS
+  // deployment; this code never calls it, because it can and must name the
+  // owner it means rather than relying on there being only one.
   const { data: seat, error: rpcErr } = await supabase.rpc(
-    "platform_provision_multi_entity_owner",
+    "platform_provision_multi_entity_owner_v2",
     {
       p_platform_owner_auth_user_id: platformOwnerAuthUserId,
       p_auth_user_id: authUserId,
       p_name: name,
       p_email: email,
       p_phone: meNormalizedPhone,
+      p_owner_id: meOwnerId,
     },
   );
 
@@ -1247,6 +1332,7 @@ async function handleProvisionMultiEntityOwner(
   }
 
   const row = rpcRow<{
+    owner_id?: unknown;
     already_existed?: unknown;
     replaced?: unknown;
     previous_auth_user_id?: unknown;
@@ -1291,6 +1377,7 @@ async function handleProvisionMultiEntityOwner(
   // leaving an orphaned Auth account behind: the console must show this as an
   // outstanding operator action.
   res.status(201).json({
+    ownerId: typeof row.owner_id === "string" ? row.owner_id : null,
     seatAuthUserId: authUserId,
     alreadyExisted: row.already_existed === true,
     replaced,
@@ -1305,12 +1392,20 @@ async function handleWorkspaceAssignment(
   req: MinimalRequest,
   res: MinimalResponse,
   platformOwnerAuthUserId: string,
-  rpc: "platform_assign_workspace" | "platform_unassign_workspace",
+  rpc: "platform_assign_workspace_v2" | "platform_unassign_workspace_v2",
 ): Promise<void> {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const workspaceId = str(body.workspaceId);
+  // REQUIRED, and validated here rather than left to the RPC: an assignment
+  // that names no owner has no safe interpretation once several exist.
+  const ownerId = str(body.ownerId);
 
-  if (!workspaceId || !UUID_PATTERN.test(workspaceId)) {
+  if (
+    !workspaceId ||
+    !UUID_PATTERN.test(workspaceId) ||
+    !ownerId ||
+    !UUID_PATTERN.test(ownerId)
+  ) {
     sendError(res, 400, "INVALID_REQUEST");
     return;
   }
@@ -1325,6 +1420,7 @@ async function handleWorkspaceAssignment(
 
   const { data, error } = await supabase.rpc(rpc, {
     p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_owner_id: ownerId,
     p_workspace_id: workspaceId,
   });
 
@@ -1848,7 +1944,7 @@ export default async function handler(
         req,
         res,
         verified.authUserId,
-        "platform_assign_workspace",
+        "platform_assign_workspace_v2",
       );
       return;
     case "unassign_workspace":
@@ -1856,8 +1952,11 @@ export default async function handler(
         req,
         res,
         verified.authUserId,
-        "platform_unassign_workspace",
+        "platform_unassign_workspace_v2",
       );
+      return;
+    case "remove_multi_entity_owner":
+      await handleRemoveMultiEntityOwner(req, res, verified.authUserId);
       return;
     case "purge_replaced_auth_user":
       await handlePurgeReplacedAuthUser(req, res, verified.authUserId);

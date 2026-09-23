@@ -7,7 +7,7 @@ import { Input } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { MultiEntityWorkspaceRow } from "./MultiEntityWorkspaceRow";
-import type { MultiEntityWorkspace } from "./platformOwnerClient";
+import type { MultiEntitySeat, MultiEntityWorkspace } from "./platformOwnerClient";
 import { BUSY } from "./useMultiEntityManagement";
 
 const text = PLATFORM_OWNER_TEXT.multiEntity.workspaces;
@@ -33,7 +33,7 @@ const FILTER_THRESHOLD = 8;
 export function MultiEntityWorkspaceList({
   workspaces,
   loading,
-  hasSeat,
+  selectedOwner,
   assignedCount,
   isBusy,
   anyBusy,
@@ -43,7 +43,10 @@ export function MultiEntityWorkspaceList({
 }: {
   workspaces: MultiEntityWorkspace[];
   loading: boolean;
-  hasSeat: boolean;
+  /** WHO the assign/unassign actions are for. Null means no owner is selected
+   * (or none exists): every action is inert and the row says why, rather than
+   * silently acting on an owner the operator did not choose. */
+  selectedOwner: MultiEntitySeat | null;
   assignedCount: number;
   isBusy: (key: string) => boolean;
   anyBusy: boolean;
@@ -51,6 +54,9 @@ export function MultiEntityWorkspaceList({
   onAssign: (workspaceId: string) => void;
   onUnassign: (workspaceId: string) => void;
 }) {
+  const selectedOwnerId = selectedOwner?.ownerId ?? null;
+  const isAssignedToSelected = (w: MultiEntityWorkspace) =>
+    selectedOwnerId !== null && w.assignedOwnerIds.includes(selectedOwnerId);
   const [query, setQuery] = useState("");
   const [onlyAssigned, setOnlyAssigned] = useState(false);
   const [confirm, setConfirm] = useState<MultiEntityWorkspace | null>(null);
@@ -71,11 +77,12 @@ export function MultiEntityWorkspaceList({
     if (!showFilters) return workspaces;
     const q = query.trim().toLowerCase();
     return workspaces.filter((w) => {
-      if (onlyAssigned && !w.isAssigned) return false;
+      if (onlyAssigned && !isAssignedToSelected(w)) return false;
       if (!q) return true;
       return w.name.toLowerCase().includes(q) || w.loginCode.toLowerCase().includes(q);
     });
-  }, [workspaces, query, onlyAssigned, showFilters]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaces, query, onlyAssigned, showFilters, selectedOwnerId]);
 
   return (
     <>
@@ -92,9 +99,18 @@ export function MultiEntityWorkspaceList({
           )}
         </div>
 
-        {!loading && !hasSeat && workspaces.length > 0 && (
+        {!loading && selectedOwner === null && workspaces.length > 0 && (
           <p className="rounded-xl bg-slate-50 p-3 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
             {text.blocked}
+          </p>
+        )}
+
+        {!loading && selectedOwner !== null && (
+          <p
+            className="text-sm font-semibold text-slate-700"
+            data-testid="assignment-target"
+          >
+            {text.forOwner(selectedOwner.name)}
           </p>
         )}
 
@@ -136,16 +152,19 @@ export function MultiEntityWorkspaceList({
         {!loading && visible.length > 0 && (
           <ul className="space-y-2">
             {visible.map((w) => {
-              const key = BUSY.workspace(w.workspaceId);
-              const busy = isBusy(key);
+              const key = selectedOwnerId
+                ? BUSY.workspace(selectedOwnerId, w.workspaceId)
+                : "";
+              const busy = key !== "" && isBusy(key);
               return (
                 <MultiEntityWorkspaceRow
                   key={w.workspaceId}
                   workspace={w}
+                  assignedToSelected={isAssignedToSelected(w)}
                   duplicateName={duplicateNames.has(w.name.trim())}
                   busy={busy}
-                  disabled={!hasSeat || (anyBusy && !busy)}
-                  blockedReason={null}
+                  disabled={selectedOwnerId === null || (anyBusy && !busy)}
+                  blockedReason={selectedOwnerId === null ? text.noOwnerSelected : null}
                   error={errorFor(key)}
                   onAssign={() => onAssign(w.workspaceId)}
                   onUnassign={() => setConfirm(w)}
@@ -163,7 +182,11 @@ export function MultiEntityWorkspaceList({
           confirm ? text.confirmUnassignMessage(confirm.name, confirm.loginCode) : ""
         }
         confirmLabel={text.confirmUnassign}
-        busy={confirm ? isBusy(BUSY.workspace(confirm.workspaceId)) : false}
+        busy={
+          confirm && selectedOwnerId
+            ? isBusy(BUSY.workspace(selectedOwnerId, confirm.workspaceId))
+            : false
+        }
         onConfirm={() => {
           const w = confirm;
           setConfirm(null);

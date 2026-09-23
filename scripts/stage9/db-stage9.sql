@@ -119,11 +119,15 @@ insert into public.election_day_voters (workspace_id, first_name, last_name, vot
 
 insert into public.multi_entity_owner (auth_user_id, name, email)
 values ('91000000-0000-4000-8000-000000000008', 'S9 Seat', 'me@s9.invalid');
-insert into public.multi_entity_assignments (workspace_id) values
-  ('92000000-0000-4000-8000-000000000001'),
-  ('92000000-0000-4000-8000-000000000002'),
-  ('92000000-0000-4000-8000-000000000003'),
-  ('92000000-0000-4000-8000-000000000004');
+-- 20260926000000: assignments name their owner.
+insert into public.multi_entity_assignments (owner_id, workspace_id)
+select (select owner_id from public.multi_entity_owner), w
+from unnest(array[
+  '92000000-0000-4000-8000-000000000001',
+  '92000000-0000-4000-8000-000000000002',
+  '92000000-0000-4000-8000-000000000003',
+  '92000000-0000-4000-8000-000000000004'
+]::uuid[]) w;
 
 -- A legacy (pre-Stage-9) approval: no recorded module choice, no approver.
 insert into public.election_workspace_pending_owner_access

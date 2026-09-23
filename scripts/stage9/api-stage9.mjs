@@ -589,6 +589,8 @@ section("K. LEGACY APPROVAL WITHOUT MODULES FAILS CLOSED");
 section("L. MULTI-ENTITY: A WORKSPACE WITHOUT ELECTION DAY IS UNAVAILABLE, NO COUNTS");
 {
   const me = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "S9 Seat", email: email("me"), username: suiteUsername() }, PO);
+  // 20260926000000: assignment names its owner.
+  const meOwnerId = me.body?.ownerId;
   const setup = anon();
   await setup.auth.verifyOtp({ token_hash: new URL(me.body?.activationLink).searchParams.get("token_hash"), type: "recovery" });
   const mePw = randomPassword();
@@ -598,7 +600,7 @@ section("L. MULTI-ENTITY: A WORKSPACE WITHOUT ELECTION DAY IS UNAVAILABLE, NO CO
   // D (Budget only) and B (Election Day + Budget), 12 contacts each.
   for (const ws of [D.wsId, B.wsId]) {
     psql(`insert into public.election_day_voters (workspace_id, first_name, last_name, voted) select '${ws}', 'S9API', 'v' || g, g <= 5 from generate_series(1, 12) g;`);
-    await pPost({ op: "assign_workspace", workspaceId: ws }, PO);
+    await pPost({ op: "assign_workspace", ownerId: meOwnerId, workspaceId: ws }, PO);
   }
   const agg = await callHandler(H.platformSession, { method: "GET", url: "/api/platform/session?me_op=aggregates", headers: auth(ME) });
   const rows = agg.body?.workspaces ?? [];

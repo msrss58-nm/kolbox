@@ -170,7 +170,7 @@ section("PLATFORM PATH REGRESSION (shared endpoint)");
   // one-time assignment flow.
   check("PL1 default GET -> 200 {platformOwnerId,email,username} only", r.statusCode === 200 && keys(r.body) === "email,platformOwnerId,username", keys(r.body));
   const s = await pGet("/api/platform/session?op=multi_entity_state", PO);
-  check("PL2 GET op=multi_entity_state -> 200 with the 4 top-level keys", s.statusCode === 200 && keys(s.body) === "pending_auth_cleanup,pending_provisioning_orphans,seat,workspaces", keys(s.body));
+  check("PL2 GET op=multi_entity_state -> 200 with the 4 top-level keys", s.statusCode === 200 && keys(s.body) === "owners,pending_auth_cleanup,pending_provisioning_orphans,workspaces", keys(s.body));
   check("PL3 unknown GET op -> 400", (await pGet("/api/platform/session?op=nope", PO)).statusCode === 400);
   check("PL4 POST without Origin -> 403", (await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, PO, null)).statusCode === 403);
   check("PL4 POST foreign Origin -> 403", (await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, PO, "https://evil.example")).statusCode === 403);
@@ -184,18 +184,25 @@ section("PLATFORM PATH REGRESSION (shared endpoint)");
   const co = await pPost({ op: "create_owner_access", phone: "0501234567", name: "Pending EO", email: pendingEmail, username: suiteUsername(), modules: ["election_day"] }, PO);
   const coLink = typeof co.body?.activationLink === "string" ? co.body.activationLink : "";
   check("PL8 create_owner_access -> 201 and its link STILL targets the Election Owner screen", co.statusCode === 201 && coLink.startsWith(`${ORIGIN}/election-day/owner-set-password?`), `status=${co.statusCode}`);
-  check("PL9 assign before a seat exists -> 409 MULTI_ENTITY_OWNER_NOT_PROVISIONED", (await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, PO)).body?.error === "MULTI_ENTITY_OWNER_NOT_PROVISIONED");
+  // 20260926000000: assignment names its owner. Without one the request is
+  // malformed (400); with an id that does not exist it is refused (409) - and
+  // the second is what "before a seat exists" now means.
+  check("PL9 assign with no ownerId -> 400 (never inferred)", (await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, PO)).statusCode === 400);
+  check("PL9 assign before any owner exists -> 409 MULTI_ENTITY_OWNER_NOT_PROVISIONED", (await pPost({ op: "assign_workspace", ownerId: "00000000-0000-4000-8000-000000000000", workspaceId: WS.Alpha.id }, PO)).body?.error === "MULTI_ENTITY_OWNER_NOT_PROVISIONED");
 }
 
 // ---------------------------------------------------------------------------
 section("PROVISIONING (rebuilt Stage 4B coverage + Stage 5 link target)");
-const CONTRACT_KEYS = "activationLink,alreadyExisted,previousAccountDeleted,previousAuthUserId,replaced,requiresDestructiveApproval,seatAuthUserId";
+const CONTRACT_KEYS =
+  "activationLink,alreadyExisted,ownerId,previousAccountDeleted,previousAuthUserId,replaced,requiresDestructiveApproval,seatAuthUserId";
+let meOwnerId;
 let me0Id;
 let me1Id;
 let me1Link;
 {
   const r = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Me Zero", email: email("me0") , username: suiteUsername()}, PO);
   me0Id = r.body?.seatAuthUserId;
+  meOwnerId = r.body?.ownerId;
   const link = r.body?.activationLink ?? "";
   check("PV1 first provision -> 201 with the exact response contract", r.statusCode === 201 && keys(r.body) === CONTRACT_KEYS, keys(r.body));
   check("PV1 contract values (not replaced, no destructive step)", r.body?.alreadyExisted === false && r.body?.replaced === false && r.body?.previousAuthUserId === null && r.body?.requiresDestructiveApproval === false && UUID_RE.test(me0Id ?? ""));
@@ -215,7 +222,9 @@ let me1Link;
 
   // Configured origin (trailing slash stripped) + replacement contract.
   process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = "https://me.example.test/";
-  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Me One", email: email("me1") , username: suiteUsername()}, PO);
+  // 20260926000000: ADD and REPLACE are distinct. Omitting ownerId would add a
+  // SECOND owner; this test is about replacement, so it names the owner row.
+  const rep = await pPost({ op: "provision_multi_entity_owner", ownerId: meOwnerId, phone: "0501234567", name: "Me One", email: email("me1") , username: suiteUsername()}, PO);
   delete process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL;
   me1Id = rep.body?.seatAuthUserId;
   me1Link = rep.body?.activationLink ?? "";
@@ -238,7 +247,7 @@ let me1Link;
   check("PV6 compensating delete removed the minted account", (await userByEmail(runEmail("mintfail"))) === null);
 
   // Seat failure + CONFIRMED cleanup -> terminal audit row, nothing pending.
-  setFaults({ rpc: { platform_provision_multi_entity_owner: () => ({ data: null, error: { message: "IDENTITY_ALREADY_PRINCIPAL" } }) } });
+  setFaults({ rpc: { platform_provision_multi_entity_owner_v2: () => ({ data: null, error: { message: "IDENTITY_ALREADY_PRINCIPAL" } }) } });
   const sf = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Seat Fail", email: runEmail("seatfail") , username: suiteUsername()}, PO);
   clearFaults();
   check("PV7 seat failure -> mapped 409 IDENTITY_ALREADY_PRINCIPAL", sf.statusCode === 409 && sf.body?.error === "IDENTITY_ALREADY_PRINCIPAL" && !sf.body?.warning);
@@ -248,7 +257,7 @@ let me1Link;
 
   // Seat failure + UNCONFIRMED cleanup -> AUTH_CLEANUP_INCOMPLETE + orphan listed.
   setFaults({
-    rpc: { platform_provision_multi_entity_owner: () => ({ data: null, error: { message: "boom" } }) },
+    rpc: { platform_provision_multi_entity_owner_v2: () => ({ data: null, error: { message: "boom" } }) },
     admin: {
       deleteUser: () => ({ data: null, error: { status: 500, message: "simulated" } }),
       getUserById: (id) => ({ data: { user: { id } }, error: null }),
@@ -269,7 +278,7 @@ let me1Link;
   // Seat failure + confirmed delete + AUDIT WRITE failure -> truthful warning, converges.
   setFaults({
     rpc: {
-      platform_provision_multi_entity_owner: () => ({ data: null, error: { message: "boom" } }),
+      platform_provision_multi_entity_owner_v2: () => ({ data: null, error: { message: "boom" } }),
       platform_record_provisioning_orphan_cleanup: () => ({ data: null, error: { message: "audit down" } }),
     },
   });
@@ -392,7 +401,7 @@ section("ENTITY-SCOPED AUTHORIZATION + FRESHNESS");
 const bodies = [];
 {
   check("EN0 unassigned workspace -> 403", (await meGet("workspace", ME, `&workspaceId=${WS.Alpha.id}`)).statusCode === 403);
-  await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, PO);
+  await pPost({ op: "assign_workspace", ownerId: meOwnerId, workspaceId: WS.Alpha.id }, PO);
   const s1 = await meGet("session", ME);
   bodies.push(s1.body);
   check("EN1 newly assigned workspace visible on the very next call", s1.body?.workspaces?.length === 1 && s1.body.workspaces[0].workspaceId === WS.Alpha.id);
@@ -405,12 +414,12 @@ const bodies = [];
   const wRand = await meGet("workspace", ME, `&workspaceId=${crypto.randomUUID()}`);
   check("EN3 existing-but-unassigned -> 403 FORBIDDEN", wBeta.statusCode === 403 && wBeta.body?.error === "FORBIDDEN");
   check("EN3 nonexistent id -> IDENTICAL 403 body (no enumeration)", wRand.statusCode === 403 && JSON.stringify(wRand.body) === JSON.stringify(wBeta.body));
-  await pPost({ op: "assign_workspace", workspaceId: WS.Beta.id }, PO);
+  await pPost({ op: "assign_workspace", ownerId: meOwnerId, workspaceId: WS.Beta.id }, PO);
   check("EN4 assign Beta -> readable immediately", (await meGet("workspace", ME, `&workspaceId=${WS.Beta.id}`)).statusCode === 200);
   const s2 = await meGet("session", ME);
   bodies.push(s2.body);
   check("EN4 list is in name order (Alpha, Beta)", s2.body?.workspaces?.map((w) => w.name).join(",") === "S5API Alpha,S5API Beta");
-  await pPost({ op: "unassign_workspace", workspaceId: WS.Alpha.id }, PO);
+  await pPost({ op: "unassign_workspace", ownerId: meOwnerId, workspaceId: WS.Alpha.id }, PO);
   check("EN5 unassigned mid-session -> 403 on the next request", (await meGet("workspace", ME, `&workspaceId=${WS.Alpha.id}`)).statusCode === 403);
   const s3 = await meGet("session", ME);
   bodies.push(s3.body);
@@ -430,8 +439,8 @@ section("ROLE ISOLATION (with positive controls)");
   const opBodies = [
     { op: "create_owner_access", phone: "0501234567", name: "x", email: email("x1") , username: suiteUsername()},
     { op: "provision_multi_entity_owner", phone: "0501234567", name: "x", email: email("x2") , username: suiteUsername()},
-    { op: "assign_workspace", workspaceId: WS.Gamma.id },
-    { op: "unassign_workspace", workspaceId: WS.Beta.id },
+    { op: "assign_workspace", ownerId: meOwnerId, workspaceId: WS.Gamma.id },
+    { op: "unassign_workspace", ownerId: meOwnerId, workspaceId: WS.Beta.id },
     { op: "purge_replaced_auth_user", previousAuthUserId: crypto.randomUUID() },
     { op: "purge_provisioning_orphan", authUserId: crypto.randomUUID() },
   ];
@@ -464,7 +473,7 @@ section("SEAT REPLACEMENT (stale seat) + PURGE + LINK FAILURE");
 let me2Id;
 {
   setFaults({ admin: { generateLink: () => ({ data: null, error: { message: "link down" } }) } });
-  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "Me Two", email: email("me2") , username: suiteUsername()}, PO);
+  const rep = await pPost({ op: "provision_multi_entity_owner", ownerId: meOwnerId, phone: "0501234567", name: "Me Two", email: email("me2") , username: suiteUsername()}, PO);
   clearFaults();
   me2Id = rep.body?.seatAuthUserId;
   check("RP1 link-generation failure -> 201, seat written, activationLink null", rep.statusCode === 201 && rep.body?.activationLink === null && rep.body?.replaced === true && rep.body?.previousAuthUserId === me1Id);
@@ -481,10 +490,13 @@ section("CASCADE via GoTrue (auth.admin.deleteUser runs as supabase_auth_admin)"
   check("CS0 seat row exists for the current holder", psql(`select count(*) from public.multi_entity_owner where auth_user_id = '${me2Id}';`) === "1");
   const del = await a.auth.admin.deleteUser(me2Id);
   check("CS1 GoTrue deletes the CURRENT seat holder's account", !del.error, del.error?.message ?? "");
-  check("CS2 FK cascade removed the seat row despite the service_role revoke", psql(`select count(*) from public.multi_entity_owner;`) === "0");
-  check("CS3 assignments survive for the next holder", psql(`select count(*) from public.multi_entity_assignments;`) === "1");
+  check("CS2 FK cascade removed that owner's row despite the service_role revoke", psql(`select count(*) from public.multi_entity_owner where auth_user_id = '${me2Id}';`) === "0");
+  // CHANGED by 20260926000000: assignments are owner-scoped with ON DELETE
+  // CASCADE, so they go with the owner rather than waiting for a next holder.
+  // Inheritance still exists, but only through an explicit REPLACE.
+  check("CS3 that owner's assignments went with them (owner-scoped cascade)", psql(`select count(*) from public.multi_entity_assignments;`) === "0");
   const st = await pGet("/api/platform/session?op=multi_entity_state", PO);
-  check("CS4 Platform state RPC reports no seat", st.statusCode === 200 && st.body?.seat === null);
+  check("CS4 Platform state RPC reports no owners left", st.statusCode === 200 && Array.isArray(st.body?.owners) && st.body.owners.length === 0, JSON.stringify(st.body?.owners));
 }
 
 process.exitCode = tally("API-REAL-LOCAL") === 0 ? 0 : 1;

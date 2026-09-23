@@ -4609,3 +4609,73 @@ Typecheck + build clean; eslint **0 errors** with zero non-CRLF warnings on ever
 ### PRE-EXISTING BREAKAGE, PROVEN NOT CAUSED HERE
 
 `stage8/ui-stage8` aborts at E2 waiting for the heading `כניסת בעלים` — the Election Owner login screen that commit `a6c5abe` retired. Run from a **pristine `HEAD` worktree against the same stack** it fails identically: **40 PASS / 1 FAIL**, same heading, same redirect to the shared login. The suite needs to follow the bounce to `/login`; that is a one-line test change in a flow outside this batch's scope and was deliberately not made.
+
+---
+
+## Multi-Entity MULTI-OWNER + header workspace name — 2026-09-23 (LOCAL PASS; **EXPAND/CONTRACT split**; nothing committed, no Production migration)
+
+### 0. Why this is two migrations, not one
+
+The first version of this work was a single migration that dropped `platform_assign_workspace(uuid,uuid)`, `platform_unassign_workspace(uuid,uuid)` and `platform_provision_multi_entity_owner(uuid,uuid,text,text,text)`, and renamed the state response key `seat` → `owners`. **That rollout was unsafe and was rejected.** Applying it would have broken the deployment *currently serving Production* for the whole window between the migration and the new deploy: the live console calls those exact signatures and reads that exact key.
+
+The work is now split **EXPAND → DEPLOY → VERIFY → CONTRACT**.
+
+### 1. EXPAND — `20260926000000_multi_entity_multi_owner_expand.sql`
+
+**Safe to apply while the current application is still serving.** It only adds.
+
+- **Schema.** `multi_entity_owner` loses the boolean `id` and its singleton CHECK and gains a generated `owner_id uuid` PK; `auth_user_id` stays UNIQUE, so one Auth account still holds at most one seat. `multi_entity_assignments` gains `owner_id NOT NULL` with `ON DELETE CASCADE`; `UNIQUE(workspace_id)` becomes `UNIQUE(owner_id, workspace_id)`, so several owners may hold the same workspace. `multi_entity_audit` gains an `owner_id` snapshot and a `'removed'` action — widened by DROP+ADD under the **same name**, because 20260911000000's replay gate resolves that CHECK by definition pattern and then asserts its name.
+- **Backfill.** The existing owner keeps every field and gains an `owner_id`; every existing assignment is attributed to it. Assignments with no owner row make the migration **refuse** rather than guess.
+- **New capability.** `platform_provision_multi_entity_owner_v2` (add **or** replace a named owner), `platform_assign_workspace_v2`, `platform_unassign_workspace_v2`, `platform_remove_multi_entity_owner`, plus owner-scoped readers throughout.
+- **Compatibility layer, kept for the overlap window.** All three legacy signatures still exist with their grants and their original observable behaviour, delegating to their `_v2` counterparts via `platform_multi_entity_sole_owner()` (granted to no role). The state read returns `owners` **and** the legacy `seat` / `is_assigned` / `assigned_at`.
+- Once a **second** owner exists the legacy path refuses with `MULTI_ENTITY_OWNER_AMBIGUOUS`, and `seat` goes null rather than naming an arbitrary owner — a loud error instead of a silent mis-assignment.
+- `_v2` is a distinct name rather than a defaulted parameter on purpose: a 5-argument call would otherwise be ambiguous between the two functions and Postgres refuses such a call outright, which would have broken every deployed call site the moment it applied.
+
+### 2. CONTRACT — `20260927000000_multi_entity_multi_owner_contract.sql`
+
+**Apply only after the new code is deployed everywhere and verified.** Drops the three legacy signatures and the sole-owner helper, and removes `seat` / `is_assigned` / `assigned_at` from the state read. Touches no schema, no data and no grant. Gated on EXPAND being present and on zero unattributed assignments.
+
+### 3. Application
+
+Handlers call the `_v2` RPCs; the console reads `owners` / `assigned_owner_ids`. `MultiEntitySeatCard` → `MultiEntityOwnersCard`: selecting an owner scopes the workspace list to them, replace and remove are the distinct operations they now are, and a row says when other owners also hold the same workspace. The provisioning modal's mode comes from **what was clicked**, never from whether an owner exists.
+
+The active workspace name moved from below the KOLBOX logo to the **end of the logo row** (left in RTL), at the same size and weight as the KOLBOX title, still from the authoritative session.
+
+### 4. Compatibility proof — all four states exercised
+
+| State | Suite | Result |
+|---|---|---|
+| Legacy DB (108) + legacy fixture → apply EXPAND | backfill inspection | owner preserved field-for-field with a new `owner_id`; both assignments attributed; `list_assigned_workspaces` returns **the same two workspaces**; 0 unattributed |
+| EXPAND | `db-expand-compat.sql` (**old** contract) | **32/0** |
+| EXPAND | `db-multi-owner.sql` + `api-multi-owner.mjs` (**new** contract/app) | **59/0**, **44/0** |
+| EXPAND + CONTRACT | `db-multi-owner.sql` + `api-multi-owner.mjs` | **59/0**, **44/0** |
+
+On the *same* migrated legacy database both contracts answered at once: `state->'seat'->>'email'` returned the legacy holder **and** `owners[]` had length 1; the legacy 2-argument `platform_assign_workspace` succeeded and wrote a correctly-attributed row. After CONTRACT, `db-expand-compat.sql` fails on the now-absent legacy function — that is its purpose, and its header says so.
+
+### 5. Verification
+
+Full replay from empty: **110 migrations**, clean.
+
+`multi-owner/db-multi-owner` **59/0** · `multi-owner/db-expand-compat` **32/0** (EXPAND) · `multi-owner/api-multi-owner` **44/0** · `stage5/api-real-local` **121/0** · `stage5/db-stage5` **102/0** · `stage5/ui-real-local` **31/0** · `stage6/db-stage6` **73/0** · `stage7/ui-stage7` **82/0** · `stage8/db-stage8` **45/0** · `stage9/api-stage9` **96/0** · `stage9/ui-stage9` **84/0** · `open-issues` **30/0 + 33/0** · `ux/ui-nav-roles` **57/0** · `budget/ui-budget` **23/0** · `auth/api-auth-identity` **66/0** · `auth/api-auth-principal-switch` **31/0** · `platform/api-owner-module-access` **21/0** · `platform/api-module-availability` **44/0** · `platform/ui-module-availability` **23/0**.
+
+**A real defect was caught by the post-CONTRACT run.** `api-real-local`'s fault injection still named `platform_provision_multi_entity_owner`, so once the handler moved to `_v2` the three provisioning-failure tests silently stopped injecting anything and **provisioned real owners instead of exercising the failure path**. Repointed at the `_v2` name; the suite is back to 121/0 with those paths genuinely exercised.
+
+Typecheck + build clean; eslint **0 errors**; `git diff --check` clean; no config, dependency or new API file; protected 15 untouched at **+138/−45**.
+
+Security: table ACLs unchanged (postgres-only, RLS on, zero policies — asserted); the workspace-scope gate still executable by **no role**; the compatibility helper granted to **no role**; exclusivity and every privacy rule unchanged.
+
+### 6. Pre-existing failures, proven not caused here
+
+`stage6/api-stage6` + `stage8d/api-stage8d` (documented `566ec04` breakage) · `stage8/ui-stage8` **40/1** on the `כניסת בעלים` heading `a6c5abe` retired · `stage9/db-stage9` **77/1** on `USR11`, proven by running HEAD's copy against a pre-migration database · `auth/api-auth-identity` needs a fixture-free stack and passes **66/0** on one.
+
+### 7. Safe Production sequence — NOT started
+
+1. Commit + push the application **and both migration files** — code and migrations travel together; only the *apply order* matters.
+2. Apply **EXPAND only** → expect **109 / 0 / 0**. The old code keeps serving throughout.
+3. Verify Production read-only: legacy `seat` still returned, `owners` present, 0 unattributed assignments, `pg_proc.proacl` correct on every new/replaced function.
+4. Let the push deploy all four surfaces; confirm the served commit.
+5. Verify the new console in Production: the existing owner is listed with their workspaces; add a second owner as the acceptance case.
+6. Only then apply **CONTRACT** → expect **110 / 0 / 0**.
+7. Update the gitignored `node_modules/.kolbox-verify/` drift snapshots in the same operation — they read `->'seat'` as a scalar and will report a false drift after step 6.
+
+**Rollback:** while only EXPAND is applied, rolling back the **application alone** is sufficient and needs no DB change at all — the previous contract is still fully present.

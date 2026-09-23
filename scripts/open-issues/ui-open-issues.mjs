@@ -452,104 +452,133 @@ const moduleRows = () => po.locator('[data-testid="workspace-modules-list"] > li
 }
 
 // =========================================================================
-section("D. ISSUE 3 + 4 - THE MULTI-ENTITY SEAT");
+section("D. MULTI-ENTITY - durable hand-off, and MANY owners");
 // =========================================================================
+// Issue 3 (hand-off survives a reload) is unchanged and still asserted here.
+// Issue 4 is SUPERSEDED: migration 20260926000000 replaced the singleton, so
+// the checks that recorded "there is no second-seat action" are inverted into
+// the behaviour that replaced it.
 {
   await po.getByRole("link", { name: "רב-מערכות" }).first().click();
-  await po.getByRole("heading", { name: "בעל רב-מערכות" }).first().waitFor({ timeout: 20000 });
+  await po.getByRole("heading", { name: "בעלי רב-מערכות" }).first().waitFor({ timeout: 20000 });
 
-  // Issue 4, BEFORE anything is seated: the only action offered is "create",
-  // and it is the singleton's one create.
-  const provisionBtn = po.getByRole("button", { name: "הקצאת בעל רב-מערכות" });
-  // The card renders a skeleton first; assert once it has actually resolved,
-  // or this reads "no buttons" from a card that has not loaded yet.
-  await provisionBtn.first().waitFor({ timeout: 25000 });
+  const addFirst = po.getByRole("button", { name: "הקצאת בעל רב-מערכות" });
+  await addFirst.first().waitFor({ timeout: 25000 });
   check(
-    "D1 with no seat, the console offers exactly one action: create the seat",
-    (await provisionBtn.count()) >= 1 &&
+    "D1 with no owners, the console offers the create action",
+    (await addFirst.count()) >= 1 &&
       (await po.getByRole("button", { name: "החלפת בעל רב-מערכות" }).count()) === 0,
-    `provision=${await provisionBtn.count()} replace=${await po.getByRole("button", { name: "החלפת בעל רב-מערכות" }).count()}`,
   );
 
-  await provisionBtn.first().click();
-  const meSubmit = po.getByRole("button", { name: "הקצאת בעל רב-מערכות" }).last();
-  const meForm = po.locator("form").filter({ has: meSubmit });
-  await meForm.first().waitFor({ timeout: 20000 });
-  const meUsername = `me-${stamp}`;
-  await meForm.getByLabel("שם מלא").fill("בעל רב-מערכות ניסוי");
-  await meForm.getByLabel("אימייל").fill(email(`me-${stamp}`));
-  await meForm.getByLabel("טלפון").fill("050-765-4321");
-  await meForm.getByLabel("שם משתמש לכניסה").fill(meUsername);
-  await meSubmit.click();
+  /** Drives the provision/replace modal. */
+  async function fillOwner(label, submitName) {
+    const submit = po.getByRole("button", { name: submitName }).last();
+    const form = po.locator("form").filter({ has: submit });
+    await form.first().waitFor({ timeout: 20000 });
+    await form.getByLabel("שם מלא").fill(`בעל רב-מערכות ${label}`);
+    await form.getByLabel("אימייל").fill(email(`me-${label}-${stamp}`));
+    await form.getByLabel("טלפון").fill("050-765-4321");
+    await form.getByLabel("שם משתמש לכניסה").fill(`me-${label}-${stamp}`);
+    await submit.click();
+  }
 
+  await addFirst.first().click();
+  await fillOwner("one", "הקצאת בעל רב-מערכות");
   await po.locator('[data-testid="seat-handoff-hint"]').waitFor({ timeout: 30000 });
-  const seatText = async () => (await po.locator("main").innerText()).trim();
+  const ownerText = async () => (await po.locator("main").innerText()).trim();
   check(
     "D2 immediately after provisioning, the hand-off details are on screen",
-    (await seatText()).includes(meUsername),
-    (await seatText()).slice(0, 200).replace(/\s+/g, " "),
+    (await ownerText()).includes(`me-one-${stamp}`),
+    (await ownerText()).slice(0, 160).replace(/\s+/g, " "),
   );
 
-  // THE ISSUE: reload. The one-time link is gone by design; everything the
-  // operator needs to continue the hand-off must still be there.
+  // THE ISSUE-3 CHECK: reload. The one-time link is gone by design; everything
+  // needed to continue the hand-off must still be there.
   await po.reload({ waitUntil: "domcontentloaded" });
   await po.locator('[data-testid="seat-handoff-hint"]').waitFor({ timeout: 30000 });
-  const after = await seatText();
-  check(
-    "D3 AFTER A RELOAD the seat holder's login username is still shown",
-    after.includes(meUsername),
-    after.slice(0, 240).replace(/\s+/g, " "),
-  );
-  check(
-    "D4 ... and so is the login address they must be sent to",
-    after.includes("/login"),
-    after.slice(0, 240).replace(/\s+/g, " "),
-  );
-  check(
-    "D5 ... and the e-mail and name survive too",
-    after.includes(email(`me-${stamp}`)) && after.includes("בעל רב-מערכות ניסוי"),
-  );
-  // The credential must NOT survive - persisting it was never the fix.
+  const after = await ownerText();
+  check("D3 AFTER A RELOAD the owner's login username is still shown", after.includes(`me-one-${stamp}`), after.slice(0, 200).replace(/\s+/g, " "));
+  check("D4 ... and so is the login address they must be sent to", after.includes("/login"), "");
+  check("D5 ... and the e-mail and name survive too", after.includes(email(`me-one-${stamp}`)) && after.includes("בעל רב-מערכות one"));
   check(
     "D6 the ONE-TIME password link is NOT persisted (it is a credential)",
     !/set-password\?|token=/.test(after),
-    after.slice(0, 240).replace(/\s+/g, " "),
+    after.slice(0, 200).replace(/\s+/g, " "),
   );
-  // Evaluated INSIDE the page and reduced to a verdict + key NAMES there, so
-  // no storage VALUE ever crosses into this process or into the log: these
-  // keys hold the Platform Owner's live access token.
   const storage = await po.evaluate(() => {
-    const read = (s) => {
+    const read = (st) => {
       try {
-        return Object.entries({ ...s });
+        return Object.entries({ ...st });
       } catch {
         return [];
       }
     };
     const all = [...read(localStorage), ...read(sessionStorage)];
     const pattern = /set-password|passwordLink|activationLink/i;
-    return {
-      leaked: all.some(([k, v]) => pattern.test(k) || pattern.test(String(v))),
-      keys: all.map(([k]) => k),
-    };
+    return { leaked: all.some(([k, v]) => pattern.test(k) || pattern.test(String(v))), keys: all.map(([k]) => k) };
   });
+  check("D7 ... and it is in no browser storage either", storage.leaked === false, `keys=${JSON.stringify(storage.keys)}`);
+
+  // ---- MULTI-OWNER (supersedes the old "singleton" checks) ---------------
+  await po.getByRole("button", { name: "הוספת בעל רב-מערכות" }).first().click();
+  await fillOwner("two", "הקצאת בעל רב-מערכות");
+  await po.locator('[data-testid="multi-entity-owner-row"]').nth(1).waitFor({ timeout: 30000 });
   check(
-    "D7 ... and it is in no browser storage either",
-    storage.leaked === false,
-    `keys=${JSON.stringify(storage.keys)}`,
+    "D8 a SECOND owner can be created from the console - the singleton is gone",
+    (await po.locator('[data-testid="multi-entity-owner-row"]').count()) === 2,
+    String(await po.locator('[data-testid="multi-entity-owner-row"]').count()),
+  );
+  check(
+    "D9 ... and the database really holds two owner rows",
+    psql("select count(*) from public.multi_entity_owner;").trim() === "2",
+    psql("select count(*) from public.multi_entity_owner;").trim(),
+  );
+  check(
+    "D10 selecting an owner scopes the workspace list to THEM by name",
+    (await po.locator('[data-testid="assignment-target"]').innerText()).includes("בעל רב-מערכות"),
+    await po.locator('[data-testid="assignment-target"]').innerText(),
+  );
+  check(
+    "D11 the selected owner offers BOTH replace and remove (distinct operations now)",
+    (await po.getByRole("button", { name: "החלפת בעל רב-מערכות" }).count()) === 1 &&
+      (await po.getByRole("button", { name: "הסרת בעל רב-מערכות" }).count()) === 1,
   );
 
-  // Issue 4, WITH a seat: the create action is replaced by the replace action.
+  // Assign the SAME workspace to both owners - impossible before this change.
+  // Owner ONE is selected (the effect keeps a still-valid selection), so this
+  // first assignment is theirs.
+  await po
+    .locator('[data-testid="multi-entity-workspace-row"]')
+    .first()
+    .getByRole("button", { name: "שיוך", exact: true })
+    .click();
+  await po.waitForTimeout(2500);
+  // Now switch to owner TWO and assign the SAME workspace to them as well.
+  // Selecting the row that is ALREADY selected would have re-assigned owner
+  // one - which is what made an earlier version of this check pass vacuously
+  // with a single assignment row.
+  await po.locator('[data-testid="multi-entity-owner-row"]').nth(1).click();
+  await po.waitForTimeout(1500);
+  await po
+    .locator('[data-testid="multi-entity-workspace-row"]')
+    .first()
+    .getByRole("button", { name: "שיוך", exact: true })
+    .click();
+  await po.waitForTimeout(2500);
   check(
-    "D8 with a seat, the create action is gone and REPLACE is the offered path",
-    (await po.getByRole("button", { name: "הקצאת בעל רב-מערכות" }).count()) === 0 &&
-      (await po.getByRole("button", { name: "החלפת בעל רב-מערכות" }).count()) === 1,
+    "D12 THE SAME workspace is assigned to two owners at once",
+    psql(
+      "select count(*) from public.multi_entity_assignments a where (select count(*) from public.multi_entity_assignments b where b.workspace_id = a.workspace_id) = 2;",
+    ).trim() !== "0",
+    psql("select workspace_id || ':' || count(*) from public.multi_entity_assignments group by workspace_id;").replace(/\s+/g, " "),
   );
   check(
-    "D9 the DB refuses a second seat regardless of any UI - it is a singleton",
-    psql("select count(*) from public.multi_entity_owner;").trim() === "1",
+    "D13 ... and the row says so, rather than pretending it is exclusive",
+    (await po.locator('[data-testid="shared-with"]').count()) >= 1,
+    String(await po.locator('[data-testid="shared-with"]').count()),
   );
 }
+
 
 check("Z1 no uncaught page errors on any page", pageErrors.length === 0, pageErrors.slice(0, 2).join(" | "));
 

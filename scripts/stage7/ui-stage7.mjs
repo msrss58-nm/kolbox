@@ -155,6 +155,9 @@ const VOTER_IDS = psql(`select string_agg(id::text, ',') from public.election_da
 // one-time link, TOTP enrolled here (the UI enrollment flow is Stage 5's).
 process.env.KOLBOX_MULTI_ENTITY_APP_BASE_URL = BASE;
 const prov = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "בעל רב-מערכות S7", email: email("me") , username: suiteUsername() });
+// 20260926000000: assignment names its owner; replacement names the owner
+// row being handed over (omitting it would ADD a second owner instead).
+const OWNER_ID = prov.body?.ownerId;
 const setup = anon();
 await setup.auth.verifyOtp({ token_hash: new URL(prov.body.activationLink).searchParams.get("token_hash"), type: "recovery" });
 const mePw = randomPassword();
@@ -243,7 +246,7 @@ try {
 
   // -------------------------------------------------------------------------
   section("DATA STATES + SEMANTICS (mixed: reported x2, suppressed, ended)");
-  for (const n of ["Alpha", "Beta", "Gamma", "Delta"]) await pPost({ op: "assign_workspace", workspaceId: WS[n].id });
+  for (const n of ["Alpha", "Beta", "Gamma", "Delta"]) await pPost({ op: "assign_workspace", ownerId: OWNER_ID, workspaceId: WS[n].id });
   await refreshBtn().click();
   await waitCards(4);
   const names = await page.locator('[data-testid="workspace-card"] h3').allInnerTexts();
@@ -344,7 +347,7 @@ try {
   section("STAGE 9: ASSIGNED WORKSPACE WITHOUT ELECTION DAY");
   const theta = psql(`insert into public.election_workspaces (name, election_end_at, login_code) values ('S7UI Theta', now() + interval '10 days', public.election_day_generate_workspace_login_code()) returning id;`);
   bulk(theta, 12, 12, true);
-  await pPost({ op: "assign_workspace", workspaceId: theta });
+  await pPost({ op: "assign_workspace", ownerId: OWNER_ID, workspaceId: theta });
   await refreshBtn().click();
   await waitCards(5);
   const thetaCard = cardBy("S7UI Theta");
@@ -368,7 +371,7 @@ try {
   await page.goto(`${BASE}/multi-entity/workspaces/${theta}`);
   await page.locator('[data-testid="workspace-detail"][data-status="unavailable"]').waitFor({ timeout: 15000 });
   check("EN5 detail view: unavailable notice, no metric", (await page.locator("[data-metric]").count()) === 0 && (await page.locator('[data-testid="withheld-notice"]').count()) === 1);
-  await pPost({ op: "unassign_workspace", workspaceId: theta });
+  await pPost({ op: "unassign_workspace", ownerId: OWNER_ID, workspaceId: theta });
   await page.getByTestId("back-to-dashboard").click();
   await waitCards(4);
   check("EN6 unassigning restores the four-card dashboard", page.url().endsWith("/multi-entity"));
@@ -378,28 +381,28 @@ try {
   const aggBeforeIdle = calls.agg;
   await sleep(6000);
   check("FR1 no polling: zero aggregate requests while idle for 6 s", calls.agg === aggBeforeIdle, `${aggBeforeIdle}->${calls.agg}`);
-  await pPost({ op: "unassign_workspace", workspaceId: WS.Beta.id });
+  await pPost({ op: "unassign_workspace", ownerId: OWNER_ID, workspaceId: WS.Beta.id });
   await visible();
   await waitCards(3);
   check("FR2 unassignment disappears on the tab-visible revalidation", !(await bodyText()).includes(WS.Beta.name) && calls.agg > aggBeforeIdle);
-  await pPost({ op: "assign_workspace", workspaceId: WS.Eta.id });
+  await pPost({ op: "assign_workspace", ownerId: OWNER_ID, workspaceId: WS.Eta.id });
   await refreshBtn().click();
   await waitCards(4);
   const eta = await metricValues(`[data-testid="workspace-card"]:has(h3:text-is("S7UI Eta"))`);
   check("FR3 new assignment appears on manual refresh with its own counts", eta.contactsTotal === "15" && eta.voted === "15" && eta.rideCompleted === "15", JSON.stringify(eta));
   await page.goto(`${BASE}/multi-entity/workspaces/${WS.Eta.id}`);
   await page.locator('[data-testid="workspace-detail"]').waitFor({ timeout: 15000 });
-  await pPost({ op: "unassign_workspace", workspaceId: WS.Eta.id });
+  await pPost({ op: "unassign_workspace", ownerId: OWNER_ID, workspaceId: WS.Eta.id });
   await refreshBtn().click();
   await page.locator('[data-testid="workspace-not-available"]').waitFor({ timeout: 15000 });
   check("FR4 stale detail corrected: unassigned while open -> not available after refresh, numbers gone", (await page.locator("[data-metric]").count()) === 0);
-  await pPost({ op: "unassign_workspace", workspaceId: WS.Alpha.id });
+  await pPost({ op: "unassign_workspace", ownerId: OWNER_ID, workspaceId: WS.Alpha.id });
   await page.goto(`${BASE}/multi-entity`);
   await waitCards(2);
   await page.locator('[data-testid="summary-empty"]').waitFor({ timeout: 15000 });
   check("FR5 only withheld workspaces left -> summary says so, shows no zeros", (await page.locator('[data-testid="summary"] [data-metric]').count()) === 0 && (await page.locator('[data-testid="summary-basis"]').innerText()).includes("0 מתוך 2"));
   await shot("06-dashboard-withheld-only-390");
-  for (const n of ["Alpha", "Beta"]) await pPost({ op: "assign_workspace", workspaceId: WS[n].id });
+  for (const n of ["Alpha", "Beta"]) await pPost({ op: "assign_workspace", ownerId: OWNER_ID, workspaceId: WS[n].id });
   await refreshBtn().click();
   await waitCards(4);
 
@@ -495,7 +498,7 @@ try {
 
   // -------------------------------------------------------------------------
   section("SEAT REPLACEMENT -> FORBIDDEN");
-  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "מחליף S7", email: email("me2") , username: suiteUsername() });
+  const rep = await pPost({ op: "provision_multi_entity_owner", ownerId: OWNER_ID, phone: "0501234567", name: "מחליף S7", email: email("me2") , username: suiteUsername() });
   check("RP1 seat replaced through the real Platform op", rep.statusCode === 201 && rep.body?.replaced === true);
   await refreshBtn().click();
   await page.getByText("אין הרשאת גישה").waitFor({ timeout: 15000 });

@@ -12,6 +12,7 @@ import {
   provisionMultiEntityOwner,
   purgeProvisioningOrphan,
   purgeReplacedAuthUser,
+  removeMultiEntityOwner,
   unassignWorkspace,
   type MultiEntityResult,
   type MultiEntityState,
@@ -22,8 +23,14 @@ const text = PLATFORM_OWNER_TEXT.multiEntity;
 /** Stable key naming the in-flight action, so a busy row never disables the
  * whole page and two rows can never be confused for one another. */
 export const BUSY = {
+  /** Adding a NEW owner - one global action, so one fixed key. */
   provision: "provision",
-  workspace: (id: string) => `ws:${id}`,
+  /** Replacing or removing a SPECIFIC owner. Per-owner, so one owner's action
+   * never disables another owner's row. */
+  owner: (ownerId: string) => `owner:${ownerId}`,
+  /** Assignment is per (owner, workspace) now: the same workspace can be in
+   * flight for one owner and idle for another. */
+  workspace: (ownerId: string, workspaceId: string) => `ws:${ownerId}:${workspaceId}`,
   replacementPurge: (id: string) => `rp:${id}`,
   orphanPurge: (id: string) => `op:${id}`,
 } as const;
@@ -180,9 +187,16 @@ export function useMultiEntityManagement() {
   );
 
   const provision = useCallback(
-    async (input: { name: string; email: string; phone?: string; username: string }) => {
+    async (input: {
+      name: string;
+      email: string;
+      phone?: string;
+      username: string;
+      /** Absent = add a new owner. Present = replace that owner's identity. */
+      ownerId?: string;
+    }) => {
       const ok = await run(
-        BUSY.provision,
+        input.ownerId ? BUSY.owner(input.ownerId) : BUSY.provision,
         (t) => provisionMultiEntityOwner(t, input),
         (data) => {
           // Held in memory only, for exactly as long as the panel is shown.
@@ -201,9 +215,9 @@ export function useMultiEntityManagement() {
   );
 
   const assign = useCallback(
-    async (workspaceId: string) => {
-      const ok = await run(BUSY.workspace(workspaceId), (t) =>
-        assignWorkspace(t, workspaceId),
+    async (ownerId: string, workspaceId: string) => {
+      const ok = await run(BUSY.workspace(ownerId, workspaceId), (t) =>
+        assignWorkspace(t, ownerId, workspaceId),
       );
       if (ok) await load();
       return ok;
@@ -212,9 +226,23 @@ export function useMultiEntityManagement() {
   );
 
   const unassign = useCallback(
-    async (workspaceId: string) => {
-      const ok = await run(BUSY.workspace(workspaceId), (t) =>
-        unassignWorkspace(t, workspaceId),
+    async (ownerId: string, workspaceId: string) => {
+      const ok = await run(BUSY.workspace(ownerId, workspaceId), (t) =>
+        unassignWorkspace(t, ownerId, workspaceId),
+      );
+      if (ok) await load();
+      return ok;
+    },
+    [run, load],
+  );
+
+  /** Revokes ONE owner. Their Auth account is NOT deleted here - it joins the
+   * same durable cleanup queue a replaced account does, and is purged by the
+   * separate, separately-approved step. */
+  const removeOwner = useCallback(
+    async (ownerId: string) => {
+      const ok = await run(BUSY.owner(ownerId), (t) =>
+        removeMultiEntityOwner(t, ownerId),
       );
       if (ok) await load();
       return ok;
@@ -278,9 +306,12 @@ export function useMultiEntityManagement() {
     readError,
     reload: load,
 
-    seat: state?.seat ?? null,
+    owners: state?.owners ?? [],
     workspaces,
-    assignedCount: workspaces.filter((w) => w.isAssigned).length,
+    /** How many workspaces are assigned to AT LEAST ONE owner. Deliberately
+     * not a sum of per-owner counts: with sharing, that would double-count a
+     * workspace two owners both hold. */
+    assignedCount: workspaces.filter((w) => w.assignedOwnerIds.length > 0).length,
     pendingAuthCleanup: state?.pendingAuthCleanup ?? [],
     pendingProvisioningOrphans: state?.pendingProvisioningOrphans ?? [],
 
@@ -301,6 +332,7 @@ export function useMultiEntityManagement() {
     clearUsernameSuggestion: () => setUsernameSuggestion(null),
 
     provision,
+    removeOwner,
     assign,
     unassign,
     purgeReplaced,

@@ -468,11 +468,24 @@ export const PLATFORM_OWNER_TEXT = {
     },
 
     seat: {
-      title: "בעל רב-מערכות",
-      emptyTitle: "טרם הוקצה בעל רב-מערכות",
+      title: "בעלי רב-מערכות",
+      emptyTitle: "טרם הוקצו בעלי רב-מערכות",
       emptyHint: "הקצו בעל רב-מערכות כדי שניתן יהיה לשייך אליו מערכות בחירות.",
       provision: "הקצאת בעל רב-מערכות",
+      add: "הוספת בעל רב-מערכות",
       replace: "החלפת בעל רב-מערכות",
+      remove: "הסרת בעל רב-מערכות",
+      count: (n: number) => (n === 1 ? "בעל רב-מערכות אחד" : `${n} בעלי רב-מערכות`),
+      assignedCount: (n: number) =>
+        n === 0 ? "ללא מערכות משויכות" : n === 1 ? "מערכת אחת משויכת" : `${n} מערכות משויכות`,
+      select: "בחירה",
+      selected: "נבחר",
+      selectHint: "בחרו בעל רב-מערכות כדי לנהל את המערכות המשויכות אליו.",
+      confirmRemoveTitle: "הסרת בעל רב-מערכות",
+      confirmRemoveMessage: (name: string) =>
+        `להסיר את ${name}? כל השיוכים שלו יבוטלו והגישה שלו תיפסק מיד. בעלים אחרים המשויכים לאותן מערכות אינם מושפעים. חשבון ההתחברות שלו לא יימחק אוטומטית - מחיקתו היא פעולה נפרדת הדורשת אישור מפורש.`,
+      confirmRemove: "הסרה",
+      removed: "בעל רב-המערכות הוסר.",
       nameLabel: "שם",
       usernameLabel: "שם משתמש לכניסה",
       noUsername: "לא נקבע",
@@ -598,6 +611,12 @@ export const PLATFORM_OWNER_TEXT = {
       assigned: "משויכת",
       unassigned: "לא משויכת",
       assignedAt: (d: string) => `שויכה ב-${d}`,
+      sharedWith: (n: number) =>
+        n === 1 ? "משויכת גם לבעל רב-מערכות נוסף" : `משויכת גם ל-${n} בעלי רב-מערכות נוספים`,
+      assignedToOwners: (n: number) =>
+        n === 1 ? "משויכת לבעל רב-מערכות אחד" : `משויכת ל-${n} בעלי רב-מערכות`,
+      forOwner: (name: string) => `שיוך מערכות עבור ${name}`,
+      noOwnerSelected: "בחרו בעל רב-מערכות כדי לשייך אליו מערכות.",
       endsAt: (d: string) => `מסתיימת ב-${d}`,
       assign: "שיוך",
       unassign: "ביטול שיוך",
@@ -615,6 +634,7 @@ export const PLATFORM_OWNER_TEXT = {
         "החשבון הזה כבר משמש כבעל הפלטפורמה או כבעלים של מערכת קיימת.",
       IDENTITY_PENDING_ELECTION_OWNER:
         "לחשבון הזה קיימת הרשאת בעלים ממתינה. יש להשלים או לבטל אותה תחילה.",
+      MULTI_ENTITY_OWNER_NOT_FOUND: "בעל רב-המערכות שנבחר אינו קיים. רעננו את המסך ונסו שוב.",
       MULTI_ENTITY_OWNER_NOT_PROVISIONED: "יש להקצות בעל רב-מערכות לפני שיוך מערכות.",
       WORKSPACE_NOT_FOUND: "מערכת הבחירות לא נמצאה. רעננו את הדף ונסו שוב.",
       AUTH_USER_STILL_HELD:
@@ -643,7 +663,7 @@ export const PLATFORM_OWNER_TEXT = {
     heldBy: {
       platform: "בעל הפלטפורמה",
       election: "בעלים של מערכת בחירות",
-      multi_entity: "בעל רב-מערכות נוכחי",
+      multi_entity: "בעל רב-מערכות",
       pending_owner: "הרשאת בעלים ממתינה",
     } as Record<string, string>,
   },

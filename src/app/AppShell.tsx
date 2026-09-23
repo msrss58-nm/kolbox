@@ -161,16 +161,24 @@ export function AppShell({
     <div className="flex min-h-dvh">
       {/* Desktop sidebar (start side = right in RTL) */}
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-sidebar p-4 md:flex">
-        <Logo light className="px-2 py-3" />
-        {workspaceName && (
-          <p
-            className="truncate px-2 text-sm font-bold text-primary-300"
-            data-testid="active-workspace-name"
-            title={workspaceName}
-          >
-            {workspaceName}
-          </p>
-        )}
+        {/* The workspace name sits at the END of the logo row - the LEFT side
+            in RTL - and carries the same weight and size as the KOLBOX title
+            beside it, so the two read as one header rather than a title with a
+            caption. `min-w-0` + `truncate` on the name (never on the logo) is
+            what keeps a long workspace name from pushing the logo out of a
+            256px sidebar; the full value stays available as a tooltip. */}
+        <div className="flex items-center justify-between gap-2 px-2 py-3">
+          <Logo light className="shrink-0" />
+          {workspaceName && (
+            <p
+              className="min-w-0 truncate text-xl font-extrabold tracking-tight text-primary-300"
+              data-testid="active-workspace-name"
+              title={workspaceName}
+            >
+              {workspaceName}
+            </p>
+          )}
+        </div>
         <nav className="mt-6 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {!navLabel && navItems.map((item) => <SidebarLink key={item.to} {...item} />)}
           {allSections.map((section) => (
@@ -206,18 +214,22 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Mobile topbar */}
         <header className="sticky top-0 z-30 flex items-center justify-between bg-sidebar px-4 py-3 md:hidden">
-          <LogoMark className="size-8" />
-          <span className="min-w-0 truncate text-center text-lg font-extrabold text-white">
-            קול<span className="text-primary-400">בוקס</span>
-            {workspaceName && (
-              <span
-                className="block truncate text-xs font-bold text-primary-300"
-                data-testid="active-workspace-name-mobile"
-              >
-                {workspaceName}
-              </span>
-            )}
-          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <LogoMark className="size-8" />
+            <span className="text-lg font-extrabold text-white">
+              קול<span className="text-primary-400">בוקס</span>
+            </span>
+          </div>
+          {/* Same rule on the phone bar: end side, matching the title's size. */}
+          {workspaceName && (
+            <p
+              className="min-w-0 truncate text-lg font-extrabold text-primary-300"
+              data-testid="active-workspace-name-mobile"
+              title={workspaceName}
+            >
+              {workspaceName}
+            </p>
+          )}
           {footer ? (
             <button
               onClick={footer.onLogout}

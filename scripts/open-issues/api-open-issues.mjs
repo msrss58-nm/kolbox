@@ -341,11 +341,11 @@ const { data: seatUser, error: seatErr } = await A.auth.admin.createUser({
 });
 if (seatErr) throw new Error(`seat createUser: ${seatErr.message}`);
 const seatUsername = `me-owner-${stamp}`;
+// 20260926000000: the boolean `id` column is gone; owner_id is generated.
+psql(`delete from public.multi_entity_owner;`);
 psql(
-  `insert into public.multi_entity_owner (id, auth_user_id, name, email, phone)
-   values (true, '${seatUser.user.id}', 'בעל רב-מערכות', ${sqlText(seatEmail)}, '0501234567')
-   on conflict (id) do update set auth_user_id = excluded.auth_user_id,
-     name = excluded.name, email = excluded.email, phone = excluded.phone;`,
+  `insert into public.multi_entity_owner (auth_user_id, name, email, phone)
+   values ('${seatUser.user.id}', 'בעל רב-מערכות', ${sqlText(seatEmail)}, '0501234567');`,
 );
 psql(
   `select public.auth_identity_assign('multi_entity_owner', ${sqlText(seatUsername)}, '${seatUser.user.id}', null, null);`,
@@ -375,38 +375,46 @@ check(
   "D4 the seat row itself holds no secret - only name, e-mail, phone and ids",
   psql(
     "select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns where table_schema='public' and table_name='multi_entity_owner';",
-  ).trim() === "id,auth_user_id,name,phone,email,created_at,updated_at",
+  // 20260926000000 replaced the boolean `id` with a generated `owner_id`
+  // (appended, so it sorts last by ordinal position). Still no secret.
+  ).trim() === "auth_user_id,name,phone,email,created_at,updated_at,owner_id",
 );
 
 // ========================================================================
-section("E. ISSUE 4 - A SECOND CONCURRENT SEAT IS STRUCTURALLY IMPOSSIBLE");
+section("E. MULTI-OWNER - the singleton this batch reported has been removed");
 // ========================================================================
-// Not a UI regression and not fixable in the UI: the evidence for the report.
-let secondSeat = "INSERT SUCCEEDED - NO CONSTRAINT";
+// SUPERSEDED by migration 20260926000000. When this suite was written the
+// answer to "can there be a second Multi-Entity Owner?" was "no, structurally"
+// - a boolean-PK singleton - and these checks recorded exactly that as the
+// evidence for refusing to build it in the UI. The model has since been
+// replaced on purpose, so the checks are inverted rather than deleted: the
+// same three facts, now asserting the new model holds.
+let secondSeat = "INSERT REFUSED";
 try {
   psql(
-    `insert into public.multi_entity_owner (id, auth_user_id, name, email)
-     values (false, '${seatUser.user.id}', 'second', 'second@kolbox.test');`,
+    `insert into public.multi_entity_owner (auth_user_id, name, email)
+     values ('${seatUser.user.id}', 'second', 'second@kolbox.test');`,
   );
+  secondSeat = "INSERT SUCCEEDED";
 } catch (err) {
   secondSeat = String(err?.stderr ?? err?.message ?? err);
 }
 check(
-  "E1 inserting a SECOND seat row is refused by the singleton CHECK constraint",
-  /multi_entity_owner_singleton|violates check constraint/i.test(String(secondSeat)),
-  String(secondSeat).slice(0, 160).replace(/\s+/g, " "),
+  "E1 a second owner row is REFUSED here only because this Auth id already holds one",
+  /multi_entity_owner_auth_user_id_key|duplicate key/i.test(secondSeat),
+  secondSeat.slice(0, 140).replace(/\s+/g, " "),
 );
 check(
-  "E2 the constraint is exactly the boolean-PK singleton idiom (at most one row, ever)",
+  "E2 the singleton CHECK is gone - the table is no longer capped at one row",
   psql(
-    "select pg_get_constraintdef(oid) from pg_constraint where conname='multi_entity_owner_singleton';",
-  ).trim() === "CHECK (id)",
-);
-check(
-  "E3 assignments carry no owner column at all - there is no second owner to assign to",
-  psql(
-    "select count(*) from information_schema.columns where table_schema='public' and table_name='multi_entity_assignments' and column_name like '%owner%';",
+    "select count(*) from pg_constraint where conname='multi_entity_owner_singleton';",
   ).trim() === "0",
+);
+check(
+  "E3 assignments now carry an owner column - visibility is per owner",
+  psql(
+    "select count(*) from information_schema.columns where table_schema='public' and table_name='multi_entity_assignments' and column_name='owner_id';",
+  ).trim() === "1",
 );
 
 tally("OPEN ISSUES API");

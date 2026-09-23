@@ -163,18 +163,19 @@ do $$
 declare
   v text;
   st jsonb;
+  owner_one uuid;
   audit_before int := (select count(*) from public.multi_entity_audit);
 begin
   v := pg_temp.try_as('service_role', $q$select public.platform_get_multi_entity_state('51000000-0000-4000-8000-000000000001')$q$);
   perform pg_temp.chk('S1 platform_get_multi_entity_state executes as service_role', v = 'OK', v);
 
-  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner('51000000-0000-4000-8000-000000000005', '51000000-0000-4000-8000-000000000002', 'Me One', 's5-me1@stage5.invalid', null)$q$);
+  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner_v2('51000000-0000-4000-8000-000000000005', '51000000-0000-4000-8000-000000000002', 'Me One', 's5-me1@stage5.invalid', null, null)$q$);
   perform pg_temp.chk('S2 provision refuses a non-Platform-Owner caller', v like '%UNAUTHORIZED%', v);
 
-  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner('51000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000004', 'EO', 's5-eo@stage5.invalid', null)$q$);
+  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner_v2('51000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000004', 'EO', 's5-eo@stage5.invalid', null, null)$q$);
   perform pg_temp.chk('S3 D-6 forward: Election Owner identity refused', v like '%IDENTITY_ALREADY_PRINCIPAL%', v);
 
-  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner('51000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000002', 'Me One', 's5-me1@stage5.invalid', null)$q$);
+  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner_v2('51000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000002', 'Me One', 's5-me1@stage5.invalid', null, null)$q$);
   perform pg_temp.chk('S4 first provision as service_role', v = 'OK', v);
   perform pg_temp.chk('S4 seat row written through the definer',
     (select count(*) from public.multi_entity_owner where auth_user_id = '51000000-0000-4000-8000-000000000002') = 1, 'seat');
@@ -182,18 +183,21 @@ begin
     exists (select 1 from public.multi_entity_audit where action = 'provisioned' and seat_auth_user_id = '51000000-0000-4000-8000-000000000002'), 'audit');
 
   audit_before := (select count(*) from public.multi_entity_audit);
-  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner('51000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000002', 'Me One Renamed', 's5-me1@stage5.invalid', null)$q$);
+  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner_v2('51000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000002', 'Me One Renamed', 's5-me1@stage5.invalid', null, null)$q$);
   perform pg_temp.chk('S5 idempotent re-provision of the same identity', v = 'OK'
     and (select name from public.multi_entity_owner) = 'Me One Renamed'
     and (select count(*) from public.multi_entity_audit) = audit_before, v);
 
-  v := pg_temp.try_as('service_role', $q$select public.platform_assign_workspace('51000000-0000-4000-8000-000000000001', '52000000-0000-4000-8000-00000000000a')$q$);
+  -- CHANGED by 20260926000000: assignment names the OWNER it is for.
+  owner_one := (select owner_id from public.multi_entity_owner
+                 where auth_user_id = '51000000-0000-4000-8000-000000000002');
+  v := pg_temp.try_as('service_role', format($q$select public.platform_assign_workspace_v2('51000000-0000-4000-8000-000000000001', %L, '52000000-0000-4000-8000-00000000000a')$q$, owner_one));
   perform pg_temp.chk('S6 assign W-Beta as service_role', v = 'OK', v);
-  v := pg_temp.try_as('service_role', $q$select public.platform_assign_workspace('51000000-0000-4000-8000-000000000001', '52000000-0000-4000-8000-00000000000b')$q$);
+  v := pg_temp.try_as('service_role', format($q$select public.platform_assign_workspace_v2('51000000-0000-4000-8000-000000000001', %L, '52000000-0000-4000-8000-00000000000b')$q$, owner_one));
   perform pg_temp.chk('S6 assign W-Alpha(b) as service_role', v = 'OK', v);
-  v := pg_temp.try_as('service_role', $q$select public.platform_assign_workspace('51000000-0000-4000-8000-000000000001', '52000000-0000-4000-8000-00000000000d')$q$);
+  v := pg_temp.try_as('service_role', format($q$select public.platform_assign_workspace_v2('51000000-0000-4000-8000-000000000001', %L, '52000000-0000-4000-8000-00000000000d')$q$, owner_one));
   perform pg_temp.chk('S6 assign W-Alpha(d) as service_role', v = 'OK', v);
-  v := pg_temp.try_as('service_role', $q$select public.platform_assign_workspace('51000000-0000-4000-8000-000000000001', '52000000-0000-4000-8000-0000000000ff')$q$);
+  v := pg_temp.try_as('service_role', format($q$select public.platform_assign_workspace_v2('51000000-0000-4000-8000-000000000001', %L, '52000000-0000-4000-8000-0000000000ff')$q$, owner_one));
   perform pg_temp.chk('S6 assign nonexistent workspace refused', v like '%WORKSPACE_NOT_FOUND%', v);
   perform pg_temp.chk('S6 three assignments + assigned audit rows',
     (select count(*) from public.multi_entity_assignments) = 3
@@ -202,13 +206,16 @@ begin
   select public.platform_get_multi_entity_state('51000000-0000-4000-8000-000000000001') into st;
   -- Scoped to THIS suite's four workspaces: other suites may leave their own
   -- workspaces on the scratch stack, so a global count is not an invariant.
-  perform pg_temp.chk('S7 state RPC reports the seat and all 4 suite workspaces (3 assigned)',
-    st -> 'seat' ->> 'auth_user_id' = '51000000-0000-4000-8000-000000000002'
+  -- CHANGED by 20260926000000: `seat` became `owners`, and a workspace reports
+  -- WHICH owners hold it rather than a single is_assigned boolean.
+  perform pg_temp.chk('S7 state RPC reports the owner and all 4 suite workspaces (3 assigned)',
+    (select count(*) from jsonb_array_elements(st -> 'owners') o
+      where o ->> 'auth_user_id' = '51000000-0000-4000-8000-000000000002') = 1
     and (select count(*) from jsonb_array_elements(st -> 'workspaces') e
          where e ->> 'workspace_id' like '52000000-0000-4000-8000-00000000000%') = 4
     and (select count(*) from jsonb_array_elements(st -> 'workspaces') e
          where e ->> 'workspace_id' like '52000000-0000-4000-8000-00000000000%'
-           and (e ->> 'is_assigned')::boolean) = 3,
+           and jsonb_array_length(e -> 'assigned_owner_ids') > 0) = 3,
     left(st::text, 160));
 end $$;
 
@@ -276,8 +283,11 @@ begin
   v := pg_temp.try_as('service_role', $q$select * from public.multi_entity_get_assigned_workspace('51000000-0000-4000-8000-000000000005', '52000000-0000-4000-8000-00000000000a')$q$);
   perform pg_temp.chk('G5 non-holder cannot read an assigned workspace', v like '%UNAUTHORIZED%', v);
 
-  -- Unassignment takes effect immediately (no cache anywhere).
-  v := pg_temp.try_as('service_role', $q$select public.platform_unassign_workspace('51000000-0000-4000-8000-000000000001', '52000000-0000-4000-8000-00000000000a')$q$);
+  -- Unassignment takes effect immediately (no cache anywhere). CHANGED by
+  -- 20260926000000: it names the owner whose visibility is being removed, so
+  -- one owner's unassign never touches another's.
+  v := pg_temp.try_as('service_role', format($q$select public.platform_unassign_workspace_v2('51000000-0000-4000-8000-000000000001', %L, '52000000-0000-4000-8000-00000000000a')$q$,
+    (select owner_id from public.multi_entity_owner where auth_user_id = '51000000-0000-4000-8000-000000000002')));
   perform pg_temp.chk('G6 unassign as service_role', v = 'OK', v);
   v := pg_temp.try_as('service_role', $q$select * from public.multi_entity_get_assigned_workspace('51000000-0000-4000-8000-000000000002', '52000000-0000-4000-8000-00000000000a')$q$);
   perform pg_temp.chk('G6 unassigned workspace refused on the next call', v = 'P0001:WORKSPACE_NOT_ASSIGNED', v);
@@ -294,7 +304,12 @@ declare
   j jsonb;
   n int;
 begin
-  v := pg_temp.try_as('service_role', $q$select public.platform_provision_multi_entity_owner('51000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000003', 'Me Two', 's5-me2@stage5.invalid', null)$q$);
+  -- CHANGED by 20260926000000: ADD and REPLACE are now distinct operations,
+  -- and replacement names the owner row being handed over. Omitting the id
+  -- here would ADD a second owner instead - which is the whole point of the
+  -- change, and exactly why the suite must now say which it means.
+  v := pg_temp.try_as('service_role', format($q$select public.platform_provision_multi_entity_owner_v2('51000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000003', 'Me Two', 's5-me2@stage5.invalid', null, %L)$q$,
+    (select owner_id from public.multi_entity_owner where auth_user_id = '51000000-0000-4000-8000-000000000002')));
   perform pg_temp.chk('P1 replacement as service_role', v = 'OK', v);
   perform pg_temp.chk('P1 replaced audit row names the previous holder',
     exists (select 1 from public.multi_entity_audit where action = 'replaced'
@@ -358,8 +373,16 @@ begin
   perform pg_temp.chk('C2 current seat holder auth user delete succeeds', v = 'OK', v);
   perform pg_temp.chk('C2 seat row removed by the FK cascade',
     (select count(*) from public.multi_entity_owner) = 0, 'seat rows=' || (select count(*) from public.multi_entity_owner));
-  perform pg_temp.chk('C2 assignments survive (no owner column) for the next holder',
-    (select count(*) from public.multi_entity_assignments) = n_assign_before - 1, 'assignments');
+  -- CHANGED by 20260926000000. Assignments are OWNER-SPECIFIC now, with
+  -- ON DELETE CASCADE from the owner row, so deleting the holder's Auth
+  -- account takes their assignments with it - it no longer leaves them
+  -- waiting for "the next holder", because there is no single next holder.
+  -- Inheriting assignments is still possible, but only through an explicit
+  -- REPLACE of a named owner, which keeps the owner row.
+  perform pg_temp.chk('C2 that owner''s assignments went with them (owner-scoped cascade)',
+    (select count(*) from public.multi_entity_assignments) = 0,
+    'assignments=' || (select count(*) from public.multi_entity_assignments)
+      || ' before=' || n_assign_before);
   v := pg_temp.try_as('service_role', $q$select * from public.multi_entity_resolve_owner_context('51000000-0000-4000-8000-000000000003')$q$);
   perform pg_temp.chk('C2 deleted user refused', v like '%UNAUTHORIZED%', v);
 end $$;

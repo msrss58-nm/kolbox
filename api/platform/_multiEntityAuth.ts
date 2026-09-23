@@ -61,8 +61,7 @@ const deny = (reason: MultiEntityDenyReason): MultiEntityVerification => ({
 });
 
 /**
- * Verify a browser-supplied Supabase JWT as the CURRENT, EXCLUSIVE
- * Multi-Entity Owner.
+ * Verify a browser-supplied Supabase JWT as A Multi-Entity Owner.
  *
  * Fail-closed: anything other than all three checks passing is a refusal.
  *
@@ -73,8 +72,15 @@ const deny = (reason: MultiEntityDenyReason): MultiEntityVerification => ({
  * 2. auth.getClaims(token) - signature + exp, then aal === "aal2", then
  *    claims.sub === the id getUser() just verified.
  * 3. multi_entity_resolve_owner_context(verified id) - the ONLY check that
- *    confers authority. It requires the id to hold the singleton seat right
- *    now AND to hold no Platform/Election Owner role (D-8 hardening).
+ *    confers authority. It requires the id to hold a Multi-Entity Owner row
+ *    right now AND to hold no Platform/Election Owner role (D-8 hardening).
+ *
+ * SEVERAL OWNERS NOW EXIST CONCURRENTLY (migration 20260926000000). Nothing
+ * in this file had to change for that, because it was never written against
+ * the global cardinality: every check is about THIS subject. What it verifies
+ * is "this id is a Multi-Entity Owner", not "this id is THE Multi-Entity
+ * Owner". The scope of what they may then see is decided per request by the
+ * owner-filtered RPCs, never here.
  *
  * aal2 IS NOT AUTHORIZATION. Production signup is open, so anyone can reach
  * aal2 on their own account. Nothing here reads email, user_metadata,
@@ -121,8 +127,10 @@ export async function verifyMultiEntityOwnerJwt(
         .includes("UNAUTHORIZED");
       return deny(unauthorized ? "not_seat" : "rpc_error");
     }
-    // Exactly one row. A 0-row or multi-row result is a refusal, never a
-    // "pick the first one" situation.
+    // Exactly one row FOR THIS SUBJECT - which is still the right assertion
+    // with many owners, because auth_user_id is UNIQUE on the owner table and
+    // the RPC is keyed by it. A 0-row or multi-row result is a refusal, never
+    // a "pick the first one" situation.
     if (!ctxData || (Array.isArray(ctxData) && ctxData.length !== 1)) {
       return deny("not_seat");
     }

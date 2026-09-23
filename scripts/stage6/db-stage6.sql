@@ -123,8 +123,11 @@ insert into public.election_day_voters (workspace_id, first_name, last_name, vot
 insert into public.multi_entity_owner (auth_user_id, name, email)
 values ('61000000-0000-4000-8000-000000000002', 'S6 Seat', 's6-me1@stage6.invalid');
 
-insert into public.multi_entity_assignments (workspace_id)
-  select id from public.election_workspaces
+-- 20260926000000: assignments name their owner. One owner here, so every
+-- fixture row is attributed to it.
+insert into public.multi_entity_assignments (owner_id, workspace_id)
+  select (select owner_id from public.multi_entity_owner), id
+  from public.election_workspaces
   where id::text like '62000000-0000-4000-8000-0000000000%' and id <> '62000000-0000-4000-8000-000000000099';
 
 insert into public.election_owners (workspace_id, auth_user_id, name, email)
@@ -266,7 +269,8 @@ update public.multi_entity_owner set auth_user_id = '61000000-0000-4000-8000-000
 create temp table _saved_b0 as select * from public.multi_entity_assignments
   where workspace_id = '62000000-0000-4000-8000-0000000000b0';
 delete from public.multi_entity_assignments where workspace_id = '62000000-0000-4000-8000-0000000000b0';
-insert into public.multi_entity_assignments (workspace_id) values ('62000000-0000-4000-8000-000000000099');
+insert into public.multi_entity_assignments (owner_id, workspace_id)
+values ((select owner_id from public.multi_entity_owner), '62000000-0000-4000-8000-000000000099');
 do $$
 declare v text;
 begin

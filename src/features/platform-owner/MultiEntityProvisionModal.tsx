@@ -25,7 +25,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  */
 export function MultiEntityProvisionModal({
   open,
-  seat,
+  replacing: replacedOwner,
   busy,
   error,
   usernameSuggestion,
@@ -34,7 +34,10 @@ export function MultiEntityProvisionModal({
 }: {
   open: boolean;
   /** Non-null => replacement mode. */
-  seat: MultiEntitySeat | null;
+  /** The owner being REPLACED, or null to ADD a new one. The caller decides
+   * this from what was clicked - it is never inferred from how many owners
+   * exist, which is meaningless once there can be several. */
+  replacing: MultiEntitySeat | null;
   busy: boolean;
   error: string | null;
   /** The next free login username, when the last attempt hit USERNAME_TAKEN. */
@@ -54,7 +57,7 @@ export function MultiEntityProvisionModal({
   const [localError, setLocalError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
-  const replacing = seat !== null;
+  const replacing = replacedOwner !== null;
 
   const reset = () => {
     setName("");
@@ -134,7 +137,7 @@ export function MultiEntityProvisionModal({
                 </p>
               </div>
               <p className="text-sm text-amber-900">
-                {text.replaceCurrent(seat.name, seat.email)}
+                {text.replaceCurrent(replacedOwner.name, replacedOwner.email)}
               </p>
               <ul className="list-disc space-y-1 ps-5 text-sm text-amber-900">
                 {text.replaceBullets.map((b) => (

@@ -549,9 +549,11 @@ export function PlatformWorkspacesSection() {
               <ModuleChips modules={detail.modules} />
             </DetailRow>
             <DetailRow label={W.multiEntityLabel}>
+              {/* With several Multi-Entity Owners this is a COUNT, not a
+                  yes/no: a workspace can be visible to more than one. */}
               {detailMe
-                ? detailMe.isAssigned
-                  ? T.multiEntity.workspaces.assigned
+                ? detailMe.assignedOwnerIds.length > 0
+                  ? T.multiEntity.workspaces.assignedToOwners(detailMe.assignedOwnerIds.length)
                   : T.multiEntity.workspaces.unassigned
                 : W.notAvailable}
             </DetailRow>

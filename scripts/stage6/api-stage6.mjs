@@ -208,6 +208,9 @@ const puControl = await callHandler(handlers.electionSession, {
 // The Multi-Entity seat, provisioned through the REAL Platform op, activated
 // through its real one-time link, then elevated with TOTP.
 const prov = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "S6 Seat", email: email("me") }, PO);
+// 20260926000000: assignment names its owner; replacement names the owner
+// row being handed over (omitting it would ADD a second owner instead).
+const OWNER_ID = prov.body?.ownerId;
 const meId = prov.body?.seatAuthUserId;
 const meLink = prov.body?.activationLink ?? "";
 const meSetup = anon();
@@ -259,7 +262,7 @@ section("ZERO ASSIGNMENTS");
 // ---------------------------------------------------------------------------
 section("AUTHORIZATION (every principal, both ops)");
 for (const wsName of ["Alpha", "Beta", "Gamma", "Delta"]) {
-  await pPost({ op: "assign_workspace", workspaceId: WS[wsName].id }, PO);
+  await pPost({ op: "assign_workspace", ownerId: OWNER_ID, workspaceId: WS[wsName].id }, PO);
 }
 {
   const cases = [
@@ -336,7 +339,7 @@ section("WORKSPACE SCOPE + FRESHNESS");
   check("WS3 tampered (one-char-changed) id -> 403", tam.statusCode === 403 && same(tam.body, eta.body));
   check("WS4 upper-case form of an assigned id is the same uuid -> 200 (not a bypass, same authorization)", (await aggOne(ME, WS.Alpha.id.toUpperCase())).statusCode === 200);
 
-  await pPost({ op: "unassign_workspace", workspaceId: WS.Alpha.id }, PO);
+  await pPost({ op: "unassign_workspace", ownerId: OWNER_ID, workspaceId: WS.Alpha.id }, PO);
   const afterUn = await aggOne(ME, WS.Alpha.id);
   const listUn = await aggList(ME);
   check("WS5 unassigned mid-session -> 403 on the very next request", afterUn.statusCode === 403);
@@ -344,13 +347,13 @@ section("WORKSPACE SCOPE + FRESHNESS");
     !(listUn.body?.workspaces ?? []).some((w) => w.workspaceId === WS.Alpha.id) && listUn.body?.totals?.reportedWorkspaceCount === 1 && listUn.body?.totals?.metrics?.contactsTotal === 10,
     JSON.stringify(listUn.body?.totals));
 
-  await pPost({ op: "assign_workspace", workspaceId: WS.Eta.id }, PO);
+  await pPost({ op: "assign_workspace", ownerId: OWNER_ID, workspaceId: WS.Eta.id }, PO);
   const etaNow = await aggOne(ME, WS.Eta.id);
   collected.push(etaNow.body);
   check("WS6 newly assigned workspace readable on the very next request", etaNow.statusCode === 200 && etaNow.body?.status === "reported" && same(etaNow.body?.metrics, EXPECT.Eta), JSON.stringify(etaNow.body?.metrics));
   check("WS7 the foreign-workspace reason in Eta never closed an Alpha case (Alpha counts stay 2 closed)",
     same(listBody?.workspaces?.find((w) => w.workspaceId === WS.Alpha.id)?.metrics, EXPECT.Alpha));
-  await pPost({ op: "assign_workspace", workspaceId: WS.Alpha.id }, PO);
+  await pPost({ op: "assign_workspace", ownerId: OWNER_ID, workspaceId: WS.Alpha.id }, PO);
   check("WS8 re-assigned Alpha readable again", (await aggOne(ME, WS.Alpha.id)).statusCode === 200);
 
   // Concurrency: responses taken while an assignment flips must each be
@@ -360,7 +363,7 @@ section("WORKSPACE SCOPE + FRESHNESS");
   const reads = [];
   for (let i = 0; i < 6; i++) {
     reads.push(aggList(ME));
-    flips.push(pPost({ op: i % 2 === 0 ? "unassign_workspace" : "assign_workspace", workspaceId: WS.Beta.id }, PO));
+    flips.push(pPost({ op: i % 2 === 0 ? "unassign_workspace" : "assign_workspace", ownerId: OWNER_ID, workspaceId: WS.Beta.id }, PO));
     reads.push(aggList(ME));
   }
   await Promise.all(flips);
@@ -375,7 +378,7 @@ section("WORKSPACE SCOPE + FRESHNESS");
   });
   check("WS9 12 concurrent reads during 6 assignment flips: every response 200 and internally consistent", consistent);
   const betaAssigned = psql(`select count(*) from public.multi_entity_assignments where workspace_id = '${WS.Beta.id}';`);
-  if (betaAssigned === "0") await pPost({ op: "assign_workspace", workspaceId: WS.Beta.id }, PO);
+  if (betaAssigned === "0") await pPost({ op: "assign_workspace", ownerId: OWNER_ID, workspaceId: WS.Beta.id }, PO);
 }
 
 // ---------------------------------------------------------------------------
@@ -393,7 +396,7 @@ section("API INPUT VALIDATION + BYPASS ATTEMPTS");
   check("IV6 duplicate me_op -> 400", (await pGet("/api/platform/session?me_op=aggregates&me_op=session", ME)).statusCode === 400);
   check("IV7 me_op + op -> 400 (ambiguous principal)", (await pGet("/api/platform/session?me_op=aggregates&op=multi_entity_state", PO)).statusCode === 400);
   const before = psql(`select count(*) from public.multi_entity_assignments;`);
-  const post = await callHandler(PS, { method: "POST", url: "/api/platform/session?me_op=aggregates", headers: { ...auth(PO), origin: ORIGIN }, body: { op: "unassign_workspace", workspaceId: WS.Alpha.id } });
+  const post = await callHandler(PS, { method: "POST", url: "/api/platform/session?me_op=aggregates", headers: { ...auth(PO), origin: ORIGIN }, body: { op: "unassign_workspace", ownerId: OWNER_ID, workspaceId: WS.Alpha.id } });
   check("IV8 POST to an aggregate op -> 405 + no-store", post.statusCode === 405 && post.headers["cache-control"] === "no-store");
   check("IV8 ... and it changed nothing", psql(`select count(*) from public.multi_entity_assignments;`) === before);
   check("IV9 every error body is exactly {error}", [noTokBad, post].every((x) => keys(x.body) === "error"));
@@ -476,7 +479,7 @@ section("REVOCATION + SEAT REPLACEMENT");
   const again = await signIn(email("me"), mePw);
   ME = await verifyTotp(again.client, meFactor.factorId, meFactor.secret);
 
-  const rep = await pPost({ op: "provision_multi_entity_owner", phone: "0501234567", name: "S6 Seat Two", email: email("me2") }, PO);
+  const rep = await pPost({ op: "provision_multi_entity_owner", ownerId: OWNER_ID, phone: "0501234567", name: "S6 Seat Two", email: email("me2") }, PO);
   check("RV2 seat replaced through the real Platform op", rep.statusCode === 201 && rep.body?.replaced === true);
   check("RV2 replaced holder's still-valid aal2 token -> 401 on aggregates", (await aggList(ME)).statusCode === 401);
   check("RV2 ... and 401 on workspace-aggregates", (await aggOne(ME, WS.Beta.id)).statusCode === 401);

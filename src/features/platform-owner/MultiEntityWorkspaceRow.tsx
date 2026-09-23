@@ -39,6 +39,7 @@ function Pill({ children, tone }: { children: string; tone: "on" | "off" | "mute
  */
 export function MultiEntityWorkspaceRow({
   workspace,
+  assignedToSelected,
   duplicateName,
   busy,
   disabled,
@@ -48,20 +49,30 @@ export function MultiEntityWorkspaceRow({
   onUnassign,
 }: {
   workspace: MultiEntityWorkspace;
+  /** Assigned to THE SELECTED OWNER - not "assigned to anyone". With several
+   * owners those are different facts, and the action must follow the first. */
+  assignedToSelected: boolean;
   duplicateName: boolean;
   busy: boolean;
   disabled: boolean;
-  /** Non-null when there is no seat: actions are inert and the reason shows. */
+  /** Non-null when no owner is selected: actions are inert and the reason shows. */
   blockedReason: string | null;
   error: string | null;
   onAssign: () => void;
   onUnassign: () => void;
 }) {
+  // How many OTHER owners also hold this workspace. Surfaced because
+  // unassigning here does not remove their visibility, and an operator who
+  // assumes it does would draw the wrong conclusion from this row.
+  const othersCount =
+    workspace.assignedOwnerIds.length - (assignedToSelected ? 1 : 0);
+
   return (
     <li
+      data-testid="multi-entity-workspace-row"
       className={cn(
         "space-y-2 rounded-xl p-3 ring-1",
-        workspace.isAssigned
+        assignedToSelected
           ? "bg-primary-50/40 ring-primary-200"
           : "bg-white ring-slate-200",
       )}
@@ -74,8 +85,8 @@ export function MultiEntityWorkspaceRow({
             <Pill tone={workspace.isActive ? "on" : "off"}>
               {workspace.isActive ? text.active : text.ended}
             </Pill>
-            <Pill tone={workspace.isAssigned ? "on" : "muted"}>
-              {workspace.isAssigned ? text.assigned : text.unassigned}
+            <Pill tone={assignedToSelected ? "on" : "muted"}>
+              {assignedToSelected ? text.assigned : text.unassigned}
             </Pill>
           </div>
 
@@ -92,21 +103,25 @@ export function MultiEntityWorkspaceRow({
           )}
 
           <p className="text-xs text-slate-400">
-            {workspace.isAssigned && workspace.assignedAt
-              ? text.assignedAt(formatDateTime(workspace.assignedAt))
-              : text.endsAt(formatDateTime(workspace.electionEndAt))}
+            {text.endsAt(formatDateTime(workspace.electionEndAt))}
           </p>
+
+          {othersCount > 0 && (
+            <p className="text-xs font-semibold text-slate-500" data-testid="shared-with">
+              {text.sharedWith(othersCount)}
+            </p>
+          )}
         </div>
 
         <Button
-          variant={workspace.isAssigned ? "danger-outline" : "secondary"}
+          variant={assignedToSelected ? "danger-outline" : "secondary"}
           size="sm"
           loading={busy}
           disabled={disabled}
-          onClick={workspace.isAssigned ? onUnassign : onAssign}
+          onClick={assignedToSelected ? onUnassign : onAssign}
           className="w-full shrink-0 sm:w-auto"
         >
-          {workspace.isAssigned ? text.unassign : text.assign}
+          {assignedToSelected ? text.unassign : text.assign}
         </Button>
       </div>
 

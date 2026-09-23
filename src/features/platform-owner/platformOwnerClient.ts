@@ -208,6 +208,10 @@ export async function createOwnerAccess(
 const MULTI_ENTITY_STATE_OP = "multi_entity_state";
 
 export interface MultiEntitySeat {
+  /** Stable identity of the OWNER ROW, independent of which Auth account
+   * currently backs it - a replacement keeps this id and its assignments. It
+   * is what every owner-scoped op names. */
+  ownerId: string;
   authUserId: string;
   name: string;
   email: string;
@@ -219,6 +223,8 @@ export interface MultiEntitySeat {
   phone: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  /** The workspaces assigned to THIS owner. Server-ordered. */
+  assignedWorkspaceIds: string[];
 }
 
 export interface MultiEntityWorkspace {
@@ -231,8 +237,10 @@ export interface MultiEntityWorkspace {
   electionEndAt: string | null;
   /** Derived server-side from `election_end_at > now()`, never stored. */
   isActive: boolean;
-  isAssigned: boolean;
-  assignedAt: string | null;
+  /** WHICH owners hold this workspace. Replaces the old `isAssigned` boolean:
+   * with several owners, "is this assigned?" is not a question that can be
+   * answered without saying to whom. Empty means nobody. */
+  assignedOwnerIds: string[];
 }
 
 /** An Auth account displaced from the seat by a replacement and never purged. */
@@ -255,13 +263,16 @@ export interface PendingProvisioningOrphan {
 }
 
 export interface MultiEntityState {
-  seat: MultiEntitySeat | null;
+  /** EVERY Multi-Entity Owner, in server order (oldest first). */
+  owners: MultiEntitySeat[];
   workspaces: MultiEntityWorkspace[];
   pendingAuthCleanup: PendingAuthCleanup[];
   pendingProvisioningOrphans: PendingProvisioningOrphan[];
 }
 
 export interface ProvisionedMultiEntityOwner {
+  /** The owner row this call created or replaced. */
+  ownerId: string | null;
   seatAuthUserId: string;
   replaced: boolean;
   previousAuthUserId: string | null;
@@ -313,19 +324,41 @@ function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
-function mapSeat(v: unknown): MultiEntitySeat | null {
-  const o = rec(v);
-  const id = o && str(o.auth_user_id);
-  if (!o || !id) return null;
-  return {
-    authUserId: id,
-    name: str(o.name) ?? "",
-    email: str(o.email) ?? "",
-    username: str(o.username),
-    phone: str(o.phone),
-    createdAt: str(o.created_at),
-    updatedAt: str(o.updated_at),
-  };
+/** Only strings survive; anything else is dropped rather than rendered. */
+function mapIds(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const raw of v) {
+    const id = str(raw);
+    if (id) out.push(id);
+  }
+  return out;
+}
+
+function mapOwners(v: unknown): MultiEntitySeat[] {
+  if (!Array.isArray(v)) return [];
+  const out: MultiEntitySeat[] = [];
+  for (const raw of v) {
+    const o = rec(raw);
+    const ownerId = o && str(o.owner_id);
+    const authUserId = o && str(o.auth_user_id);
+    // A row missing either identity is dropped, not half-rendered: every
+    // owner-scoped action needs ownerId, and an owner card with no id would
+    // offer buttons that cannot work.
+    if (!o || !ownerId || !authUserId) continue;
+    out.push({
+      ownerId,
+      authUserId,
+      name: str(o.name) ?? "",
+      email: str(o.email) ?? "",
+      username: str(o.username),
+      phone: str(o.phone),
+      createdAt: str(o.created_at),
+      updatedAt: str(o.updated_at),
+      assignedWorkspaceIds: mapIds(o.assigned_workspace_ids),
+    });
+  }
+  return out;
 }
 
 function mapWorkspaces(v: unknown): MultiEntityWorkspace[] {
@@ -341,8 +374,7 @@ function mapWorkspaces(v: unknown): MultiEntityWorkspace[] {
       loginCode: str(o.login_code) ?? "",
       electionEndAt: str(o.election_end_at),
       isActive: o.is_active === true,
-      isAssigned: o.is_assigned === true,
-      assignedAt: str(o.assigned_at),
+      assignedOwnerIds: mapIds(o.assigned_owner_ids),
     });
   }
   return out;
@@ -451,7 +483,7 @@ export async function fetchMultiEntityState(
     return {
       status: "ok",
       data: {
-        seat: mapSeat(o.seat),
+        owners: mapOwners(o.owners),
         workspaces: mapWorkspaces(o.workspaces),
         pendingAuthCleanup: mapPendingCleanup(o.pending_auth_cleanup),
         pendingProvisioningOrphans: mapPendingOrphans(o.pending_provisioning_orphans),
@@ -462,16 +494,24 @@ export async function fetchMultiEntityState(
   }
 }
 
-/** Creates or replaces the singleton seat. Body keys are EXACTLY
- * `name`/`email`/`phone`/`username` - the server rejects any extra key with a
- * 400, and `phone` is omitted rather than sent empty.
+/** ADDS a Multi-Entity Owner, or REPLACES the identity behind an existing one
+ * when `ownerId` is given. Body keys are EXACTLY
+ * `name`/`email`/`phone`/`username`/`ownerId` - the server rejects any extra
+ * key with a 400, and `phone`/`ownerId` are omitted rather than sent empty.
  *
- * `username` is REQUIRED by the server (it claims the seat holder's row in the
- * identity directory in the same request): without it the holder could never
- * sign in at /login/multi-entity-owner, and the whole call 400s. */
+ * `username` is REQUIRED by the server (it claims the owner's row in the
+ * identity directory in the same request): without it they could never sign
+ * in on the shared login, and the whole call 400s. */
 export async function provisionMultiEntityOwner(
   accessToken: string,
-  input: { name: string; email: string; phone?: string; username: string },
+  input: {
+    name: string;
+    email: string;
+    phone?: string;
+    username: string;
+    /** Absent = add a new owner. Present = replace that owner's identity. */
+    ownerId?: string;
+  },
 ): Promise<MultiEntityResult<ProvisionedMultiEntityOwner>> {
   return postOp(
     accessToken,
@@ -481,12 +521,14 @@ export async function provisionMultiEntityOwner(
       email: input.email,
       ...(input.phone ? { phone: input.phone } : {}),
       username: input.username,
+      ...(input.ownerId ? { ownerId: input.ownerId } : {}),
     },
     (parsed) => {
       const o = rec(parsed);
       const id = o && str(o.seatAuthUserId);
       if (!o || !id) return null;
       return {
+        ownerId: str(o.ownerId),
         seatAuthUserId: id,
         replaced: o.replaced === true,
         previousAuthUserId: str(o.previousAuthUserId),
@@ -497,24 +539,46 @@ export async function provisionMultiEntityOwner(
   );
 }
 
+/** Revokes ONE owner. Their assignments go with them; every other owner,
+ * including any sharing the same workspaces, is untouched. */
+export async function removeMultiEntityOwner(
+  accessToken: string,
+  ownerId: string,
+): Promise<MultiEntityResult<{ previousAuthUserId: string | null }>> {
+  return postOp(accessToken, { op: "remove_multi_entity_owner", ownerId }, (parsed) => {
+    const o = rec(parsed);
+    return { previousAuthUserId: o ? str(o.previousAuthUserId) : null };
+  });
+}
+
 export async function assignWorkspace(
   accessToken: string,
+  ownerId: string,
   workspaceId: string,
 ): Promise<MultiEntityResult<{ alreadyAssigned: boolean }>> {
-  return postOp(accessToken, { op: "assign_workspace", workspaceId }, (parsed) => {
-    const o = rec(parsed);
-    return { alreadyAssigned: o?.already_assigned === true };
-  });
+  return postOp(
+    accessToken,
+    { op: "assign_workspace", ownerId, workspaceId },
+    (parsed) => {
+      const o = rec(parsed);
+      return { alreadyAssigned: o?.already_assigned === true };
+    },
+  );
 }
 
 export async function unassignWorkspace(
   accessToken: string,
+  ownerId: string,
   workspaceId: string,
 ): Promise<MultiEntityResult<{ removed: boolean }>> {
-  return postOp(accessToken, { op: "unassign_workspace", workspaceId }, (parsed) => {
-    const o = rec(parsed);
-    return { removed: o?.removed === true };
-  });
+  return postOp(
+    accessToken,
+    { op: "unassign_workspace", ownerId, workspaceId },
+    (parsed) => {
+      const o = rec(parsed);
+      return { removed: o?.removed === true };
+    },
+  );
 }
 
 function mapCleanupOutcome(parsed: unknown): AuthCleanupOutcome | null {
