@@ -4679,3 +4679,38 @@ Security: table ACLs unchanged (postgres-only, RLS on, zero policies — asserte
 7. Update the gitignored `node_modules/.kolbox-verify/` drift snapshots in the same operation — they read `->'seat'` as a scalar and will report a false drift after step 6.
 
 **Rollback:** while only EXPAND is applied, rolling back the **application alone** is sufficient and needs no DB change at all — the previous contract is still fully present.
+
+---
+
+## Multi-Entity console UX + set-password re-issue — 2026-09-23 (LIVE, commit `bfc2413`)
+
+### What shipped
+
+- **Compact owners list.** A collapsed row carries only what identifies a person — name, login username, e-mail, phone — plus how many systems they hold and a **פתח** action. Everything else moved into the expanded view, so many owners stay readable on one screen.
+- **Open/close is a real toggle.** Nothing is open by default and closing closes. The previous code fell back to `owners[0]` whenever nothing was selected, which would have made closing a row impossible. One owner opens at a time, and the open owner **is** the assignment target — with several owners, "assign this workspace" is only a complete instruction once it says to whom.
+- **The section's add action moved** to the end of the header row (the left side in RTL), opposite the title, via a new additive `actionsEnd` slot on `AdminSection`. The other nine `AdminSection` usages pass nothing and are unaffected.
+- **Re-issue a set-password link.** A lost link previously had one remedy: replace the owner (to a temporary address, purge, replace back) — a destructive workaround for a problem that destroys nothing. The expanded view now mints a fresh link through **the same helper provisioning already used** — same token type, same Multi-Entity destination — so there is one credential flow, not two. The on-screen copy that instructed operators to use the replacement procedure was removed, because this change makes it untrue.
+
+### Security
+
+Verified against the running Auth server rather than assumed: minting a new recovery link **invalidates the previous one**, the newest link works once, and a **redeemed link cannot be replayed**. Re-issue cannot target an arbitrary account (unknown `ownerId` → 404), a caller-supplied `email` is refused outright (the address is read from GoTrue by the owner's auth id), and it creates no owner, no assignment and **no audit row** — minting a link is not an owner event. The link is never persisted: not in the database, not in browser storage, not in the URL, and a reload does not bring an old one back.
+
+### The stale `ui-stage8` assertion — fixed
+
+The end-to-end Election Owner leg waited on the per-origin `כניסת בעלים` screen retired in `a6c5abe`, so the suite aborted there and took **19 later checks down with it — including every Multi-Entity check**. It now asserts the contract that actually shipped (the retired route offers no credential form and bounces to the shared login) and still proves what it always did: the password just set works and the owner reaches workspace setup, through a real sign-in against the Auth server.
+
+`ui-stage8` went from **40 PASS / 1 FAIL to 59 PASS / 0 FAIL.** The cross-origin hop is answered with **204 No Content** — the browser stays put, so the bounce document survives with no navigation pending and can be read deterministically. Sampling for it loses the race; aborting the navigation replaces the document with a browser error page.
+
+That recovered coverage immediately earned its keep: it caught two real defects in this batch before release — replace/remove had become unreachable behind the collapsed row, and a failed replacement rendered **the same error twice** (the row and the dialog share an owner's error key).
+
+### VERIFICATION
+
+`ui-stage8` **59/0** · `ui-open-issues` **58/0** · `api-multi-owner` **56/0** · `api-real-local` **121/0** · `db-multi-owner` **59/0** · `db-stage5` **102/0** · `db-stage6` **73/0** · `db-stage8` **45/0** · `api-stage9` **96/0** · `ui-stage9` **84/0** · `ui-stage7` **82/0** · `ui-real-local` **31/0** · `ui-nav-roles` **57/0** · `api-open-issues` **30/0** · `api-owner-module-access` **21/0** · `api-module-availability` **44/0** · `ui-module-availability` **23/0** · `api-auth-principal-switch` **31/0**.
+
+Typecheck + build clean; eslint **0 errors**; `git diff --check` clean. **No migration, schema, config or dependency change.** Protected 15 untouched at **+138/−45**.
+
+Production: all four surfaces serve `bfc2413` with correct surface identity; security headers and the deployment gate unchanged; DB **110 applied / 0 pending / 0 drift**.
+
+### PRE-EXISTING, NOT CAUSED HERE
+
+`db-stage9` **77/1** on `USR11` (Owner cannot reset a Manager-role user) — proven by running HEAD's copy against a pre-migration database and getting the identical 77/1. `stage6/api-stage6` and `stage8d/api-stage8d` remain on the documented `566ec04` breakage. Several suites need a fixture-free scratch stack (fixed login codes, singleton Platform Owner) and pass on one.
