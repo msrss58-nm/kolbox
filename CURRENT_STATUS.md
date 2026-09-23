@@ -4717,7 +4717,7 @@ Production: all four surfaces serve `bfc2413` with correct surface identity; sec
 
 ---
 
-## One console section for election systems — 2026-09-23 (LOCAL, pending deploy)
+## One console section for election systems — 2026-09-23 (LIVE, commit `192973a`)
 
 ### The product decision
 
@@ -4762,3 +4762,7 @@ Regression: `ui-stage8` **59/0** · `ui-stage9` **85/0** · `ui-open-issues` **5
 Three existing suites asserted the retired screen and were adapted to the same claims in their new location — never weakened: `ui-stage8`'s "no approvals yet" is now the absence of an approval **row** (the read still has to have happened), and its consumed-approval check now reads the workspace row that represents it, asserting both that no recovery action is offered and that the completed state and the Owner's address are still on screen. `ui-stage9` gained an explicit redirect check.
 
 Typecheck + build clean; eslint **0 errors**; `git diff --check` clean. Protected 15 untouched at **+138/−45**.
+
+Production: all four surfaces converged automatically to `192973a` with correct surface identity. Read-only acceptance **29 ok / 0 FAIL**, discriminating in both directions - the markers this commit REMOVED (`owner-access-list`, `טרם אושרו בעלים`, `בעלי מערכות`, the retired screen's own search and no-results copy) are gone from the served bundle, and the markers it ADDED are present. `/platform/owners` is served, not 404'd. No authorization regression: the approvals, workspace-module and Multi-Entity reads are still 401 without a session, a foreign Origin is refused 403 before anything else, and the re-issue op is 401 from the console's own Origin. Security headers unchanged on all four (`frame-ancestors 'none'`, `X-Frame-Options: DENY`, HSTS two years); auth-broker ops still refused on every non-auth surface. DB **110 applied / 0 pending / 0 drift**. **No Production data was mutated and no credential was created or re-issued.**
+
+**Still requires a signed-in human:** the compact list, the open/close of a details drawer, and the re-issue of a real link are behind the Platform Owner session, which read-only verification must not use.
