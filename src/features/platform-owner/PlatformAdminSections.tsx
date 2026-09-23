@@ -303,7 +303,8 @@ function StatusPill({ active }: { active: boolean }) {
  *
  * Joined from the three existing reads, with no new endpoint: the entitlement
  * read (name, Owner, modules, end date), the approvals read (approval state,
- * dates, phone, requested modules, recovery) and the Multi-Entity state read
+ * dates, phone, requested modules, recovery, AND the server's own resolution
+ * of which workspace the approval produced) and the Multi-Entity state read
  * (login code, server-derived active/ended, assignment count). If a read
  * fails, its columns say "not available" rather than guessing.
  */
@@ -342,25 +343,74 @@ export function PlatformWorkspacesSection() {
   );
 
   const rows = useMemo<UnifiedRow[]>(() => {
-    // An approval belongs to its Owner's e-mail address, and a workspace
-    // carries that same address - the approval flow refuses a second approval
-    // for an address that already has one, so the match is unambiguous.
-    const byEmail = new Map<string, OwnerAccessApproval>();
+    // WHICH WORKSPACE DOES AN APPROVAL BELONG TO? The server already answers
+    // that, and its answer is the only authoritative one available here.
+    //
+    // The two reads share exactly ONE durable key - the Owner's `auth_user_id`,
+    // unique on `election_workspace_pending_owner_access` AND on
+    // `election_owners` - and `platform_list_owner_access` resolves the
+    // workspace through it in the same transaction as the read, handing back
+    // `workspaceName`. The e-mail address is NOT that key: it is a copy taken
+    // from the approval at provisioning time, nothing keeps the two copies
+    // equal afterwards, neither column is unique, a workspace may hold several
+    // owner rows, and a workspace created by any path other than
+    // `election_day_provision_workspace` carries whatever address that path
+    // was given. Joining on the copy is what made an Owner who is already
+    // inside their workspace read as "the system has not been created yet".
+    //
+    // So: `workspaceName` (or a consumed approval) DECIDES that a system
+    // exists; the address is used only to tell two same-named workspaces
+    // apart. An approval the server says has a workspace is never rendered as
+    // one that does not - if this console cannot pin down which row it is, it
+    // is left off entirely rather than shown as pending, because that
+    // workspace is in the list already under its own name.
+    const byName = new Map<string, WorkspaceEntitlements[]>();
+    for (const ws of modules.workspaces) {
+      const name = ws.name.trim();
+      if (!name) continue;
+      const same = byName.get(name);
+      if (same) same.push(ws);
+      else byName.set(name, [ws]);
+    }
+
+    const resolveWorkspace = (a: OwnerAccessApproval): WorkspaceEntitlements | null => {
+      const named = byName.get((a.workspaceName ?? "").trim()) ?? [];
+      if (named.length === 0) return null;
+      if (named.length === 1) return named[0];
+      // Workspace names are not unique. When several carry the name the server
+      // resolved, the recorded address is the tie-breaker - the one thing that
+      // can tell two same-named systems apart here.
+      const mail = a.email.trim().toLowerCase();
+      return (
+        (mail ? named.find((w) => w.ownerEmail?.trim().toLowerCase() === mail) : undefined) ??
+        null
+      );
+    };
+
+    /** A workspace row's approval, once resolved. Consumed wins, because that
+     * is the approval the workspace actually came from. */
+    const approvalFor = new Map<string, OwnerAccessApproval>();
+    const attached = new Set<string>();
+    /** The server says this approval has a workspace, but which row it is
+     * cannot be determined here. NOT a pending system. */
+    const unidentified = new Set<string>();
+
     for (const a of access.approvals) {
-      const key = a.email.trim().toLowerCase();
-      if (!key) continue;
-      const prev = byEmail.get(key);
-      if (!prev || (a.state === "consumed" && prev.state !== "consumed")) {
-        byEmail.set(key, a);
+      const ws = resolveWorkspace(a);
+      if (ws) {
+        attached.add(a.pendingId);
+        const prev = approvalFor.get(ws.workspaceId);
+        if (!prev || (a.state === "consumed" && prev.state !== "consumed")) {
+          approvalFor.set(ws.workspaceId, a);
+        }
+        continue;
+      }
+      if (a.workspaceName !== null || a.state === "consumed") {
+        unidentified.add(a.pendingId);
       }
     }
 
-    const claimed = new Set<string>();
     const workspaceRows: UnifiedRow[] = modules.workspaces.map((ws) => {
-      const approval = ws.ownerEmail
-        ? byEmail.get(ws.ownerEmail.trim().toLowerCase())
-        : undefined;
-      if (approval) claimed.add(approval.pendingId);
       const m = meById.get(ws.workspaceId);
       return {
         kind: "workspace",
@@ -368,14 +418,14 @@ export function PlatformWorkspacesSection() {
         status: m ? (m.isActive ? "active" : "ended") : null,
         ws,
         me: m,
-        approval,
+        approval: approvalFor.get(ws.workspaceId),
       };
     });
 
-    // Whatever is left has produced no workspace yet (or none this console can
-    // see) - it is still a system in the making and must not disappear.
+    // What is left has genuinely produced no workspace - it is still a system
+    // in the making, and it must not disappear.
     const approvalRows: UnifiedRow[] = access.approvals
-      .filter((a) => !claimed.has(a.pendingId))
+      .filter((a) => !attached.has(a.pendingId) && !unidentified.has(a.pendingId))
       .map((a) => ({
         kind: "approval",
         id: `approval:${a.pendingId}`,

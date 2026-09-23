@@ -4729,7 +4729,7 @@ They are now **one section, `מערכות בחירות`** — the single managem
 
 An approval and the workspace it produces are **the same system at two points in its life**. So an approved owner appears in the list the moment they are approved, as a system that has not been created yet (`המערכת טרם הוקמה`), and becomes an ordinary row once they sign in and create it. Nothing is lost and nothing is duplicated — a system is in the list exactly once, whichever phase it is in.
 
-The join is by the Owner's **e-mail address**: the approval carries it and `election_owners.email` is written from that same approval, and the approval flow refuses a second approval for an address that already has one, so the match is unambiguous. An approval that matches no workspace is still a row of its own — nothing can fall out of the list.
+The join is the **server's own resolution**, not a client-side guess: the two reads share exactly one durable key, the Owner's `auth_user_id` (unique on both `election_workspace_pending_owner_access` and `election_owners`), and `platform_list_owner_access` already resolves the workspace through it in the same transaction as the read, handing back `workspaceName`. That value — or a `consumed` state — is what decides that a system exists. An approval that has genuinely produced no workspace is still a row of its own, so nothing can fall out of the list. _(Corrected 2026-09-24 — see the section below; the first version of this screen joined on the copied e-mail address, which is not the key.)_
 
 ### What moved, exactly
 
@@ -4766,3 +4766,38 @@ Typecheck + build clean; eslint **0 errors**; `git diff --check` clean. Protecte
 Production: all four surfaces converged automatically to `192973a` with correct surface identity. Read-only acceptance **29 ok / 0 FAIL**, discriminating in both directions - the markers this commit REMOVED (`owner-access-list`, `טרם אושרו בעלים`, `בעלי מערכות`, the retired screen's own search and no-results copy) are gone from the served bundle, and the markers it ADDED are present. `/platform/owners` is served, not 404'd. No authorization regression: the approvals, workspace-module and Multi-Entity reads are still 401 without a session, a foreign Origin is refused 403 before anything else, and the re-issue op is 401 from the console's own Origin. Security headers unchanged on all four (`frame-ancestors 'none'`, `X-Frame-Options: DENY`, HSTS two years); auth-broker ops still refused on every non-auth surface. DB **110 applied / 0 pending / 0 drift**. **No Production data was mutated and no credential was created or re-issued.**
 
 **Still requires a signed-in human:** the compact list, the open/close of a details drawer, and the re-issue of a real link are behind the Platform Owner session, which read-only verification must not use.
+
+---
+
+## The unified section mapped an owner to the wrong side of their own lifecycle — 2026-09-24 (LOCAL, not committed)
+
+### Symptom
+
+Election Owner `נחום משה6` is inside an active workspace `לוד` in Production, and the console still showed a row for them reading **`המערכת טרם הוקמה`** — the approval never attached to the workspace it had produced.
+
+### Root cause
+
+The first version of the unified section joined an approval to a workspace on the **e-mail address**: `approval.email` against `WorkspaceEntitlements.ownerEmail`. That address is not a key on either side.
+
+`election_day_provision_workspace` *copies* the approval's address into `election_owners.email` at provisioning, which is why the happy path appears to work — the local suite now prints both values after a real provisioning and they are identical. But nothing keeps the two copies equal afterwards: neither column is unique, `election_owners.email` is written by other paths too (`election_day_backfill_historical_workspace` takes the address as a caller-supplied parameter), a workspace may legitimately hold several `election_owners` rows, and no constraint ties the copy back to the approval.
+
+The two reads do share one durable key — the Owner's **`auth_user_id`**, unique on `election_workspace_pending_owner_access` AND on `election_owners` — and `platform_list_owner_access` **already resolves the workspace through it**, in the same transaction as the read, returning it as `workspaceName`. The client had that answer in hand and ignored it in favour of comparing two copies of an address.
+
+### The fix (client only)
+
+`workspaceName` — or a `consumed` state — now decides that a system exists, and an approval the server says has a workspace is **never** rendered as one that does not. The recorded address survives in exactly one role: telling two same-named workspaces apart, since `election_workspaces.name` is not unique. If a system is known to exist but this console cannot pin down which row it is, the approval is left off the list rather than shown as pending — the workspace itself is always listed under its own name, so nothing is lost and no duplicate appears.
+
+No schema, migration, API, authorization, config or dependency change: the value the fix relies on was already in the response.
+
+### VERIFICATION
+
+`console/ui-console-unified` **47 PASS / 0 FAIL** (was 32), with two sections that did not exist before:
+
+- **E — the real lifecycle.** The console approves; the owner opens the activation link, sets a password and creates their own workspace through the real RPC. The row transitions from `המערכת טרם הוקמה` to the real workspace row with its name, code, owner, status and modules; no approval row survives; a reload keeps the mapping. Sections B–D had only ever run against hand-built fixtures, which can confirm nothing but the assumption that wrote them — that is why this defect shipped.
+- **F — the reported shape, reproduced.** The addresses are made to disagree while the durable key still links the rows. **Red-before-green: with the fix reverted, F1 and F3 fail exactly as Production does** — a duplicate `המערכת טרם הוקמה` row appears beside the real workspace row, and the approval is not attached. With the fix, both pass. Negative control F4: an approval that really has produced nothing still reads `המערכת טרם הוקמה`, so F1 cannot pass by turning everything into a workspace row. F5–F7: two systems sharing a name both render as workspace rows, each showing its own owner's approval.
+
+Regression: `ui-stage8` **59/0** · `ui-stage9` **85/0** · `ui-open-issues` **58/0**. Build clean, eslint **0 errors**, `git diff --check` clean, protected 15 untouched at **+138/-45**, nothing under `api/` or `supabase/` in the diff.
+
+### Not fixed, and not fixable here
+
+If a workspace's `election_owners.auth_user_id` is not the approved account's id, the server resolves no workspace for that approval and it correctly reads as not created — the two rows genuinely belong to different accounts. Likewise, two approvals at two addresses for the same *person* are two accounts, and the console shows them as two rows; collapsing those would mean joining on a display name, which is the same unsound move this fix removes. Attaching the workspace **id** to the approvals read would make the mapping exact in every shape, but that is a migration and was deliberately not taken.
