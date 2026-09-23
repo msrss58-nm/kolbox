@@ -86,8 +86,10 @@ export const ROUTES = {
    * the election origin, and this path has no legacy bookmarks. */
   platformMultiEntity: "/platform/multi-entity",
   /** Platform console sections - real child routes of `platformConsole`
-   * (whose index sends the owner to `platformOwners`), all under the same
+   * (whose index sends the owner to `platformWorkspaces`), all under the same
    * `PlatformOwnerAuthGuard`. */
+  /** Retired section. Election Owner approvals are rows in the one systems
+   * list now; this path only redirects there, for existing bookmarks. */
   platformOwners: "/platform/owners",
   platformWorkspaces: "/platform/workspaces",
   platformModules: "/platform/modules",

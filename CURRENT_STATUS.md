@@ -4714,3 +4714,51 @@ Production: all four surfaces serve `bfc2413` with correct surface identity; sec
 ### PRE-EXISTING, NOT CAUSED HERE
 
 `db-stage9` **77/1** on `USR11` (Owner cannot reset a Manager-role user) — proven by running HEAD's copy against a pre-migration database and getting the identical 77/1. `stage6/api-stage6` and `stage8d/api-stage8d` remain on the documented `566ec04` breakage. Several suites need a fixture-free scratch stack (fixed login codes, singleton Platform Owner) and pass on one.
+
+---
+
+## One console section for election systems — 2026-09-23 (LOCAL, pending deploy)
+
+### The product decision
+
+The console carried **two screens managing the same thing from opposite ends**: `בעלי מערכות` (Election Owner approvals) and `מערכות בחירות` (the workspaces those approvals produce). An operator looking for "the system I approved yesterday" had to know which of the two to open, and the answer depended on whether the owner had signed in yet.
+
+They are now **one section, `מערכות בחירות`** — the single management destination. `בעלי מערכות` is gone from the navigation.
+
+### The idea that made it one list rather than two stacked lists
+
+An approval and the workspace it produces are **the same system at two points in its life**. So an approved owner appears in the list the moment they are approved, as a system that has not been created yet (`המערכת טרם הוקמה`), and becomes an ordinary row once they sign in and create it. Nothing is lost and nothing is duplicated — a system is in the list exactly once, whichever phase it is in.
+
+The join is by the Owner's **e-mail address**: the approval carries it and `election_owners.email` is written from that same approval, and the approval flow refuses a second approval for an address that already has one, so the match is unambiguous. An approval that matches no workspace is still a row of its own — nothing can fall out of the list.
+
+### What moved, exactly
+
+| From `בעלי מערכות` | Where it is now |
+| --- | --- |
+| `אישור בעלים חדש` + the approval dialog | the section's own header action (the only one in the console) |
+| approval state (`ממתינה להרשמה` / `פג תוקף` / `הושלמה`) | the row's status cell for a system not yet created; the details drawer for one that exists |
+| `הפקת קישור חדש` / `חידוש והפקת קישור` + confirmation + the one-time-link modal | the row, unchanged — same hook, same op, same confirmation, same once-only display |
+| consumed = read-only (no recovery action) | unchanged, and now verified on the workspace row that represents it |
+| search by name / e-mail | folded into the one search (name, owner, e-mail, login code) |
+| filter by approval state | folded into the one status filter, which now spans both kinds of row |
+| owner phone, requested modules, approval dates | the details drawer, for both kinds of row |
+
+Everything the systems list already did is untouched: login code, active/ended, module chips, the details drawer, the module editor, an ownerless workspace (`לא משויך בעלים`), and the count of Multi-Entity Owners a system is visible to.
+
+### Route
+
+`/platform/owners` **redirects** to `/platform/workspaces` rather than 404-ing, and the console's index now lands there. The path constant is kept solely for that redirect.
+
+### No backend change of any kind
+
+Same three reads (`owner_access`, `workspace_modules`, the Multi-Entity state), same ops, same authorization, same hooks — `useOwnerAccess` and `useWorkspaceModules` are still mounted once by the shell, so the section stays current on entry without F5. **No migration, schema, API, config or dependency change.**
+
+### VERIFICATION
+
+New targeted suite `scripts/console/ui-console-unified.mjs` — **32 PASS / 0 FAIL**: one destination and no second entry point; the retired path redirects; an unused approval renders as a system-to-be with its own state, owner, modules and recovery action; an expired one renews and returns to `ממתינה להרשמה` live; a consumed one offers no recovery; search by e-mail and by login code; the status filter over both kinds of row; the approval's full details; a provisioned system's name/code/owner/status/modules/end-date/Multi-Entity count; the module editor; an ownerless workspace; and the list staying current with no F5 for a change made here **and** one made elsewhere.
+
+Regression: `ui-stage8` **59/0** · `ui-stage9` **85/0** · `ui-open-issues` **58/0** · `ui-module-availability` **23/0** · `ui-real-local` **31/0** · `ui-platform-owner-login` **20/0**.
+
+Three existing suites asserted the retired screen and were adapted to the same claims in their new location — never weakened: `ui-stage8`'s "no approvals yet" is now the absence of an approval **row** (the read still has to have happened), and its consumed-approval check now reads the workspace row that represents it, asserting both that no recovery action is offered and that the completed state and the Owner's address are still on screen. `ui-stage9` gained an explicit redirect check.
+
+Typecheck + build clean; eslint **0 errors**; `git diff --check` clean. Protected 15 untouched at **+138/−45**.

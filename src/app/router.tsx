@@ -77,7 +77,6 @@ import { PlatformAdminShell } from "../features/platform-owner/PlatformAdminShel
 import {
   PlatformAuditSection,
   PlatformModulesSection,
-  PlatformOwnersSection,
   PlatformSettingsSection,
   PlatformWorkspacesSection,
 } from "../features/platform-owner/PlatformAdminSections";
@@ -322,8 +321,15 @@ const platformOwnerRoutes: RouteObject[] = [
         path: ROUTES.platformConsole,
         element: <PlatformAdminShell />,
         children: [
-          { index: true, element: <Navigate to="owners" replace /> },
-          { path: "owners", element: <PlatformOwnersSection /> },
+          { index: true, element: <Navigate to="workspaces" replace /> },
+          // The Election Owner approvals used to live on their own "owners"
+          // section; they are now rows in the one systems list, so the old
+          // path is kept ONLY so an existing bookmark still lands somewhere
+          // real instead of a no-match page.
+          {
+            path: "owners",
+            element: <Navigate to={ROUTES.platformWorkspaces} replace />,
+          },
           { path: "workspaces", element: <PlatformWorkspacesSection /> },
           { path: "modules", element: <PlatformModulesSection /> },
           { path: "multi-entity", element: <PlatformOwnerMultiEntityPage /> },

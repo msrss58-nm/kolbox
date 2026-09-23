@@ -246,8 +246,18 @@ try {
   check("P5 approval with Election Day -> one-time link", link.includes("/election-day/owner-set-password?"));
   check("P6 the approval records exactly the chosen module",
     psql(`select array_to_string(requested_modules, ',') from public.election_workspace_pending_owner_access where email = '${email("owner")}'`) === "election_day");
-  await page.locator('[data-testid="owner-access-list"] li').filter({ hasText: email("owner") }).getByText("מודולים שנבחרו: ניהול יום הבחירות").waitFor({ timeout: 10000 });
-  check("P7 the approvals list shows the requested module", true);
+  // The approvals now live as rows in the ONE systems list: an approved owner
+  // who has not signed in yet is a system that does not exist yet, carrying
+  // the modules the approval recorded.
+  const pendingRow = page
+    .locator('[data-testid="workspaces-list"] li[data-kind="approval"]')
+    .filter({ hasText: email("owner") });
+  await pendingRow.getByText("ניהול יום הבחירות").waitFor({ timeout: 10000 });
+  check(
+    "P7 the one systems list shows the approval, its requested module, and that the system is not created yet",
+    (await pendingRow.innerText()).includes("המערכת טרם הוקמה"),
+    (await pendingRow.innerText()).replace(/\s+/g, " ").slice(0, 120),
+  );
   check("P8 console: no horizontal overflow at 390", await noOverflow(page));
   await shot(page, "01-console-approval-390");
 
@@ -810,8 +820,12 @@ try {
   check("L16 Settings: the verified identity", await waitText(page, email("po")));
 
   await page.setViewportSize({ width: 390, height: 844 });
+  // The retired section's path must still land somewhere real - it redirects
+  // into the one systems list rather than a no-match page.
   await page.goto(`${PBASE}/platform/owners`);
   await page.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }).waitFor({ timeout: 15000 });
+  await page.waitForURL(/\/platform\/workspaces$/, { timeout: 10000 });
+  check("L16b the retired /platform/owners path redirects into מערכות בחירות", true);
   await menuBtn(page).click();
   await drawer(page).getByRole("link", { name: "רב-מערכות" }).click();
   check("L17 390px: the drawer reaches Multi-Entity management",

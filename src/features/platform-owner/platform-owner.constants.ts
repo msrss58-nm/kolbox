@@ -177,7 +177,6 @@ export const PLATFORM_OWNER_TEXT = {
   /** The console's side navigation (one route per section). */
   shell: {
     nav: {
-      owners: "בעלי מערכות",
       workspaces: "מערכות בחירות",
       modules: "הקצאת מודולים",
       multiEntity: "רב-מערכות",
@@ -186,25 +185,20 @@ export const PLATFORM_OWNER_TEXT = {
     },
   },
 
-  /** Owners section - the approvals list, with approval in a dialog. */
-  owners: {
-    title: "בעלי מערכות",
-    approve: "אישור בעלים חדש",
-    search: "חיפוש לפי שם או אימייל",
-    filterLabel: "סינון לפי מצב",
-    filterAll: "כל המצבים",
-    noResults: "לא נמצאו הרשאות התואמות לחיפוש",
-    count: (shown: number, total: number) =>
-      shown === total ? `${total} הרשאות` : `${shown} מתוך ${total} הרשאות`,
-  },
-
-  /** Workspaces section - every workspace, its Owner, status and modules. */
+  /**
+   * The ONE management section: every election system, whether it already
+   * exists or is still an approved owner waiting to create it, with the
+   * owner, status, modules and every action that used to live on a separate
+   * "בעלי מערכות" screen.
+   */
   workspaces: {
     title: "מערכות בחירות",
-    description: "כל מערכות הבחירות בפלטפורמה, הבעלים שלהן והמודולים הפעילים בהן.",
-    search: "חיפוש לפי שם, בעלים או קוד מערכת",
+    description:
+      "כל מערכות הבחירות בפלטפורמה - הבעלים שלהן, מצבן והמודולים הפעילים בהן. מערכת שטרם הוקמה מופיעה כאן מרגע אישור הבעלים.",
+    search: "חיפוש לפי שם מערכת, בעלים, אימייל או קוד מערכת",
     empty: "אין מערכות בחירות",
     noResults: "לא נמצאו מערכות התואמות לחיפוש",
+    approve: "אישור בעלים חדש",
     count: (shown: number, total: number) =>
       shown === total ? `${total} מערכות` : `${shown} מתוך ${total} מערכות`,
     columns: {
@@ -213,11 +207,20 @@ export const PLATFORM_OWNER_TEXT = {
       status: "מצב",
       modules: "מודולים",
     },
+    filterLabel: "סינון לפי מצב",
+    filterAll: "כל המצבים",
+    filterActive: "מערכות פעילות",
+    filterEnded: "מערכות שהסתיימו",
+    filterPending: "ממתינות להרשמה",
+    filterExpired: "הרשאה שפג תוקפה",
+    filterDone: "הרשמה הושלמה",
     details: "פרטים",
     detailsAria: (name: string) => `פרטי ${name}`,
     ownerLabel: "בעלים",
     ownerEmailLabel: "אימייל הבעלים",
+    ownerPhoneLabel: "טלפון הבעלים",
     noOwner: "לא משויך בעלים",
+    noPhone: "לא הוזן",
     codeLabel: "קוד מערכת",
     endLabel: "סיום הבחירות",
     statusLabel: "מצב",
@@ -225,6 +228,12 @@ export const PLATFORM_OWNER_TEXT = {
     multiEntityLabel: "שיוך לבעל רב-מערכות",
     notAvailable: "לא זמין כרגע",
     editModules: "עריכת מודולים",
+    /** A workspace that does not exist yet: the owner is approved and the
+     * system itself is created by them on first sign-in. */
+    notCreated: "המערכת טרם הוקמה",
+    notCreatedHint: "המערכת תיווצר על ידי הבעלים בכניסה הראשונה.",
+    approvalLabel: "מצב ההרשאה",
+    requestedModulesLabel: "מודולים שנבחרו באישור",
   },
 
   /** Module-entitlement section heading (the list itself: workspaceModules). */
@@ -321,9 +330,6 @@ export const PLATFORM_OWNER_TEXT = {
   /** Stage 8B - the Election Owner approvals list and its recovery actions. */
   ownerAccess: {
     title: "הרשאות בעלים",
-    subtitle:
-      "כל הבעלים שאושרו. לבעלים שטרם השלימו את ההרשמה ניתן להפיק קישור חדש; הרשאה שפג תוקפה ניתנת לחידוש.",
-    empty: "טרם אושרו בעלים",
     loadError: "לא הצלחנו לטעון את רשימת ההרשאות.",
     retry: "נסו שוב",
     states: {

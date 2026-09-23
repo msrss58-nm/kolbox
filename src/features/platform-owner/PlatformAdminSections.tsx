@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Blocks, Building2, ListChecks, Power, ScrollText, UserPlus } from "lucide-react";
+import { Blocks, Building2, Power, ScrollText, UserPlus } from "lucide-react";
 import {
   AdminListFrame,
   AdminSearch,
@@ -19,10 +19,19 @@ import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
 import { formatDateTime } from "./multiEntityFormat";
 import { ModuleAvailabilityDialog } from "./ModuleAvailabilityDialog";
 import { LtrValue } from "./MultiEntityLtrValue";
-import { OwnerAccessList } from "./OwnerAccessList";
+import {
+  approvalActionLabel,
+  approvalDateLine,
+  ApprovalStatePill,
+  OwnerAccessRecovery,
+} from "./OwnerAccessRecovery";
 import { OwnerApprovalDialog } from "./OwnerApprovalDialog";
 import { usePlatformAdmin } from "./platformAdminContext";
-import type { OwnerAccessApproval, WorkspaceEntitlements } from "./platformOwnerClient";
+import type {
+  MultiEntityWorkspace,
+  OwnerAccessApproval,
+  WorkspaceEntitlements,
+} from "./platformOwnerClient";
 import { usePlatformOwnerSession } from "./platformOwnerSession";
 import { useMultiEntityManagement } from "./useMultiEntityManagement";
 import { WorkspaceModulesEditDialog } from "./WorkspaceModulesEditDialog";
@@ -75,109 +84,6 @@ function ModuleChips({ modules }: { modules: string[] }) {
         </span>
       ))}
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Owners
-// ---------------------------------------------------------------------------
-
-type StateFilter = "" | OwnerAccessApproval["state"];
-
-/** Election Owner approvals: approve (dialog), list, re-issue / renew. */
-export function PlatformOwnersSection() {
-  const { access, workspaceModules } = usePlatformAdmin();
-  const [approveOpen, setApproveOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [stateFilter, setStateFilter] = useState<StateFilter>("");
-
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return access.approvals.filter(
-      (a) =>
-        (!stateFilter || a.state === stateFilter) &&
-        (!q || a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q)),
-    );
-  }, [access.approvals, query, stateFilter]);
-
-  const hasRows = access.approvals.length > 0;
-
-  return (
-    <>
-      <AdminSection
-        testId="platform-owners-section"
-        title={T.owners.title}
-        description={T.ownerAccess.subtitle}
-        actions={
-          <Button onClick={() => setApproveOpen(true)}>
-            <UserPlus className="size-4" aria-hidden />
-            {T.owners.approve}
-          </Button>
-        }
-        toolbar={
-          hasRows ? (
-            <>
-              <AdminSearch
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={T.owners.search}
-                aria-label={T.owners.search}
-                className="min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
-              />
-              <Select
-                value={stateFilter}
-                onChange={(e) => setStateFilter(e.target.value as StateFilter)}
-                aria-label={T.owners.filterLabel}
-                className="h-10 w-36 shrink-0 sm:w-48"
-              >
-                <option value="">{T.owners.filterAll}</option>
-                <option value="active">{T.ownerAccess.states.active}</option>
-                <option value="expired">{T.ownerAccess.states.expired}</option>
-                <option value="consumed">{T.ownerAccess.states.consumed}</option>
-              </Select>
-            </>
-          ) : undefined
-        }
-        count={
-          hasRows ? T.owners.count(visible.length, access.approvals.length) : undefined
-        }
-        panel
-      >
-        {access.readError ? (
-          <LoadError message={access.readError} onRetry={() => void access.reload()} />
-        ) : access.loading && !hasRows ? (
-          <ListSkeleton />
-        ) : !hasRows ? (
-          <PanelCentered>
-            <EmptyState dense icon={ListChecks} title={T.ownerAccess.empty} />
-          </PanelCentered>
-        ) : visible.length === 0 ? (
-          <PanelCentered>{T.owners.noResults}</PanelCentered>
-        ) : (
-          <OwnerAccessList access={access} approvals={visible} />
-        )}
-      </AdminSection>
-
-      {approveOpen && (
-        <OwnerApprovalDialog
-          // BOTH shell-level reads, not just the one this dialog sits in.
-          // `useOwnerAccess` and `useWorkspaceModules` are mounted once by
-          // PlatformAdminShell and every section is a sibling child route, so
-          // nothing remounts on navigation: a list this dialog does not
-          // refresh stays stale until the operator presses F5. Approving an
-          // Owner creates an approval AND is the act that a workspace and its
-          // module entitlements follow from, so the workspace/module lists
-          // must be re-read too.
-          onChanged={() => {
-            void access.reload();
-            void workspaceModules.reload();
-          }}
-          onClose={() => setApproveOpen(false)}
-          catalog={workspaceModules.catalog}
-          catalogError={workspaceModules.readError !== null}
-        />
-      )}
-    </>
   );
 }
 
@@ -384,34 +290,133 @@ function StatusPill({ active }: { active: boolean }) {
 }
 
 /**
- * Workspaces: one row per workspace, joined from the two existing reads - the
- * entitlement read (name, Owner, modules, end date) and the Multi-Entity state
- * read (login code, server-derived active/ended, seat assignment). No new
- * endpoint. If the second read fails, those columns say "not available".
+ * THE ONE management section - every election system in the platform.
+ *
+ * It replaces two screens that were managing the same thing from opposite
+ * ends: this list (systems that exist) and a separate "בעלי מערכות" screen
+ * (owners approved to create one). An approval and the workspace it produces
+ * are the SAME system at two points in its life, so they are one list here:
+ * an approved owner appears the moment they are approved, as a system that
+ * has not been created yet, and becomes an ordinary row once they sign in and
+ * create it. Nothing else changes about either flow - the same reads, the
+ * same server ops, the same authorization.
+ *
+ * Joined from the three existing reads, with no new endpoint: the entitlement
+ * read (name, Owner, modules, end date), the approvals read (approval state,
+ * dates, phone, requested modules, recovery) and the Multi-Entity state read
+ * (login code, server-derived active/ended, assignment count). If a read
+ * fails, its columns say "not available" rather than guessing.
  */
+
+/** What a row is doing right now - the single axis the filter works on.
+ * `null` = the Multi-Entity read did not answer, so the system's own state is
+ * genuinely unknown and must not be rendered as either value. */
+type RowStatus = "active" | "ended" | "pending" | "expired" | "done" | null;
+
+type UnifiedRow =
+  | {
+      kind: "workspace";
+      id: string;
+      status: RowStatus;
+      ws: WorkspaceEntitlements;
+      me: MultiEntityWorkspace | undefined;
+      approval: OwnerAccessApproval | undefined;
+    }
+  | { kind: "approval"; id: string; status: RowStatus; approval: OwnerAccessApproval };
+
+type StatusFilter = "" | Exclude<RowStatus, null>;
+
 export function PlatformWorkspacesSection() {
-  const { workspaceModules: modules } = usePlatformAdmin();
+  const { access, workspaceModules: modules } = usePlatformAdmin();
   const me = useMultiEntityManagement();
   const editor = useModulesEditor();
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [confirmReissue, setConfirmReissue] = useState<OwnerAccessApproval | null>(null);
 
   const meById = useMemo(
     () => new Map(me.workspaces.map((w) => [w.workspaceId, w])),
     [me.workspaces],
   );
 
+  const rows = useMemo<UnifiedRow[]>(() => {
+    // An approval belongs to its Owner's e-mail address, and a workspace
+    // carries that same address - the approval flow refuses a second approval
+    // for an address that already has one, so the match is unambiguous.
+    const byEmail = new Map<string, OwnerAccessApproval>();
+    for (const a of access.approvals) {
+      const key = a.email.trim().toLowerCase();
+      if (!key) continue;
+      const prev = byEmail.get(key);
+      if (!prev || (a.state === "consumed" && prev.state !== "consumed")) {
+        byEmail.set(key, a);
+      }
+    }
+
+    const claimed = new Set<string>();
+    const workspaceRows: UnifiedRow[] = modules.workspaces.map((ws) => {
+      const approval = ws.ownerEmail
+        ? byEmail.get(ws.ownerEmail.trim().toLowerCase())
+        : undefined;
+      if (approval) claimed.add(approval.pendingId);
+      const m = meById.get(ws.workspaceId);
+      return {
+        kind: "workspace",
+        id: ws.workspaceId,
+        status: m ? (m.isActive ? "active" : "ended") : null,
+        ws,
+        me: m,
+        approval,
+      };
+    });
+
+    // Whatever is left has produced no workspace yet (or none this console can
+    // see) - it is still a system in the making and must not disappear.
+    const approvalRows: UnifiedRow[] = access.approvals
+      .filter((a) => !claimed.has(a.pendingId))
+      .map((a) => ({
+        kind: "approval",
+        id: `approval:${a.pendingId}`,
+        status:
+          a.state === "active" ? "pending" : a.state === "expired" ? "expired" : "done",
+        approval: a,
+      }));
+
+    // Systems being set up come first: they are the ones waiting on an action.
+    return [...approvalRows, ...workspaceRows];
+  }, [access.approvals, modules.workspaces, meById]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return modules.workspaces.filter((w) =>
-      matchesWorkspace(w, q, meById.get(w.workspaceId)?.loginCode ?? ""),
-    );
-  }, [modules.workspaces, meById, query]);
+    return rows.filter((r) => {
+      if (statusFilter && r.status !== statusFilter) return false;
+      if (!q) return true;
+      if (r.kind === "approval") {
+        return [r.approval.name, r.approval.email, r.approval.workspaceName ?? ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+      }
+      return matchesWorkspace(
+        r.ws,
+        q,
+        [r.me?.loginCode ?? "", r.approval?.email ?? ""].join(" "),
+      );
+    });
+  }, [rows, query, statusFilter]);
 
-  const detail = modules.workspaces.find((w) => w.workspaceId === detailId) ?? null;
-  const detailMe = detail ? meById.get(detail.workspaceId) : undefined;
-  const hasRows = modules.workspaces.length > 0;
+  const detail = rows.find((r) => r.id === detailId) ?? null;
+  const hasRows = rows.length > 0;
+  const loading = modules.loading || access.loading;
+  const readError = modules.readError ?? access.readError;
   const W = T.workspaces;
+
+  const reloadAll = () => {
+    void modules.reload();
+    void access.reload();
+  };
 
   return (
     <>
@@ -419,23 +424,44 @@ export function PlatformWorkspacesSection() {
         testId="platform-workspaces-section"
         title={W.title}
         description={W.description}
+        actions={
+          <Button onClick={() => setApproveOpen(true)} data-testid="approve-owner">
+            <UserPlus className="size-4" aria-hidden />
+            {W.approve}
+          </Button>
+        }
         toolbar={
           hasRows ? (
-            <AdminSearch
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={W.search}
-              aria-label={W.search}
-              className="min-w-0 flex-1 basis-44 sm:w-80 sm:flex-none"
-            />
+            <>
+              <AdminSearch
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={W.search}
+                aria-label={W.search}
+                className="min-w-0 flex-1 basis-44 sm:w-80 sm:flex-none"
+              />
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                aria-label={W.filterLabel}
+                className="h-10 w-36 shrink-0 sm:w-52"
+              >
+                <option value="">{W.filterAll}</option>
+                <option value="active">{W.filterActive}</option>
+                <option value="ended">{W.filterEnded}</option>
+                <option value="pending">{W.filterPending}</option>
+                <option value="expired">{W.filterExpired}</option>
+                <option value="done">{W.filterDone}</option>
+              </Select>
+            </>
           ) : undefined
         }
-        count={hasRows ? W.count(visible.length, modules.workspaces.length) : undefined}
+        count={hasRows ? W.count(visible.length, rows.length) : undefined}
         panel
       >
-        {modules.readError ? (
-          <LoadError message={modules.readError} onRetry={() => void modules.reload()} />
-        ) : modules.loading && !hasRows ? (
+        {readError ? (
+          <LoadError message={readError} onRetry={reloadAll} />
+        ) : loading && !hasRows ? (
           <ListSkeleton />
         ) : !hasRows ? (
           <PanelCentered>
@@ -446,57 +472,115 @@ export function PlatformWorkspacesSection() {
         ) : (
           <>
             {/* Sticky: the data panel itself is the scroll region. */}
-            <div className="sticky top-0 z-10 hidden grid-cols-[minmax(0,20rem)_minmax(0,14rem)_6rem_minmax(0,18rem)_auto] gap-3 border-b border-slate-200 bg-slate-50 px-6 py-2.5 text-xs font-bold text-slate-500 lg:grid lg:gap-x-6">
+            <div className="sticky top-0 z-10 hidden grid-cols-[minmax(0,20rem)_minmax(0,14rem)_8rem_minmax(0,16rem)_auto] gap-3 border-b border-slate-200 bg-slate-50 px-6 py-2.5 text-xs font-bold text-slate-500 lg:grid lg:gap-x-6">
               <span>{W.columns.name}</span>
               <span>{W.columns.owner}</span>
               <span>{W.columns.status}</span>
               <span>{W.columns.modules}</span>
-              <span className="w-16" />
+              <span />
             </div>
             <ul
               className="space-y-2.5 md:space-y-0 md:divide-y md:divide-slate-100 md:border-b md:border-slate-100"
               data-testid="workspaces-list"
             >
-              {visible.map((w) => {
-                const m = meById.get(w.workspaceId);
+              {visible.map((r) => {
+                const recovery =
+                  r.kind === "approval" ? approvalActionLabel(r.approval) : null;
+                const busy =
+                  r.kind === "approval" && access.busyId === r.approval.pendingId;
+                const error =
+                  r.kind === "approval" ? access.errorFor(r.approval.pendingId) : null;
                 return (
                   <li
-                    key={w.workspaceId}
-                    className="grid gap-2 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 transition-colors md:rounded-none md:bg-transparent md:px-4 md:py-3 md:shadow-none md:ring-0 md:hover:bg-slate-50 lg:grid-cols-[minmax(0,20rem)_minmax(0,14rem)_6rem_minmax(0,18rem)_auto] lg:items-center lg:gap-x-6 lg:px-6"
+                    key={r.id}
+                    data-testid="workspace-row"
+                    data-kind={r.kind}
+                    className="grid gap-2 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 transition-colors md:rounded-none md:bg-transparent md:px-4 md:py-3 md:shadow-none md:ring-0 md:hover:bg-slate-50 lg:grid-cols-[minmax(0,20rem)_minmax(0,14rem)_8rem_minmax(0,16rem)_auto] lg:items-center lg:gap-x-6 lg:px-6"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-bold text-slate-800">
-                        <bdi>{w.name}</bdi>
-                      </p>
-                      {m && (
-                        <LtrValue
-                          value={m.loginCode}
-                          className="text-xs text-slate-500"
-                        />
+                      {r.kind === "approval" ? (
+                        <>
+                          <p className="truncate font-bold text-slate-400">
+                            {W.notCreated}
+                          </p>
+                          <LtrValue
+                            value={r.approval.email}
+                            mono={false}
+                            className="text-xs text-slate-500"
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <p className="truncate font-bold text-slate-800">
+                            <bdi>{r.ws.name}</bdi>
+                          </p>
+                          {r.me && (
+                            <LtrValue
+                              value={r.me.loginCode}
+                              className="text-xs text-slate-500"
+                            />
+                          )}
+                        </>
                       )}
                     </div>
                     {/* `bdi`: a Latin name keeps its own direction (isolated,
                         like dir="auto") while the cell aligns with the RTL row. */}
                     <p className="min-w-0 truncate text-sm text-slate-600">
-                      <bdi>{w.ownerName ?? W.noOwner}</bdi>
+                      <bdi>
+                        {r.kind === "approval"
+                          ? r.approval.name
+                          : (r.ws.ownerName ?? W.noOwner)}
+                      </bdi>
                     </p>
                     <div>
-                      {m ? (
-                        <StatusPill active={m.isActive} />
+                      {r.kind === "approval" ? (
+                        <ApprovalStatePill state={r.approval.state} />
+                      ) : r.me ? (
+                        <StatusPill active={r.me.isActive} />
                       ) : (
                         <span className="text-xs text-slate-400">{W.notAvailable}</span>
                       )}
                     </div>
-                    <ModuleChips modules={w.modules} />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setDetailId(w.workspaceId)}
-                      aria-label={W.detailsAria(w.name)}
-                      className="w-full max-sm:h-11 lg:w-16"
-                    >
-                      {W.details}
-                    </Button>
+                    <ModuleChips
+                      modules={
+                        r.kind === "approval"
+                          ? (r.approval.requestedModules ?? [])
+                          : r.ws.modules
+                      }
+                    />
+                    <div className="flex flex-wrap gap-2 lg:justify-end">
+                      {r.kind === "approval" && recovery && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          loading={busy}
+                          disabled={access.anyBusy && !busy}
+                          onClick={() => setConfirmReissue(r.approval)}
+                          className="max-sm:h-11 max-sm:flex-1"
+                        >
+                          {recovery}
+                        </Button>
+                      )}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setDetailId(r.id)}
+                        aria-label={W.detailsAria(
+                          r.kind === "approval" ? r.approval.name : r.ws.name,
+                        )}
+                        className="max-sm:h-11 max-sm:flex-1 lg:w-16"
+                      >
+                        {W.details}
+                      </Button>
+                    </div>
+                    {error && (
+                      <p
+                        role="alert"
+                        className="text-sm font-medium text-opponent lg:col-span-5"
+                      >
+                        {error}
+                      </p>
+                    )}
                   </li>
                 );
               })}
@@ -508,9 +592,12 @@ export function PlatformWorkspacesSection() {
       <Drawer
         open={detail !== null}
         onClose={() => setDetailId(null)}
-        title={detail?.name ?? ""}
+        title={
+          detail ? (detail.kind === "approval" ? detail.approval.name : detail.ws.name) : ""
+        }
         footer={
-          detail && (
+          detail &&
+          (detail.kind === "workspace" ? (
             <Button
               className="w-full"
               disabled={modules.savingId !== null}
@@ -518,49 +605,139 @@ export function PlatformWorkspacesSection() {
                 // Close the drawer first - its Escape handler is not
                 // stack-aware, so it must not sit under the edit dialog.
                 setDetailId(null);
-                editor.open(detail);
+                editor.open(detail.ws);
               }}
             >
               {W.editModules}
             </Button>
-          )
+          ) : (
+            approvalActionLabel(detail.approval) && (
+              <Button
+                className="w-full"
+                disabled={access.anyBusy}
+                onClick={() => {
+                  const a = detail.approval;
+                  setDetailId(null);
+                  setConfirmReissue(a);
+                }}
+              >
+                {approvalActionLabel(detail.approval)}
+              </Button>
+            )
+          ))
         }
       >
         {detail && (
-          <dl>
-            <DetailRow label={W.ownerLabel}>{detail.ownerName ?? W.noOwner}</DetailRow>
-            <DetailRow label={W.ownerEmailLabel}>
-              {detail.ownerEmail ? (
-                <LtrValue value={detail.ownerEmail} mono={false} />
-              ) : (
-                W.noOwner
-              )}
-            </DetailRow>
-            <DetailRow label={W.codeLabel}>
-              {detailMe ? <LtrValue value={detailMe.loginCode} /> : W.notAvailable}
-            </DetailRow>
-            <DetailRow label={W.statusLabel}>
-              {detailMe ? <StatusPill active={detailMe.isActive} /> : W.notAvailable}
-            </DetailRow>
-            <DetailRow label={W.endLabel}>
-              {formatDateTime(detail.electionEndAt)}
-            </DetailRow>
-            <DetailRow label={W.modulesLabel}>
-              <ModuleChips modules={detail.modules} />
-            </DetailRow>
-            <DetailRow label={W.multiEntityLabel}>
-              {/* With several Multi-Entity Owners this is a COUNT, not a
-                  yes/no: a workspace can be visible to more than one. */}
-              {detailMe
-                ? detailMe.assignedOwnerIds.length > 0
-                  ? T.multiEntity.workspaces.assignedToOwners(detailMe.assignedOwnerIds.length)
-                  : T.multiEntity.workspaces.unassigned
-                : W.notAvailable}
-            </DetailRow>
+          <dl data-testid="workspace-detail">
+            {detail.kind === "approval" ? (
+              <>
+                <DetailRow label={W.statusLabel}>
+                  <span className="flex flex-wrap items-center gap-2">
+                    <ApprovalStatePill state={detail.approval.state} />
+                    <span className="text-xs font-normal text-slate-500">
+                      {approvalDateLine(detail.approval)}
+                    </span>
+                  </span>
+                </DetailRow>
+                <DetailRow label={W.codeLabel}>{W.notCreated}</DetailRow>
+                <DetailRow label={W.ownerLabel}>{detail.approval.name}</DetailRow>
+                <DetailRow label={W.ownerEmailLabel}>
+                  <LtrValue value={detail.approval.email} mono={false} />
+                </DetailRow>
+                <DetailRow label={W.ownerPhoneLabel}>
+                  {detail.approval.phone ? (
+                    <LtrValue value={detail.approval.phone} mono={false} />
+                  ) : (
+                    W.noPhone
+                  )}
+                </DetailRow>
+                <DetailRow label={W.requestedModulesLabel}>
+                  <ModuleChips modules={detail.approval.requestedModules ?? []} />
+                </DetailRow>
+                <DetailRow label={W.modulesLabel}>{W.notCreatedHint}</DetailRow>
+              </>
+            ) : (
+              <>
+                <DetailRow label={W.ownerLabel}>
+                  {detail.ws.ownerName ?? W.noOwner}
+                </DetailRow>
+                <DetailRow label={W.ownerEmailLabel}>
+                  {detail.ws.ownerEmail ? (
+                    <LtrValue value={detail.ws.ownerEmail} mono={false} />
+                  ) : (
+                    W.noOwner
+                  )}
+                </DetailRow>
+                {detail.approval?.phone && (
+                  <DetailRow label={W.ownerPhoneLabel}>
+                    <LtrValue value={detail.approval.phone} mono={false} />
+                  </DetailRow>
+                )}
+                <DetailRow label={W.codeLabel}>
+                  {detail.me ? <LtrValue value={detail.me.loginCode} /> : W.notAvailable}
+                </DetailRow>
+                <DetailRow label={W.statusLabel}>
+                  {detail.me ? (
+                    <StatusPill active={detail.me.isActive} />
+                  ) : (
+                    W.notAvailable
+                  )}
+                </DetailRow>
+                <DetailRow label={W.endLabel}>
+                  {formatDateTime(detail.ws.electionEndAt)}
+                </DetailRow>
+                <DetailRow label={W.modulesLabel}>
+                  <ModuleChips modules={detail.ws.modules} />
+                </DetailRow>
+                <DetailRow label={W.multiEntityLabel}>
+                  {/* With several Multi-Entity Owners this is a COUNT, not a
+                      yes/no: a workspace can be visible to more than one. */}
+                  {detail.me
+                    ? detail.me.assignedOwnerIds.length > 0
+                      ? T.multiEntity.workspaces.assignedToOwners(
+                          detail.me.assignedOwnerIds.length,
+                        )
+                      : T.multiEntity.workspaces.unassigned
+                    : W.notAvailable}
+                </DetailRow>
+                {detail.approval && (
+                  <DetailRow label={W.approvalLabel}>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <ApprovalStatePill state={detail.approval.state} />
+                      <span className="text-xs font-normal text-slate-500">
+                        {approvalDateLine(detail.approval)}
+                      </span>
+                    </span>
+                  </DetailRow>
+                )}
+              </>
+            )}
           </dl>
         )}
       </Drawer>
       {editor.dialog}
+
+      <OwnerAccessRecovery
+        access={access}
+        confirm={confirmReissue}
+        onCancel={() => setConfirmReissue(null)}
+      />
+
+      {approveOpen && (
+        <OwnerApprovalDialog
+          // BOTH shell-level reads, not just the one this dialog sits in.
+          // `useOwnerAccess` and `useWorkspaceModules` are mounted once by
+          // PlatformAdminShell and every section is a sibling child route, so
+          // nothing remounts on navigation: a list this dialog does not
+          // refresh stays stale until the operator presses F5. Approving an
+          // Owner creates an approval AND is the act a workspace and its
+          // module entitlements follow from, so both reads are refreshed.
+          onChanged={reloadAll}
+          onClose={() => setApproveOpen(false)}
+          catalog={modules.catalog}
+          catalogError={modules.readError !== null}
+        />
+      )}
     </>
   );
 }

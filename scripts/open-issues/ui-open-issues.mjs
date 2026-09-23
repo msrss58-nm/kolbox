@@ -407,7 +407,7 @@ const moduleRows = () => po.locator('[data-testid="workspace-modules-list"] > li
   );
 
   // Navigate away and back. NO reload, no F5.
-  await po.getByRole("link", { name: "בעלי מערכות" }).first().click();
+  await po.getByRole("link", { name: "מערכות בחירות" }).first().click();
   await po.waitForTimeout(800);
   await po.getByRole("link", { name: "הקצאת מודולים" }).click();
   await po.locator(`text=OI רענון ${stamp}`).first().waitFor({ timeout: 25000 });
@@ -424,7 +424,7 @@ const moduleRows = () => po.locator('[data-testid="workspace-modules-list"] > li
   );
 
   // The other half: a mutation made HERE lands in its own list immediately.
-  await po.getByRole("link", { name: "בעלי מערכות" }).first().click();
+  await po.getByRole("link", { name: "מערכות בחירות" }).first().click();
   await po.getByRole("button", { name: "אישור בעלים חדש" }).click();
   const form = po
     .locator("form")
@@ -683,7 +683,7 @@ section("E. THE OWNERS LIST - compact, openable, and re-openable");
   await po.locator('[data-testid="owner-expanded"]').waitFor({ timeout: 15000 });
   check("E14 ... and an owner can be RE-OPENED after the reload", (await open().count()) === 1);
 
-  await po.getByRole("link", { name: "בעלי מערכות" }).first().click();
+  await po.getByRole("link", { name: "מערכות בחירות" }).first().click();
   await po.waitForTimeout(1000);
   await po.getByRole("link", { name: "רב-מערכות" }).first().click();
   await po.locator('[data-testid="multi-entity-owner-row"]').first().waitFor({ timeout: 25000 });

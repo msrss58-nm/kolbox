@@ -216,7 +216,7 @@ const approvalForm = () =>
     .locator("form")
     .filter({ has: page.getByRole("button", { name: "אישור ויצירת קישור" }) });
 const row = (e) =>
-  page.locator('[data-testid="owner-access-list"] li').filter({ hasText: e });
+  page.locator('[data-testid="workspaces-list"] li').filter({ hasText: e });
 const ltrLinkIn = (loc, needle) =>
   loc.locator('[dir="ltr"]').filter({ hasText: needle }).first().innerText();
 const oldLinkWorks = async (link) => {
@@ -271,8 +271,15 @@ try {
     .waitFor({ timeout: 20000 })
     .then(() => true, () => false);
   check("U1 password only -> console (no TOTP prompt)", inConsole);
-  await page.getByText("טרם אושרו בעלים").waitFor({ timeout: 10000 });
-  check("U2 approvals list: explicit empty state", reqs.ownerAccess >= 1);
+  // The approvals are rows in the ONE systems list now, so "no approvals yet"
+  // is the absence of an approval ROW rather than a screen-level empty state -
+  // the claim is unchanged: the list was actually read, and it holds none.
+  await page.locator('[data-testid="platform-workspaces-section"]').waitFor({ timeout: 10000 });
+  check(
+    "U2 the systems list was read, and holds no approval yet",
+    reqs.ownerAccess >= 1 &&
+      (await page.locator('[data-testid="workspaces-list"] li[data-kind="approval"]').count()) === 0,
+  );
   await shot(page, "01-console-empty-390");
 
   section("APPROVE -> LIST; DUPLICATE / FOREIGN / LEFTOVER ACCOUNT");
@@ -467,7 +474,7 @@ try {
   const link3 = await ltrLinkIn(issued, "/election-day/owner-set-password");
   await page.waitForFunction(
     (e) =>
-      [...document.querySelectorAll('[data-testid="owner-access-list"] li')].some(
+      [...document.querySelectorAll('[data-testid="workspaces-list"] li')].some(
         (li) => li.textContent.includes(e) && li.textContent.includes("ממתינה להרשמה"),
       ),
     email("eo1"),
@@ -491,14 +498,31 @@ try {
     update public.election_workspace_pending_owner_access set status = 'consumed', consumed_at = now() where id = '${co.body?.pendingId}';
   `);
   await page.reload();
-  await row(email("eo-done")).waitFor({ timeout: 15000 });
-  const doneText = await row(email("eo-done")).innerText();
+  // A consumed approval IS its workspace now - the system exists, so it is the
+  // workspace row that carries it, and the approval's completed state moved
+  // into that row's details. The rule under test is unchanged: no recovery
+  // action may be offered for an approval the Owner has already used.
+  const doneRow = page
+    .locator('[data-testid="workspaces-list"] li')
+    .filter({ hasText: "S8UI מערכת שהושלמה" });
+  await doneRow.waitFor({ timeout: 15000 });
+  const noRecovery =
+    (await doneRow.getByRole("button", { name: "הפקת קישור חדש" }).count()) === 0 &&
+    (await doneRow.getByRole("button", { name: "חידוש והפקת קישור" }).count()) === 0;
+  await doneRow.getByRole("button", { name: "פרטי S8UI מערכת שהושלמה" }).click();
+  const doneDetail = page.getByRole("dialog").filter({ hasText: "מצב ההרשאה" });
+  await doneDetail.waitFor({ timeout: 10000 });
+  const doneText = await doneDetail.innerText();
   check(
-    "U10 consumed approval: 'completed', its workspace, and NO action",
+    "U10 consumed approval: 'completed', its workspace, its Owner, and NO recovery action",
     doneText.includes("הושלמה") &&
-      doneText.includes("S8UI מערכת שהושלמה") &&
-      (await row(email("eo-done")).getByRole("button").count()) === 0,
+      doneText.includes(email("eo-done")) &&
+      (await doneRow.innerText()).includes("S8UI מערכת שהושלמה") &&
+      noRecovery,
+    doneText.replace(/\s+/g, " ").slice(0, 140),
   );
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
 
   const stored = await page.evaluate(
     () => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }),
