@@ -5,6 +5,11 @@
 // rewrites -> the real bundled handlers) and drives headless Chromium.
 // Synthetic *@console-ui.invalid identities only; nothing secret is printed.
 //
+// It also covers the three defects reported against `dcce88d`: the list
+// revalidating itself with no F5 and no navigation (G), the workspace name
+// rendering under KOLBOX in full (H), and the Platform Owner's account block
+// naming them by username rather than e-mail (I).
+//
 // What it proves:
 //   A  ONE management destination - the retired section is gone from the
 //      navigation, its path redirects, and no second entry point survives.
@@ -61,6 +66,13 @@ process.env.SESSION_ALLOWED_ORIGIN = EBASE;
 process.env.OWNER_ALLOWED_ORIGIN = EBASE;
 
 const H = await buildHandlers();
+// The suite's waits are derived from the app's OWN interval, so they cannot
+// drift from the shipped value.
+const REVALIDATE_MS = Number(
+  /platformConsoleRevalidateMs:\s*([0-9_]+)/
+    .exec(fs.readFileSync(path.join(repoRoot, "src", "constants", "config.ts"), "utf8"))[1]
+    .replace(/_/g, ""),
+);
 const a = admin();
 const DOMAIN = "console-ui.invalid";
 const email = (l) => `${l}@${DOMAIN}`;
@@ -834,6 +846,356 @@ try {
     await po.keyboard.press("Escape");
     await po.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
   }
+
+  // =======================================================================
+  section("G. THE LIST REVALIDATES ITSELF - no F5, no navigation");
+  // =======================================================================
+  // The reported defect: the Platform Owner sits on this screen while an
+  // approved Owner creates their workspace in ANOTHER browser. Nothing in this
+  // tab can be told about that, and re-reading on navigation does not help
+  // someone who simply stays put - so the row kept saying the system had not
+  // been created until a manual refresh.
+  const kmPw = randomPassword();
+  const kmMail = email(`km-${stamp}`);
+  // Long on purpose: section H needs a name that the old one-line header
+  // truncated ("קרית מ...").
+  const KM = `CU קרית מלאכי רבתי מרחב דרום ${stamp}`;
+
+  await po.getByRole("button", { name: "אישור בעלים חדש" }).click();
+  const kmForm = po
+    .locator("form")
+    .filter({ has: po.getByRole("button", { name: "אישור ויצירת קישור" }) });
+  await kmForm
+    .locator('[data-testid="approval-modules"] input[type="checkbox"]')
+    .first()
+    .waitFor({ timeout: 20000 });
+  await kmForm.getByLabel("שם הבעלים").fill("בעל קרית מלאכי");
+  await kmForm.getByLabel("אימייל").fill(kmMail);
+  await kmForm.locator('input[name="approve-owner-phone"]').fill("050-111-2222");
+  await kmForm.locator('input[name="owner-approval-username"]').fill(`cu km ${stamp}`);
+  await kmForm.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
+  await kmForm.getByRole("button", { name: "אישור ויצירת קישור" }).click();
+  await po.getByText("הבעלים אושר").waitFor({ timeout: 25000 });
+  const kmActivation = await po
+    .locator('[dir="ltr"]')
+    .filter({ hasText: "/election-day/owner-set-password" })
+    .first()
+    .innerText();
+  await po.getByRole("button", { name: "סיום" }).click();
+  await po.waitForFunction(
+    (m) =>
+      [...document.querySelectorAll('[data-testid="workspaces-list"] > li')].some((li) =>
+        li.textContent.includes(m),
+      ),
+    kmMail,
+    { timeout: 20000 },
+  );
+  check(
+    "G1 the approval is on screen as a system that does not exist yet",
+    (await rowFor(kmMail).getAttribute("data-kind")) === "approval",
+  );
+
+  // From here on, THIS page must not navigate and must not reload. A sentinel
+  // on `window` dies with any document swap, and every main-frame navigation
+  // is counted - so either would be caught, not assumed.
+  let navigations = 0;
+  po.on("framenavigated", (f) => {
+    if (f === po.mainFrame()) navigations += 1;
+  });
+  const urlBefore = po.url();
+  await po.evaluate(() => {
+    window.__kbSentinel = "alive";
+  });
+
+  // ANOTHER browser context: its own storage, its own session - exactly the
+  // "in another browser" shape of the report.
+  const owCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "he-IL" });
+  const owPage = await owCtx.newPage();
+  owPage.on("pageerror", (e) => pageErrors.push(String(e)));
+  await owPage.goto(kmActivation.trim());
+  await owPage.getByText("הגדרת סיסמה לחשבון הבעלים").waitFor({ timeout: 20000 });
+  const kmPwFields = owPage.locator('input[type="password"]');
+  await kmPwFields.nth(0).fill(kmPw);
+  await kmPwFields.nth(1).fill(kmPw);
+  await owPage.getByRole("button", { name: "שמירת סיסמה" }).click();
+  await owPage.getByText("הסיסמה נשמרה").waitFor({ timeout: 20000 });
+  await seedOwnerSession(owPage, EBASE, kmMail, kmPw);
+  await owPage.goto(`${EBASE}/election-day/owner/setup`);
+  await owPage.getByText("הקמת מערכת הבחירות").first().waitFor({ timeout: 25000 });
+  await owPage.locator("#ws-name").fill(KM);
+  await owPage.locator("#ws-end").fill("2026-12-31T20:00");
+  await owPage.getByRole("button", { name: "יצירת מערכת הבחירות" }).click();
+  await owPage.getByText("מערכת הבחירות נוצרה").first().waitFor({ timeout: 25000 });
+  const kmCode = psql(
+    `select login_code from public.election_workspaces where name = ${sqlText(KM)};`,
+  ).trim();
+  check("G2 the other session really created the workspace", kmCode.length === 8, kmCode);
+
+  // NOTHING is done to the Platform page. It has to notice on its own.
+  const becameWorkspace = await po
+    .waitForFunction(
+      ([name, code]) => {
+        const rows = [...document.querySelectorAll('[data-testid="workspaces-list"] > li')];
+        const row = rows.find((li) => li.textContent.includes(name));
+        return (
+          row?.getAttribute("data-kind") === "workspace" &&
+          row.textContent.includes(code)
+        );
+      },
+      [KM, kmCode],
+      { timeout: 90000, polling: 500 },
+    )
+    .then(() => true, () => false);
+  check("G3 the row became the real workspace row ON ITS OWN", becameWorkspace);
+  check(
+    "G4 ... and this page never navigated and never reloaded to do it",
+    navigations === 0 &&
+      po.url() === urlBefore &&
+      (await po.evaluate(() => window.__kbSentinel)) === "alive",
+    `navigations=${navigations} url=${po.url() === urlBefore} sentinel=${await po.evaluate(() => window.__kbSentinel)}`,
+  );
+  const kmRow = po.locator('[data-testid="workspaces-list"] > li').filter({ hasText: KM });
+  check(
+    "G5 ... showing the real name, code, status, modules and the right Owner",
+    ((t) =>
+      t.includes(KM) &&
+      t.includes(kmCode) &&
+      t.includes("פעילה") &&
+      t.includes("ניהול יום הבחירות") &&
+      t.includes("בעל קרית מלאכי"))(await kmRow.innerText()),
+    (await kmRow.innerText()).replace(/\s+/g, " ").slice(0, 170),
+  );
+  check(
+    "G6 ... with no duplicate row and no leftover approval row",
+    (await kmRow.count()) === 1 &&
+      (await po
+        .locator('[data-testid="workspaces-list"] li[data-kind="approval"]')
+        .filter({ hasText: kmMail })
+        .count()) === 0,
+    String(await kmRow.count()),
+  );
+  // NEGATIVE CONTROL: revalidation must not turn every approval into a system.
+  check(
+    "G7 a genuinely uncreated approval STILL reads 'המערכת טרם הוקמה'",
+    (await rowFor(pendingA.mail).getAttribute("data-kind")) === "approval" &&
+      (await rowFor(pendingA.mail).innerText()).includes("המערכת טרם הוקמה"),
+    (await rowFor(pendingA.mail).innerText()).replace(/\s+/g, " ").slice(0, 110),
+  );
+
+  // Cost control: a backgrounded console must issue NO requests at all.
+  let reads = 0;
+  const countReads = (r) => {
+    if (r.url().includes("op=workspace_modules")) reads += 1;
+  };
+  po.on("request", countReads);
+  const hide = (state) =>
+    po.evaluate((s) => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => s,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, state);
+
+  await hide("hidden");
+  reads = 0;
+  await po.waitForTimeout(REVALIDATE_MS + 8000);
+  const whileHidden = reads;
+  check(
+    "G8 while the tab is hidden the section issues NO reads at all",
+    whileHidden === 0,
+    `reads=${whileHidden} over ${REVALIDATE_MS + 8000}ms`,
+  );
+  reads = 0;
+  await hide("visible");
+  await po.waitForTimeout(3000);
+  const onReturn = reads;
+  check(
+    "G9 ... and it catches up immediately on becoming visible again",
+    onReturn >= 1,
+    `reads=${onReturn} within 3000ms`,
+  );
+  reads = 0;
+  await po.waitForTimeout(REVALIDATE_MS + 8000);
+  check(
+    "G10 ... then keeps revalidating while it stays visible",
+    reads >= 1,
+    `reads=${reads} over ${REVALIDATE_MS + 8000}ms`,
+  );
+  po.off("request", countReads);
+
+  // =======================================================================
+  section("H. THE WORKSPACE NAME SITS UNDER KOLBOX, IN FULL");
+  // =======================================================================
+  // A worker inside the workspace created above - that shell is the one that
+  // renders the logo block.
+  const kmWorkspaceId = psql(
+    `select id from public.election_workspaces where name = ${sqlText(KM)};`,
+  ).trim();
+  const workerName = "עובד קרית מלאכי";
+  psql(
+    `insert into public.election_day_permission_users (workspace_id, name, password_hash, role_id)
+     select '${kmWorkspaceId}', ${sqlText(workerName)},
+            extensions.crypt(${sqlText(kmPw)}, extensions.gen_salt('bf')), r.id
+     from public.election_day_roles r where r.workspace_id = '${kmWorkspaceId}' limit 1;
+     delete from public.election_day_login_attempts;`,
+  );
+
+  const wp = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "he-IL" })).newPage();
+  wp.on("pageerror", (e) => pageErrors.push(String(e)));
+  await wp.goto(`${EBASE}/election-day/login`, { waitUntil: "domcontentloaded" });
+  await wp.locator('input[name="election-day-workspace-code"]').fill(kmCode);
+  await wp.locator('input[name="election-day-username"]').fill(workerName);
+  await wp.locator('input[name="election-day-current-password"]').fill(kmPw);
+  await wp.getByRole("button", { name: "התחברות" }).click();
+  await wp.locator('[data-testid="active-workspace-name"]').waitFor({ timeout: 30000 });
+
+  /** Geometry read from the LIVE layout - not from the class list. */
+  const geometry = async (page, testId, titleSelector) =>
+    page.evaluate(
+      ([id, sel]) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        const title = [...document.querySelectorAll(sel)].find((n) =>
+          n.textContent.trim().startsWith("קול"),
+        );
+        if (!el || !title) return null;
+        const e = el.getBoundingClientRect();
+        const t = title.getBoundingClientRect();
+        const box = el.parentElement.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        const tcs = getComputedStyle(title);
+        // A long name WRAPS, so the element box fills the column and its own
+        // edges say nothing about alignment. The LINES do: measure the text
+        // itself and look at the last (short) line - with the text aligned to
+        // the end side, that line hugs the left edge in RTL.
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const lines = [...range.getClientRects()].filter((r) => r.width > 0);
+        const last = lines[lines.length - 1];
+        return {
+          text: el.textContent.trim(),
+          textAlign: cs.textAlign,
+          lineCount: lines.length,
+          lastLeftGap: last ? Math.round(last.left - e.left) : null,
+          lastRightGap: last ? Math.round(e.right - last.right) : null,
+          below: e.top >= t.bottom - 1,
+          sameLine: e.top < t.bottom - 1 && e.bottom > t.top + 1,
+          fontSize: cs.fontSize,
+          titleFontSize: tcs.fontSize,
+          // Measured against the CONTENT edge: the block's own horizontal
+          // padding is shared with the logo above and is not an indent.
+          leftGap: Math.round(
+            e.left - (box.left + parseFloat(getComputedStyle(el.parentElement).paddingLeft)),
+          ),
+          rightGap: Math.round(
+            box.right - parseFloat(getComputedStyle(el.parentElement).paddingRight) - e.right,
+          ),
+          clipped: el.scrollWidth > el.clientWidth + 1,
+          ellipsis: cs.textOverflow === "ellipsis" && cs.whiteSpace === "nowrap",
+          insideBox: e.left >= box.left - 1 && e.right <= box.right + 1,
+        };
+      },
+      [testId, titleSelector],
+    );
+
+  const d = await geometry(wp, "active-workspace-name", "aside span");
+  check("H1 desktop: the name is BELOW the KOLBOX title, not beside it", d !== null && d.below && !d.sameLine, JSON.stringify(d));
+  check("H2 desktop: it carries the KOLBOX title's own size", d.fontSize === d.titleFontSize, `${d.fontSize} vs ${d.titleFontSize}`);
+  check(
+    "H3 desktop: the text is aligned to the LEFT (end) side of the logo block",
+    d.textAlign === "end" &&
+      d.leftGap <= 2 &&
+      // Its last line hugs the left edge, which is what alignment means once
+      // a long name wraps and the box itself fills the column.
+      d.lastLeftGap <= 2 &&
+      d.lastRightGap > d.lastLeftGap,
+    JSON.stringify({
+      textAlign: d.textAlign,
+      lineCount: d.lineCount,
+      lastLeftGap: d.lastLeftGap,
+      lastRightGap: d.lastRightGap,
+    }),
+  );
+  check("H4 desktop: the COMPLETE name is rendered - nothing truncated", d.text === KM && !d.clipped && !d.ellipsis, JSON.stringify({ text: d.text, clipped: d.clipped, ellipsis: d.ellipsis }));
+  check("H5 desktop: and it stays inside the sidebar", d.insideBox);
+  await wp.screenshot({ path: path.join(outDir, "h-workspace-name-desktop.png") });
+
+  await wp.setViewportSize({ width: 390, height: 844 });
+  await wp.locator('[data-testid="active-workspace-name-mobile"]').waitFor({ timeout: 15000 });
+  const m = await geometry(wp, "active-workspace-name-mobile", "header span");
+  check("H6 phone: the name is BELOW the KOLBOX title there too", m !== null && m.below && !m.sameLine, JSON.stringify(m));
+  check(
+    "H7 phone: same size as the title, complete text, nothing clipped, left-aligned",
+    m.fontSize === m.titleFontSize &&
+      m.text === KM &&
+      !m.clipped &&
+      !m.ellipsis &&
+      m.textAlign === "end" &&
+      m.lastLeftGap <= 2 &&
+      m.lastRightGap > m.lastLeftGap,
+    JSON.stringify({
+      f: m.fontSize,
+      t: m.titleFontSize,
+      clipped: m.clipped,
+      textAlign: m.textAlign,
+      lastLeftGap: m.lastLeftGap,
+      lastRightGap: m.lastRightGap,
+    }),
+  );
+  check("H8 phone: no horizontal overflow of the page", !(await wp.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)));
+  await wp.screenshot({ path: path.join(outDir, "h-workspace-name-phone.png") });
+  await wp.close();
+
+  // =======================================================================
+  section("I. THE PLATFORM OWNER'S ACCOUNT BLOCK NAMES THE OWNER");
+  // =======================================================================
+  // It showed the e-mail address - which mailbox they happened to sign in
+  // with, not who they are. The username is the identity the Platform Owner's
+  // own login screen resolves, and it is already in the verified session.
+  const poUsername = `cu po ${stamp}`;
+  psql(
+    `select public.auth_identity_assign('platform_owner', ${sqlText(poUsername)}, '${poUser.user.id}', null, null);`,
+  );
+  // A fresh sign-in, so the session context is re-resolved from the server.
+  const ip = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "he-IL" })).newPage();
+  ip.on("pageerror", (e) => pageErrors.push(String(e)));
+  await ip.goto(`${PBASE}/platform/login`, { waitUntil: "domcontentloaded" });
+  await ip.getByRole("heading", { name: "כניסת בעל הפלטפורמה" }).waitFor({ timeout: 20000 });
+  await ip.locator('input[type="email"]').fill(email("po"));
+  await ip.locator('input[autocomplete="current-password"]').fill(poPw);
+  await ip.getByRole("button", { name: "התחברות" }).click();
+  await ip.locator('[data-testid="admin-account"]').first().waitFor({ timeout: 25000 });
+
+  const acct = await ip.locator('[data-testid="admin-account"]').first().innerText();
+  check("I1 the account block names the Platform Owner by USERNAME", acct.includes(poUsername), acct.replace(/\s+/g, " "));
+  check("I2 ... and carries no e-mail address at all", !acct.includes("@"), acct.replace(/\s+/g, " "));
+  const acctGeo = await ip.evaluate(() => {
+    const el = document.querySelector('[data-testid="admin-account"]');
+    const aside = el.closest("aside");
+    if (!aside) return null;
+    const e = el.getBoundingClientRect();
+    const a = aside.getBoundingClientRect();
+    return { inBottomHalf: e.top > a.top + a.height / 2, atEndSide: e.right < window.innerWidth / 2 };
+  });
+  check("I3 ... in the bottom-right block, where it was reported", acctGeo !== null && acctGeo.inBottomHalf, JSON.stringify(acctGeo));
+  await ip.screenshot({ path: path.join(outDir, "i-account-identity.png") });
+
+  // Sign-out is untouched.
+  await ip.getByRole("button", { name: "התנתקות" }).first().click();
+  await ip.getByRole("heading", { name: "כניסת בעל הפלטפורמה" }).waitFor({ timeout: 25000 });
+  check(
+    "I4 logout still ends the session and returns to the login screen",
+    /\/platform\/login$/.test(ip.url()) &&
+      (await ip.evaluate(() => {
+        try {
+          return localStorage.getItem("kb-platform-owner-auth-token") === null;
+        } catch {
+          return false;
+        }
+      })),
+    ip.url(),
+  );
+  await ip.close();
 
   check("Z1 no uncaught page errors anywhere in this run", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));
 } catch (err) {

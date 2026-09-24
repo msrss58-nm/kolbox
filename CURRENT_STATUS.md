@@ -4801,3 +4801,51 @@ Regression: `ui-stage8` **59/0** · `ui-stage9` **85/0** · `ui-open-issues` **5
 ### Not fixed, and not fixable here
 
 If a workspace's `election_owners.auth_user_id` is not the approved account's id, the server resolves no workspace for that approval and it correctly reads as not created — the two rows genuinely belong to different accounts. Likewise, two approvals at two addresses for the same *person* are two accounts, and the console shows them as two rows; collapsing those would mean joining on a display name, which is the same unsound move this fix removes. Attaching the workspace **id** to the approvals read would make the mapping exact in every shape, but that is a migration and was deliberately not taken.
+
+---
+
+## Three Production defects on the console and the election shell — 2026-09-24
+
+### 1. The systems list went stale while an operator watched it
+
+**Symptom.** The Platform Owner sits on `/platform/workspaces`. In another browser an approved Election Owner creates their workspace ("קרית מלאכי") and starts using it immediately — and the open console keeps saying `המערכת טרם הוקמה` until F5.
+
+**Root cause.** Every read on that screen was event-driven: each hook loads once on mount, a dialog reloads after its own mutation, and `PlatformAdminShell` re-reads on entering a section. **Not one of those events happens here.** The change is made by a different principal, in a different browser, minutes later; this tab is never told, and an operator who simply stays on the screen never triggers a re-entry either. The earlier "refresh on section re-entry" fix addressed a different cause and could not cover this one.
+
+**Fix.** A new shared hook, `useVisibleInterval`, re-runs the section's three server reads on `APP_CONFIG.platformConsoleRevalidateMs` (20s) — **only while the tab is visible**. The interval is torn down on `hidden` and rebuilt on `visible`, with one immediate catch-up read on return, so a backgrounded console issues no requests at all; ticks never overlap, so a slow or failing read cannot pile requests up. Nothing is optimistic — every field still comes from the server's own answer, through the same reads and the same authorization.
+
+One related change: the section's error panel now renders only when there is nothing to show. With background revalidation a transient network blip would otherwise replace a working list with an error panel while the operator was reading it.
+
+No Realtime subscription: the Platform tables have RLS on with zero policies and no table privileges for any role, so a browser-held key can subscribe to nothing. Polling the existing authorized reads is the smallest mechanism that is also correct.
+
+### 2. The active workspace name was truncated next to KOLBOX
+
+**Symptom.** "קרית מלאכי" rendered as "קרית מ...".
+
+**Root cause.** The name shared the logo's single row in a 256px sidebar, with `truncate`. There was never room: whatever the name, the logo took most of the row.
+
+**Fix.** KOLBOX keeps the first line; the workspace name moves to a **second line directly underneath**, aligned to the end side (the left, in RTL), at the KOLBOX title's own size and weight. `break-words` replaces `truncate`, so a long name **wraps** instead of being cut and the whole value is readable. The phone bar becomes two rows for the same reason. Still supplied by each shell from its own trusted session — this component resolves nothing.
+
+### 3. The console's account block showed an e-mail address
+
+**Symptom.** The bottom-right identity in the Platform Owner console read `msrss58@gmail.com`.
+
+**Root cause.** `PlatformAdminShell` passed `owner.email` as the account name — the mailbox used to sign in, not who is signed in.
+
+**Fix.** It passes `owner.username`, which is already on the same verified session context (`GET /api/platform/session`) and is the identity `/login/platform-owner` resolves. No second identity source, nothing read from UI state, no API change. Until a username is claimed there is none, so the block says `טרם הוגדר` rather than falling back to the address; the Settings section still shows the full account details, address included, which is what that screen is for.
+
+### VERIFICATION
+
+`console/ui-console-unified` **69 PASS / 0 FAIL** (was 47). Three new sections:
+
+- **G — revalidation.** The console approves an owner; a **separate browser context** activates the link, sets a password and creates the workspace. The platform page is then left completely alone: a `window` sentinel and a main-frame navigation counter prove it **never reloaded and never navigated**, and the row still turns into the real workspace row with its name, code, status, modules and Owner, with no duplicate and no leftover approval row. **Red-before-green: with the revalidation disabled, G3 fails while G4 still confirms no navigation** — which is the Production defect exactly. Negative control G7: a genuinely uncreated approval still reads `המערכת טרם הוקמה`. Cost is measured, not assumed: **0 reads** across a full interval while hidden, one read within 3s of becoming visible, and revalidation continuing while visible.
+- **H — the name under KOLBOX.** A real worker session in a deliberately long workspace name, measured from the live layout rather than the class list: the name's box starts below the title's bottom and never shares its line, its font-size equals the title's exactly (20px desktop / 18px phone), its text is aligned to the end side with the last line flush to the left edge, the rendered text equals the full name with nothing clipped and no ellipsis, and it stays inside the sidebar. Both viewports, with screenshots.
+- **I — the account identity.** A claimed Platform Owner username, a fresh sign-in, and the account block asserted to contain the username and **no `@` at all**, in the bottom half of the side menu. Sign-out still ends the session and returns to the login screen.
+
+Regression: `ui-stage9` **85/0** · `ui-stage8` **59/0** · `ui-open-issues` **58/0** · `ui-nav-roles` **57/0** · `ui-stage7` **82/0** · `ui-budget` **23/0** · `ui-module-availability` **23/0** · `ui-real-local` **31/0** · `ui-platform-owner-login` **20/0**. All three `AppShell` consumers (`AppLayout`, `ElectionDayShell`, `BudgetShell`) are covered by those suites.
+
+Typecheck + build clean; eslint **0 errors**; `git diff --check` clean. **No migration, schema, API, config or dependency change** — nothing under `api/`, `supabase/`, `package*.json` or `vercel.json` is in the diff. Protected 15 untouched at **+138/-45**.
+
+### Note, not changed here
+
+The console header still reads `מחובר כ-<address>` beside the title. That is a different position from the account block this batch was asked to fix, and an existing suite asserts it; if it should become the username too, it is a one-line follow-up.

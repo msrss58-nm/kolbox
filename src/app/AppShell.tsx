@@ -161,19 +161,20 @@ export function AppShell({
     <div className="flex min-h-dvh">
       {/* Desktop sidebar (start side = right in RTL) */}
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-sidebar p-4 md:flex">
-        {/* The workspace name sits at the END of the logo row - the LEFT side
-            in RTL - and carries the same weight and size as the KOLBOX title
-            beside it, so the two read as one header rather than a title with a
-            caption. `min-w-0` + `truncate` on the name (never on the logo) is
-            what keeps a long workspace name from pushing the logo out of a
-            256px sidebar; the full value stays available as a tooltip. */}
-        <div className="flex items-center justify-between gap-2 px-2 py-3">
-          <Logo light className="shrink-0" />
+        {/* KOLBOX on the first line, the active workspace on a SECOND line
+            directly under it, pushed to the END of the block - the LEFT side in
+            RTL - at the KOLBOX title's own size and weight, so the two read as
+            one header rather than a title with a caption.
+            Beside the logo there was never room for a real election name in a
+            256px sidebar: it truncated to "קרית מ...". On its own line it gets
+            the full width, and `break-words` lets a long name WRAP instead of
+            being cut, so the whole thing is always readable. */}
+        <div className="flex flex-col gap-1 px-2 py-3">
+          <Logo light />
           {workspaceName && (
             <p
-              className="min-w-0 truncate text-xl font-extrabold tracking-tight text-primary-300"
+              className="self-end text-end text-xl font-extrabold tracking-tight break-words text-primary-300"
               data-testid="active-workspace-name"
-              title={workspaceName}
             >
               {workspaceName}
             </p>
@@ -212,34 +213,36 @@ export function AppShell({
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile topbar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between bg-sidebar px-4 py-3 md:hidden">
-          <div className="flex shrink-0 items-center gap-2">
-            <LogoMark className="size-8" />
-            <span className="text-lg font-extrabold text-white">
-              קול<span className="text-primary-400">בוקס</span>
-            </span>
+        {/* Mobile topbar. Two rows for the same reason as the sidebar: the
+            title, the workspace name and the logout action cannot share one
+            compact row and still leave the name readable. */}
+        <header className="sticky top-0 z-30 flex flex-col gap-1 bg-sidebar px-4 py-3 md:hidden">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex shrink-0 items-center gap-2">
+              <LogoMark className="size-8" />
+              <span className="text-lg font-extrabold text-white">
+                קול<span className="text-primary-400">בוקס</span>
+              </span>
+            </div>
+            {footer ? (
+              <button
+                onClick={footer.onLogout}
+                className="touch-target grid place-items-center rounded-lg text-slate-400"
+                aria-label={APP_SHELL_TEXT.logout}
+              >
+                <LogOut className="size-5" />
+              </button>
+            ) : (
+              <span className="size-5" />
+            )}
           </div>
-          {/* Same rule on the phone bar: end side, matching the title's size. */}
           {workspaceName && (
             <p
-              className="min-w-0 truncate text-lg font-extrabold text-primary-300"
+              className="self-end text-end text-lg font-extrabold break-words text-primary-300"
               data-testid="active-workspace-name-mobile"
-              title={workspaceName}
             >
               {workspaceName}
             </p>
-          )}
-          {footer ? (
-            <button
-              onClick={footer.onLogout}
-              className="touch-target grid place-items-center rounded-lg text-slate-400"
-              aria-label={APP_SHELL_TEXT.logout}
-            >
-              <LogOut className="size-5" />
-            </button>
-          ) : (
-            <span className="size-5" />
           )}
         </header>
 

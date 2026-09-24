@@ -10,7 +10,9 @@ import { Drawer } from "../../components/ui/Drawer";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Input, Select } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { APP_CONFIG } from "../../constants/config";
 import { moduleLabel } from "../../constants/labels";
+import { useVisibleInterval } from "../../hooks/useVisibleInterval";
 import { cn } from "../../lib/utils";
 import { toast } from "../../components/ui/Toast";
 import { platformOwnerAuthClient } from "../../services/supabase/platformOwnerAuthClient";
@@ -382,8 +384,9 @@ export function PlatformWorkspacesSection() {
       // can tell two same-named systems apart here.
       const mail = a.email.trim().toLowerCase();
       return (
-        (mail ? named.find((w) => w.ownerEmail?.trim().toLowerCase() === mail) : undefined) ??
-        null
+        (mail
+          ? named.find((w) => w.ownerEmail?.trim().toLowerCase() === mail)
+          : undefined) ?? null
       );
     };
 
@@ -468,6 +471,17 @@ export function PlatformWorkspacesSection() {
     void access.reload();
   };
 
+  // An approved Owner creates their workspace in THEIR browser, minutes later.
+  // No callback in this tab can be told about that, and re-reading on
+  // navigation does not help an operator who simply stays on this screen - so
+  // the section revalidates its three server reads on a timer while the tab is
+  // visible, and pauses completely while it is not. Nothing here is optimistic:
+  // every field still comes from the server's own answer.
+  useVisibleInterval(
+    () => Promise.all([modules.reload(), access.reload(), me.reload()]),
+    APP_CONFIG.platformConsoleRevalidateMs,
+  );
+
   return (
     <>
       <AdminSection
@@ -509,7 +523,11 @@ export function PlatformWorkspacesSection() {
         count={hasRows ? W.count(visible.length, rows.length) : undefined}
         panel
       >
-        {readError ? (
+        {readError && !hasRows ? (
+          // Only when there is nothing to show. Once rows are on screen a
+          // failed BACKGROUND revalidation must leave them standing - the
+          // alternative is a transient network blip replacing a working list
+          // with an error panel while the operator is reading it.
           <LoadError message={readError} onRetry={reloadAll} />
         ) : loading && !hasRows ? (
           <ListSkeleton />
@@ -643,7 +661,11 @@ export function PlatformWorkspacesSection() {
         open={detail !== null}
         onClose={() => setDetailId(null)}
         title={
-          detail ? (detail.kind === "approval" ? detail.approval.name : detail.ws.name) : ""
+          detail
+            ? detail.kind === "approval"
+              ? detail.approval.name
+              : detail.ws.name
+            : ""
         }
         footer={
           detail &&

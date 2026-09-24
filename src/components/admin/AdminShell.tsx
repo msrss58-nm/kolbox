@@ -155,7 +155,7 @@ function AdminNav({
 
 function AccountBlock({ account }: { account: AdminShellAccount }) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0" data-testid="admin-account">
       <p className="truncate text-sm font-bold text-white" dir="auto">
         {account.name}
       </p>

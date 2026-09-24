@@ -87,4 +87,13 @@ export const APP_CONFIG = {
    * the rest behind "הצג את כל האחראים (N)" - keeps the card usable at
    * 50+ coordinators without becoming a full-page list. */
   electionDayReminderSupervisionVisibleCount: 6,
+
+  /** How often the Platform Owner's "מערכות בחירות" section re-reads its
+   * three server reads while the tab is VISIBLE. An Election Owner creates
+   * their workspace in their own browser, minutes after being approved -
+   * nothing in the console's tab can be notified of that, and an operator
+   * watching the list should not have to press F5 to see it. Paused entirely
+   * while the tab is hidden, with one immediate read on becoming visible
+   * again, so a backgrounded console costs nothing. */
+  platformConsoleRevalidateMs: 20_000,
 } as const;

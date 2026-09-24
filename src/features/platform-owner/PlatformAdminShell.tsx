@@ -78,7 +78,15 @@ export function PlatformAdminShell() {
       title={text.title}
       navItems={NAV_ITEMS}
       account={{
-        name: owner?.email ?? "",
+        // WHO is signed in, not which mailbox they used to get here. The
+        // username is the Platform Owner's own application identity - the one
+        // /login/platform-owner resolves - and it comes from the same verified
+        // session context this shell already renders from; no second identity
+        // source, and nothing read from UI state. Until it is claimed there IS
+        // no username, so the account block says so rather than falling back to
+        // the address (the Settings section is where it gets claimed, and it
+        // still shows the full account details including the address).
+        name: owner?.username ?? text.usernameUnset,
         subtitle: text.mfaValue,
         logoutLabel: text.logout,
         onLogout: () => void handleLogout(),
