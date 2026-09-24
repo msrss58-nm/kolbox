@@ -317,6 +317,57 @@ export const PLATFORM_OWNER_TEXT = {
     } as Record<string, string>,
   },
 
+  /** Permanent deletion of an election system. Deliberately the only place in
+   * the console that speaks in these terms: the copy has to say what actually
+   * happens, because nothing here can be undone afterwards. */
+  deleteWorkspace: {
+    /** The grouping the destructive action sits under, inside the details view. */
+    advancedTitle: "פעולות מתקדמות",
+    advancedHint: "פעולות בלתי הפיכות. קראו את האזהרה לפני הביצוע.",
+    open: "מחיקת מערכת הבחירות",
+    title: (name: string) => `מחיקת מערכת הבחירות - ${name}`,
+    warningTitle: "הפעולה הזו אינה ניתנת לביטול",
+    /** What goes, stated as a list rather than as one long sentence: an
+     * operator about to delete a live system should be able to scan it. */
+    warningItems: [
+      "כל נתוני יום הבחירות של המערכת - בוחרים, נסיעות, תזכורות ודוחות",
+      "המשתמשים והתפקידים של המערכת, וכל הסיסמאות שלהם",
+      "נתוני התקציב של המערכת, אם קיימים",
+      "הרשאת הבעלים ושם המשתמש שלו - השם משתחרר לשימוש חדש",
+      "השיוך של המערכת לבעלי רב-מערכות",
+    ],
+    /** The two things that deliberately survive. Saying so is part of being
+     * honest about what deletion means. */
+    keptTitle: "מה נשמר",
+    keptItems: [
+      "רישום המחיקה עצמה - שם המערכת, הבעלים והמועד - נשמר לצמיתות ואינו ניתן לשינוי",
+      "יומן הפעולות ההיסטורי של המערכת נשמר",
+    ],
+    confirmLabel: (name: string) => `להמשך, הקלידו את שם המערכת: ${name}`,
+    confirmPlaceholder: "שם המערכת",
+    confirmMismatch: "השם שהוקלד אינו זהה לשם המערכת",
+    submit: "מחיקה לצמיתות",
+    submitting: "מוחק...",
+    cancel: "ביטול",
+    deleted: (name: string) => `המערכת "${name}" נמחקה לצמיתות`,
+    /** The workspace IS gone; only the Owner's Auth account was left behind. */
+    deletedAuthLeft: (name: string) =>
+      `המערכת "${name}" נמחקה, אך לא הצלחנו למחוק את חשבון הבעלים. פנו לתמיכה כדי להשלים את הניקוי.`,
+    errors: {
+      WORKSPACE_NAME_MISMATCH: "השם שהוקלד אינו זהה לשם המערכת",
+      WORKSPACE_NOT_FOUND: "המערכת אינה קיימת. רעננו את הדף.",
+      BUDGET_EXPORT_REQUIRED:
+        "למערכת יש נתוני תקציב. יש לבצע ייצוא תקציב מאומת לפני המחיקה.",
+      BUDGET_EXPORT_STALE:
+        "נתוני התקציב השתנו מאז הייצוע האחרון. יש לבצע ייצוא תקציב מאומת חדש.",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      INVALID_REQUEST: "הבקשה אינה תקינה.",
+      SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
+  },
+
   /** Module-entitlement section heading (the list itself: workspaceModules). */
   modulesSection: {
     title: "הקצאת מודולים",
@@ -823,6 +874,13 @@ export function platformWorkspaceModulesError(code: string): string {
   return (
     PLATFORM_OWNER_TEXT.workspaceModules.errors[code] ??
     PLATFORM_OWNER_TEXT.workspaceModules.errors.SERVER_ERROR
+  );
+}
+
+export function platformDeleteWorkspaceError(code: string): string {
+  return (
+    PLATFORM_OWNER_TEXT.deleteWorkspace.errors[code] ??
+    PLATFORM_OWNER_TEXT.deleteWorkspace.errors.SERVER_ERROR
   );
 }
 

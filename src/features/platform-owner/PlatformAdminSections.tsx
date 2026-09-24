@@ -40,6 +40,7 @@ import type {
 } from "./platformOwnerClient";
 import { usePlatformOwnerSession } from "./platformOwnerSession";
 import { useMultiEntityManagement } from "./useMultiEntityManagement";
+import { WorkspaceDeleteDialog } from "./WorkspaceDeleteDialog";
 import { WorkspaceModulesEditDialog } from "./WorkspaceModulesEditDialog";
 
 const T = PLATFORM_OWNER_TEXT;
@@ -217,6 +218,9 @@ export function PlatformWorkspacesSection() {
   const [confirmReissue, setConfirmReissue] = useState<OwnerAccessApproval | null>(null);
   /** The workspace whose OWNER is being edited, or null. */
   const [ownerEditFor, setOwnerEditFor] = useState<WorkspaceEntitlements | null>(null);
+  /** The workspace being PERMANENTLY DELETED, or null. Only ever a real
+   * workspace - an approval has nothing to delete. */
+  const [deleteFor, setDeleteFor] = useState<WorkspaceEntitlements | null>(null);
 
   const meById = useMemo(
     () => new Map(me.workspaces.map((w) => [w.workspaceId, w])),
@@ -577,6 +581,31 @@ export function PlatformWorkspacesSection() {
                   {T.ownerAccount.open}
                 </Button>
               )}
+              {/* Set apart, and last: the one irreversible action in this
+                  console. It opens a dialog that states what is destroyed and
+                  requires the system's name to be typed - it never deletes
+                  anything itself. Rendered only for a REAL workspace; the
+                  approval branch below has no system to delete. */}
+              <div
+                className="space-y-2 border-t border-slate-100 pt-3"
+                data-testid="advanced-actions"
+              >
+                <p className="text-xs font-bold text-slate-500">
+                  {T.deleteWorkspace.advancedTitle}
+                </p>
+                <Button
+                  className="w-full"
+                  variant="danger-outline"
+                  data-testid="open-delete-workspace"
+                  onClick={() => {
+                    const ws = detail.ws;
+                    setDetailId(null);
+                    setDeleteFor(ws);
+                  }}
+                >
+                  {T.deleteWorkspace.open}
+                </Button>
+              </div>
             </div>
           ) : (
             approvalActionLabel(detail.approval) && (
@@ -695,6 +724,27 @@ export function PlatformWorkspacesSection() {
           workspaceId={ownerEditFor.workspaceId}
           workspaceName={ownerEditFor.name}
           onClose={() => setOwnerEditFor(null)}
+        />
+      )}
+
+      {deleteFor && (
+        <WorkspaceDeleteDialog
+          workspaceId={deleteFor.workspaceId}
+          workspaceName={deleteFor.name}
+          onClose={() => setDeleteFor(null)}
+          onDeleted={(result) => {
+            setDeleteFor(null);
+            // Every read that could still be showing the deleted system is
+            // refetched before anything is said about it.
+            void Promise.all([modules.reload(), access.reload(), me.reload()]);
+            if (result.authCleanupIncomplete) {
+              // The system IS gone - this is not a failure to report as one.
+              // What is left is an Auth account nobody holds any more.
+              toast.error(T.deleteWorkspace.deletedAuthLeft(result.name));
+              return;
+            }
+            toast.success(T.deleteWorkspace.deleted(result.name));
+          }}
         />
       )}
 

@@ -5008,3 +5008,77 @@ Tests were ADAPTED, never weakened. `api-auth-identity`'s M8 and `api-real-local
 3. **The activity log has no server-side paging** — it returns the most recent 200 (500 cap) and filters client-side. Fine at today's volumes; a busy platform will eventually want a cursor.
 4. **The log reads four audits, not five.** Budget's own audit is excluded by design, so a Budget action does not appear here.
 5. **`election_owners.email` is editable while the account's auth e-mail is not**, so they can diverge. Nothing authenticates on it.
+
+---
+
+## Permanent workspace deletion — 2026-09-24
+
+The console can now delete an election system. It is the only irreversible action in it, and deliberately the most guarded.
+
+### What the operator sees
+
+A system's **פרטים** drawer gained a separate **פעולות מתקדמות** block, set apart and last, holding one destructive action: **מחיקת מערכת הבחירות**. It is rendered only for a real workspace — an approval has no system to delete, and offers nothing.
+
+The button opens its own dialog, not a shared confirm. The dialog names the exact system, states that the action cannot be undone, and lists **what is destroyed** (Election Day data, users and roles with their passwords, Budget data, the Owner's authorization and username, Multi-Entity assignments) and **what is kept** (the permanent deletion record, and the historical activity log). The delete button stays disabled until the operator types the system's own name. There is no one-click deletion anywhere.
+
+### What the deletion actually is
+
+One database transaction, `platform_delete_election_workspace`, reached through the existing `op` partition of `api/platform/session.ts` behind `verifyPlatformOwnerJwt` and the Platform Origin allow-list. Inside it:
+
+1. The acting Platform Owner is **re-resolved from `platform_owners`** in that transaction, as every other privileged Platform function does.
+2. The workspace and its Owner row are locked `FOR UPDATE`.
+3. The typed name is compared **server-side** against the workspace's own (`WORKSPACE_NAME_MISMATCH`). The confirmation is a boundary, not a browser courtesy — internal whitespace collapses on both sides, because that is typing, not a different name.
+4. The three things **no foreign key reaches** are removed: the `election_workspace_pending_owner_access` approval the workspace was provisioned from (it has no `workspace_id` at all — it is keyed by the Owner's `auth_user_id`), the Owner's `auth_identities` username row (its shape CHECK forces `workspace_id` NULL for every non-worker realm), and outstanding `election_owner` handoff codes.
+5. A **plain `DELETE`** on `election_workspaces`. That is the whole point: `election_workspaces_budget_delete_guard` fires, so a workspace holding Budget data without a fresh **verified** Budget export raises `BUDGET_EXPORT_REQUIRED` / `BUDGET_EXPORT_STALE` and the entire transaction — step 4 included — rolls back with the workspace untouched. The guard is never bypassed, disabled or weakened. The 28 `ON DELETE CASCADE` foreign keys do the rest.
+6. **Proof, not assumption:** every public table carrying a `workspace_id` column is re-counted afterwards, from the catalog rather than a hand-kept list, and anything left raises `WORKSPACE_DELETE_INCOMPLETE`.
+7. The immutable `platform_deletion_audit` row is written in the same transaction.
+
+### The Auth account is never deleted by the database
+
+An `auth.users` row is a **shared identity** — the same account can hold another principal. So the function asks `multi_entity_auth_user_held_by` **after** the cascade and only then, when the answer is "nobody", releases the username and reports `orphanedAuthUserId`. The handler purges it through the existing confirmed-delete path (`deleteAuthUserConfirmed`). When something else still holds the account, both the account and its username are deliberately left alone, and the audit says `auth_user_orphaned = false` rather than claiming a purge that did not happen.
+
+An unconfirmed purge does **not** fail the request. The workspace is already gone and that is not reversible; the response reports `AUTH_CLEANUP_INCOMPLETE` and the console says so in plain Hebrew instead of telling the operator something untrue in either direction.
+
+### Migration `20260929000000`
+
+`platform_deletion_audit` existed from Phase 0 (`20260823010000`) and its own comment reserved it for "a future phase's deletion RPC in the same DB transaction". This is that phase, and it closes the gap Stage 4A recorded and left "separately tracked":
+
+- It was the **last audit table in this project still carrying table privileges for anon/authenticated/service_role** — a `pg_default_acl` artefact. RLS with zero policies already stopped anon and authenticated, but `service_role` carries `BYPASSRLS`, so the deletion record was readable **and writable** straight through PostgREST with the server key. Now REVOKEd from all four by name; postgres-privileges-only, like every other audit table here.
+- It was the last one with **no immutability trigger**. Adding one required first dropping its `deleted_by_platform_owner_id -> platform_owners(id) ON DELETE SET NULL` foreign key: Stage 4A proved empirically that a SET NULL cascade issues an internal UPDATE against the audit table, which an immutability trigger refuses — which would make deleting a `platform_owners` row impossible forever once any deletion had been audited. The column stays as a plain snapshot, exactly like every reference column on `multi_entity_audit`.
+- New columns: `acting_auth_user_id`, `owner_name_snapshot`, `owner_email_snapshot`, `owner_auth_user_id_snapshot`, `auth_user_orphaned`, `row_counts`. `reason` is never filled from operator or client input — the function writes a fixed marker, which is the simplest way to guarantee an immutable table can never carry a secret. `row_counts` is the only free-shaped column and carries a CHECK: a JSON object, with no credential-shaped key (the same blocklist `platform_owner_account_audit` uses).
+- `platform_workspace_row_counts(uuid)` — the catalog sweep, granted to **no role at all**, `service_role` included: it is a DEFINER reader with no authorization of its own, so exposing it would hand out a row-count oracle over every workspace. `budget_workspace_deletions` is the one documented exclusion from the sweep — it is the Budget side's own permanent record of the same event and must outlive the workspace.
+- Both new functions are SECURITY DEFINER with `set search_path = ''`, REVOKEd from PUBLIC/anon/authenticated **by name**; only `platform_delete_election_workspace` is granted, to `service_role`.
+
+### VERIFICATION
+
+**Migration replay: 112 migrations from a clean database, three times** (once per stack reset during this batch). Grants re-verified after each replay — the local stacks carry the same `pg_default_acl` hazard, and the explicit revokes defeat it: both new functions come out `postgres` + (for the deletion) `service_role` only, and the audit table `postgres`-only.
+
+New suites: **`scripts/platform/db-workspace-deletion.sql` 42/0** and **`scripts/platform/api-workspace-deletion.mjs` 35/0**. `console/ui-console-unified` grew to **154/0** (was 138) with section M.
+
+What they prove, beyond the happy path:
+
+- **Authorization**: no token, a null acting identity, the workspace's **own Election Owner**, and a Multi-Entity Owner who can see it are all refused; a foreign Origin is refused before the op is looked at; an extra body key (there is no `force`) is a 400.
+- **The confirmation is the server's**: another workspace's name, an empty name, a null name and a case-folded name are all `WORKSPACE_NAME_MISMATCH`, and **neither** workspace is deleted. Differently-typed whitespace is accepted.
+- **The Budget guard**: a workspace holding Budget data with no verified export is refused, and is then **intact row for row** — including the approval and the username the deletion had already tried to release, which proves the rollback covers the whole transaction and not just the DELETE. Nothing is audited for a deletion that did not happen. In the UI the operator is told to produce a Budget export.
+- **Completeness**: after a real deletion an independent catalog sweep (written out in the tests rather than asking the function under test) finds **zero** rows anywhere; the approval, the username, worker sessions and worker usernames are all gone; and the freed address and username can both be used again — without which the console could never re-create that system.
+- **Isolation**: a second workspace is unchanged row for row, its Owner's session still works **on the same code path** that now refuses the deleted Owner's, and a Multi-Entity seat holding both loses exactly one assignment.
+- **The Auth account**: really gone from GoTrue after an unshared deletion (a fact the database cannot assert), and really **still there**, with its username, when the account is also a Multi-Entity seat holder.
+- **The audit**: one row, naming the workspace, its Owner and the acting Platform Owner, with real counts and nothing credential-shaped; UPDATE, DELETE and TRUNCATE all raise `AUDIT_IMMUTABLE`; and it is unreadable and unwritable by anon, authenticated **and** `service_role`, over SQL and over the API.
+
+Regression, on the freshly replayed stack: `ui-stage7` **83/0** · `ui-stage9` **85/0** · `ui-stage8` **59/0** · `ui-open-issues` **58/0** · `ui-real-local` **31/0** · `ui-module-availability` **23/0** · `ui-platform-owner-login` **20/0** · `ui-nav-roles` **57/0** · `api-stage9` **96/0** · `api-real-local` **121/0** · `api-multi-owner` **56/0** · `api-auth-identity` **66/0** · `api-auth-principal-switch` **31/0** · `api-module-availability` **44/0** · `api-owner-module-access` **21/0** · `api-open-issues` **30/0** · `db-multi-owner` **59/0** · `db-stage5` **102/0** · `db-stage6` **73/0** · `db-stage8` **45/0** · `db-stage8d` **20/0** · **`api-budget-stage7` 160/0** (run because this feature depends on the Budget delete guard and the deletion export) · `smoke-multi-tenant-phase0-schema` all checks passed.
+
+`db-stage9` remains **77/1** on `USR11`, the documented pre-existing failure — an Owner password-reset path this batch does not touch.
+
+`api-auth-identity` is **not** a failure of this batch: it inserts a Platform Owner and two fixed-login-code workspaces and never cleans them up, so the *second* run on a shared stack collides with its own leftovers. Run once against a replayed stack it is **66/0**, its established number.
+
+Build clean, `tsc -b` clean, eslint **0 errors**, `git diff --check` clean, no dependency or config change, protected 15 untouched at **+138/-45**.
+
+One test-hygiene note, stated rather than hidden: both new suites and the console suite leave one Budget-holding workspace behind on the scratch stack and their teardown **deliberately does not force it** — it is protected by the very guard those suites exist to prove, and a teardown is the last place that should learn to get around it. The workspace is inert once its Owner's Auth account is purged, and a stack reset clears it.
+
+### Residual risks
+
+1. **Deletion is genuinely permanent.** There is no undo, no soft-delete and no retention window. The only recoverable path is a Budget **deletion export** — and only for Budget data, only when the workspace holds any, and only because the guard forces one. Election Day data has no equivalent export: once deleted it is gone.
+2. **The Auth account purge is not transactional with the deletion** — it cannot be; it is a GoTrue call. It is confirmed rather than assumed, and an unconfirmed purge is reported as `AUTH_CLEANUP_INCOMPLETE`, but the audit row already says `auth_user_orphaned = true` at that point, so it records the intent, not the outcome. An account left that way holds no authority (its `election_owners` row and username are gone in the same transaction) but it does keep the address registered, which blocks re-approving that address until someone removes it.
+3. **Storage objects outlive the rows.** A deleted workspace's Budget document files are left in the private bucket and removed by `budget_storage_orphans` — which is still not scheduled (a Stage 7B decision). They are unreachable without a document version row, and the deletion export has already served them.
+4. **`platform_deletion_audit` has no read surface.** The activity log unions four audits and this is not one of them, so a deletion does not appear in `יומן פעולות`. The record exists and is permanent; reading it back today needs database access.
+5. **No product path deletes a Platform Owner or a Multi-Entity seat**, and this feature does not add one. Deleting a workspace unassigns it from every seat but never removes the seat.

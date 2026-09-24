@@ -163,6 +163,10 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   set_owner_profile: ["workspaceId", "name", "email", "phone"],
   // The Platform Owner's OWN password. Verified and set entirely server-side.
   change_own_password: ["currentPassword", "newPassword"],
+  // Permanent deletion of an election system. `confirmName` is the workspace's
+  // own name as the operator typed it - the DATABASE compares it, so the
+  // confirmation is a boundary and not a browser courtesy.
+  delete_workspace: ["workspaceId", "confirmName"],
 };
 
 const GET_OPS = new Set<string>([
@@ -325,6 +329,30 @@ function mapRpcError(message: string): { status: number; code: string } {
   }
   if (m.includes("MODULE_NOT_FOUND")) {
     return { status: 404, code: "MODULE_NOT_FOUND" };
+  }
+  // --- Permanent workspace deletion ---------------------------------------
+  // The typed confirmation did not match the workspace's own name. 409, not
+  // 400: the request is well-formed and the caller is authorized - the
+  // confirmation is simply not the one this workspace requires.
+  if (m.includes("WORKSPACE_NAME_MISMATCH")) {
+    return { status: 409, code: "WORKSPACE_NAME_MISMATCH" };
+  }
+  // The Budget delete guard refused. The workspace is untouched, and the
+  // operator has a concrete next step - produce a fresh verified Budget
+  // export - so these two codes are passed through rather than flattened.
+  if (m.includes("BUDGET_EXPORT_REQUIRED")) {
+    return { status: 409, code: "BUDGET_EXPORT_REQUIRED" };
+  }
+  if (m.includes("BUDGET_EXPORT_STALE")) {
+    return { status: 409, code: "BUDGET_EXPORT_STALE" };
+  }
+  // Both mean the deletion refused to finish and rolled itself back. There is
+  // no operator action, so they are reported as what they are: a server fault.
+  if (
+    m.includes("WORKSPACE_DELETE_INCOMPLETE") ||
+    m.includes("BUDGET_PURGE_INCOMPLETE")
+  ) {
+    return { status: 500, code: "SERVER_ERROR" };
   }
   if (m.includes("INVALID_MODULE_AVAILABILITY")) {
     return { status: 400, code: "INVALID_REQUEST" };
@@ -2258,6 +2286,82 @@ async function handleSetOwnerProfile(
   res.status(200).json(data ?? { name, email, phone, changed: [] });
 }
 
+/**
+ * Deletes one election system permanently.
+ *
+ * Everything that matters happens in ONE database transaction inside
+ * `platform_delete_election_workspace`: the Platform Owner is re-resolved, the
+ * typed name is compared against the workspace's own, the Budget delete guard
+ * runs (a workspace holding Budget data without a fresh verified export is
+ * refused and stays exactly as it was), the cascade is verified to have left
+ * nothing behind, and the immutable audit row is written. This handler adds
+ * exactly one thing the database deliberately does not do.
+ *
+ * THE AUTH ACCOUNT. The Owner's auth.users row is a SHARED identity - the same
+ * account can hold another principal - so the database never deletes it. It
+ * reports `orphanedAuthUserId` only when, after the cascade, nothing in the
+ * system still held that account, and the purge goes through the same
+ * confirmed-delete path as every other compensating delete here. An
+ * unconfirmed purge does NOT fail the request: the workspace is already gone
+ * and that is not reversible. It is reported instead, so the operator knows
+ * there is an account left to clean up rather than being told a lie either way.
+ */
+async function handleDeleteWorkspace(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const workspaceId = str(body.workspaceId);
+  const confirmName = str(body.confirmName);
+  if (!UUID_PATTERN.test(workspaceId) || confirmName.trim() === "") {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_delete_election_workspace", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_workspace_id: workspaceId,
+    p_confirm_name: confirmName,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+
+  const row = rpcRow<Record<string, unknown>>(data) ?? {};
+  const name = str(row.name) || confirmName.trim();
+  const orphan = str(row.orphanedAuthUserId);
+
+  if (!orphan) {
+    // The account is still held by another principal, or the workspace had no
+    // Owner at all. Nothing to purge, and nothing was released.
+    res.status(200).json({ workspaceId, name, authUserPurged: false });
+    return;
+  }
+
+  if (await deleteAuthUserConfirmed(supabase, orphan)) {
+    res.status(200).json({ workspaceId, name, authUserPurged: true });
+    return;
+  }
+  res.status(200).json({
+    workspaceId,
+    name,
+    authUserPurged: false,
+    error: "AUTH_CLEANUP_INCOMPLETE",
+    orphanedAuthUserId: orphan,
+  });
+}
+
 /** The Platform Owner's own password floor, restated here because `api/`
  * imports nothing from `src/` - see platform-owner.constants.ts, which is the
  * definition the console validates against. Deliberately NOT lowered with the
@@ -2615,6 +2719,9 @@ export default async function handler(
       return;
     case "change_own_password":
       await handleChangeOwnPassword(req, res, verified);
+      return;
+    case "delete_workspace":
+      await handleDeleteWorkspace(req, res, verified.authUserId);
       return;
     case "set_module_availability":
       await handleSetModuleAvailability(req, res, verified.authUserId);

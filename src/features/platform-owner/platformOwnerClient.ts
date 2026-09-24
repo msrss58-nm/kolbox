@@ -998,6 +998,42 @@ async function ownerAccountWrite(
  * The server writes exactly those three columns; ownership, the workspace and
  * its modules are not reachable from this call.
  */
+/** What the server reports after a workspace was permanently deleted. The
+ * deletion itself is already done and irreversible by the time this resolves;
+ * `authUserPurged` is the ONE part that can be incomplete - the Owner's Auth
+ * account is a shared identity, so it is purged only when nothing else held it,
+ * and the purge is confirmed rather than assumed. */
+export type WorkspaceDeletion = {
+  name: string;
+  authUserPurged: boolean;
+  /** True when the account was meant to be purged and the purge could not be
+   * confirmed. The workspace is still gone; an account remains to clean up. */
+  authCleanupIncomplete: boolean;
+};
+
+/** Deletes one election system, permanently. `confirmName` must be the
+ * workspace's own name: the DATABASE compares it, so this is a real boundary
+ * and not a browser-side courtesy. */
+export async function deleteWorkspace(
+  accessToken: string,
+  workspaceId: string,
+  confirmName: string,
+): Promise<MultiEntityResult<WorkspaceDeletion>> {
+  return postOp<WorkspaceDeletion>(
+    accessToken,
+    { op: "delete_workspace", workspaceId, confirmName },
+    (parsed) => {
+      const o = rec(parsed);
+      if (!o) return null;
+      return {
+        name: str(o.name) ?? confirmName,
+        authUserPurged: o.authUserPurged === true,
+        authCleanupIncomplete: str(o.error) === "AUTH_CLEANUP_INCOMPLETE",
+      };
+    },
+  );
+}
+
 export async function setOwnerProfile(
   accessToken: string,
   workspaceId: string,

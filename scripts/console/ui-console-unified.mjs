@@ -1868,6 +1868,232 @@ try {
   );
   await pw2.close();
 
+  // =======================================================================
+  section("M. DELETING AN ELECTION SYSTEM, PERMANENTLY");
+  // =======================================================================
+  // Two dedicated systems, created here so nothing another section still needs
+  // is destroyed: one to delete, and one holding Budget data that must refuse.
+  const doomed = await makeProvisioned("doomed", "CU מערכת למחיקה", ["election_day"], 51);
+  const guarded = await makeProvisioned(
+    "guarded",
+    "CU מערכת עם תקציב",
+    ["election_day", "budget"],
+    52,
+  );
+  psql(`
+    insert into public.election_day_voters (workspace_id, masad, first_name, last_name, city, street, house_number)
+      values ('${doomed.workspaceId}', 'CU', 'למחיקה', 'בוחר', 'עיר', 'רחוב', 1);
+    select set_config('kolbox.budget_actor',
+      format('{"type":"owner","id":"%s","name":"g","workspace_id":"%s"}',
+             (select auth_user_id from public.election_owners where workspace_id = '${guarded.workspaceId}'),
+             '${guarded.workspaceId}'), false);
+    insert into public.budget_settings (workspace_id) values ('${guarded.workspaceId}');
+    insert into public.budget_categories (workspace_id, name) values ('${guarded.workspaceId}', 'CU תקציב');
+  `);
+  /** Every row anywhere that still names this workspace. */
+  const ownedRows = (ws) =>
+    psql(`select coalesce(sum(n), 0) from (
+      select (xpath('/row/c/text()', query_to_xml(
+        format('select count(*) as c from %s where workspace_id = %L', c.oid::regclass, '${ws}'),
+        false, true, '')))[1]::text::bigint as n
+      from pg_class c
+      join pg_attribute a on a.attrelid = c.oid and a.attname = 'workspace_id'
+                         and a.attnum > 0 and not a.attisdropped
+      where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
+        and c.relname <> 'budget_workspace_deletions'
+    ) s;`).trim();
+  const doomedBefore = Number(ownedRows(doomed.workspaceId));
+  const guardedBefore = Number(ownedRows(guarded.workspaceId));
+  const doomedOwnerAuth = psql(
+    `select auth_user_id from public.election_owners where workspace_id = '${doomed.workspaceId}';`,
+  ).trim();
+  psql(
+    `select public.auth_identity_assign('election_owner', 'cu doomed ${stamp}', '${doomedOwnerAuth}', null, null);`,
+  );
+  const cuWorkspacesBefore = psql(
+    `select count(*) from public.election_workspaces where name like 'CU %';`,
+  ).trim();
+
+  // Section L changed this Platform Owner's password twice, which revoked the
+  // token THIS page was holding (L16 is the assertion that it did). The
+  // password is back to the original by L17b, so a fresh sign-in on the same
+  // page restores the session - and puts the systems list back on screen,
+  // which is the only place the deletion is reachable from.
+  await po.goto(`${PBASE}/platform/login`, { waitUntil: "domcontentloaded" });
+  await po.getByRole("heading", { name: "כניסת בעל הפלטפורמה" }).waitFor({ timeout: 20000 });
+  await po.locator('input[type="email"]').fill(email("po"));
+  await po.locator('input[autocomplete="current-password"]').fill(poPw);
+  await po.getByRole("button", { name: "התחברות" }).click();
+  await po.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }).waitFor({ timeout: 25000 });
+  await po.goto(`${PBASE}/platform/workspaces`, { waitUntil: "domcontentloaded" });
+  await po.locator('[data-testid="workspaces-list"]').waitFor({ timeout: 25000 });
+  await rowFor(doomed.wsName).first().waitFor({ timeout: REVALIDATE_MS * 5 });
+
+  const openSystemDetails = async (wsName) => {
+    await rowFor(wsName)
+      .getByRole("button", { name: `פרטי ${wsName}` })
+      .click();
+    await po.getByRole("dialog").waitFor({ timeout: 10000 });
+  };
+  const openDeleteDialog = async (wsName) => {
+    await openSystemDetails(wsName);
+    await po.getByTestId("open-delete-workspace").click();
+    await po.locator('[data-testid="delete-workspace-form"]').waitFor({ timeout: 10000 });
+  };
+
+  // --- the action is where it belongs, and nowhere else --------------------
+  await openSystemDetails(doomed.wsName);
+  const advanced = await po.getByTestId("advanced-actions").innerText();
+  check(
+    "M1 a real system's details carry a separate 'פעולות מתקדמות' block with the deletion in it",
+    advanced.includes("פעולות מתקדמות") && advanced.includes("מחיקת מערכת הבחירות"),
+    advanced.replace(/\s+/g, " ").slice(0, 90),
+  );
+  await po.keyboard.press("Escape");
+  await po.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
+
+  await openSystemDetails(pendingA.name);
+  check(
+    "M2 an APPROVAL - a system that does not exist yet - offers no deletion at all",
+    (await po.getByTestId("advanced-actions").count()) === 0 &&
+      (await po.getByTestId("open-delete-workspace").count()) === 0,
+  );
+  await po.keyboard.press("Escape");
+  await po.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
+
+  // --- the confirmation ---------------------------------------------------
+  await openDeleteDialog(doomed.wsName);
+  const dialogCopy = await po.locator('[data-testid="delete-workspace-form"]').innerText();
+  check(
+    "M3 the dialog names the exact system and says the action cannot be undone",
+    dialogCopy.includes(doomed.wsName) && dialogCopy.includes("אינה ניתנת לביטול"),
+    dialogCopy.replace(/\s+/g, " ").slice(0, 120),
+  );
+  check(
+    "M4 it says what is destroyed AND what is kept - not just a generic warning",
+    dialogCopy.includes("נתוני יום הבחירות") &&
+      dialogCopy.includes("נתוני התקציב") &&
+      dialogCopy.includes("מה נשמר"),
+    "copy",
+  );
+  check(
+    "M5 there is no one-click deletion - the button is disabled before anything is typed",
+    await po.getByTestId("delete-workspace-submit").isDisabled(),
+  );
+  await po.getByTestId("delete-workspace-confirm").fill("מערכת אחרת");
+  check(
+    "M6 a wrong name keeps it disabled and says so",
+    (await po.getByTestId("delete-workspace-submit").isDisabled()) &&
+      (await po.locator('[data-testid="delete-workspace-form"]').innerText()).includes(
+        "אינו זהה לשם המערכת",
+      ),
+  );
+  await po.getByTestId("delete-workspace-confirm").fill(doomed.wsName);
+  check(
+    "M7 the exact name - and only it - enables the deletion",
+    !(await po.getByTestId("delete-workspace-submit").isDisabled()),
+  );
+  await po.screenshot({ path: path.join(outDir, "m-delete-confirm.png") });
+
+  // --- cancelling deletes nothing -----------------------------------------
+  await po.getByRole("button", { name: "ביטול" }).last().click();
+  await po
+    .locator('[data-testid="delete-workspace-form"]')
+    .waitFor({ state: "detached", timeout: 10000 });
+  check(
+    "M8 cancelling with the name already typed deletes nothing - row for row",
+    Number(ownedRows(doomed.workspaceId)) === doomedBefore &&
+      psql(
+        `select count(*) from public.election_workspaces where id = '${doomed.workspaceId}';`,
+      ).trim() === "1",
+    `owned=${ownedRows(doomed.workspaceId)} (was ${doomedBefore})`,
+  );
+
+  // --- the Budget guard, as the operator sees it --------------------------
+  await openDeleteDialog(guarded.wsName);
+  await po.getByTestId("delete-workspace-confirm").fill(guarded.wsName);
+  await po.getByTestId("delete-workspace-submit").click();
+  await po.getByTestId("delete-workspace-error").waitFor({ timeout: 20000 });
+  const guardText = await po.getByTestId("delete-workspace-error").innerText();
+  check(
+    "M9 a system holding Budget data is refused, and the operator is told what to do about it",
+    guardText.includes("ייצוא תקציב"),
+    guardText.slice(0, 80),
+  );
+  check(
+    "M10 and that system is completely intact afterwards - including its Budget rows",
+    psql(
+      `select count(*) from public.election_workspaces where id = '${guarded.workspaceId}';`,
+    ).trim() === "1" &&
+      Number(ownedRows(guarded.workspaceId)) === guardedBefore &&
+      psql(
+        `select count(*) from public.budget_categories where workspace_id = '${guarded.workspaceId}';`,
+      ).trim() === "1",
+    `owned=${ownedRows(guarded.workspaceId)} (was ${guardedBefore})`,
+  );
+  await po.getByRole("button", { name: "ביטול" }).last().click();
+  await po
+    .locator('[data-testid="delete-workspace-form"]')
+    .waitFor({ state: "detached", timeout: 10000 });
+
+  // --- the real deletion --------------------------------------------------
+  await openDeleteDialog(doomed.wsName);
+  await po.getByTestId("delete-workspace-confirm").fill(doomed.wsName);
+  await po.getByTestId("delete-workspace-submit").click();
+  await po
+    .locator('[data-testid="delete-workspace-form"]')
+    .waitFor({ state: "detached", timeout: 30000 });
+  check(
+    "M11 the console confirms the deletion by name",
+    await po
+      .getByText(`המערכת "${doomed.wsName}" נמחקה לצמיתות`)
+      .first()
+      .isVisible()
+      .catch(() => false),
+  );
+  await rowFor(doomed.wsName)
+    .first()
+    .waitFor({ state: "detached", timeout: REVALIDATE_MS * 5 });
+  check(
+    "M12 the row is gone from the list with no F5 and no navigation",
+    (await rowFor(doomed.wsName).count()) === 0,
+  );
+  check(
+    "M13 the system and EVERY row it owned are gone from the database",
+    psql(
+      `select count(*) from public.election_workspaces where id = '${doomed.workspaceId}';`,
+    ).trim() === "0" && ownedRows(doomed.workspaceId) === "0",
+    `owned=${ownedRows(doomed.workspaceId)} (was ${doomedBefore})`,
+  );
+  check(
+    "M14 the approval it came from and the Owner's username are both released",
+    psql(
+      `select count(*) from public.election_workspace_pending_owner_access where auth_user_id = '${doomedOwnerAuth}';`,
+    ).trim() === "0" &&
+      psql(
+        `select count(*) from public.auth_identities where auth_user_id = '${doomedOwnerAuth}';`,
+      ).trim() === "0",
+    "released",
+  );
+  check(
+    "M15 one permanent deletion record survives the system it describes",
+    psql(
+      `select count(*) from public.platform_deletion_audit where workspace_id_snapshot = '${doomed.workspaceId}';`,
+    ).trim() === "1" &&
+      psql(
+        `select workspace_name_snapshot from public.platform_deletion_audit where workspace_id_snapshot = '${doomed.workspaceId}';`,
+      ).trim() === doomed.wsName,
+    "audited",
+  );
+  check(
+    "M16 the other systems are all still there - only the named one went",
+    psql(`select count(*) from public.election_workspaces where name like 'CU %';`).trim() ===
+      String(Number(cuWorkspacesBefore) - 1),
+    psql(
+      `select string_agg(name, ' | ' order by name) from public.election_workspaces where name like 'CU %';`,
+    ).trim(),
+  );
+
   // NOTE: section I ends with a sign-out, and a sign-out is global - it
   // revokes the session THIS page keeps revalidating with. It has to come
   // last, after every section that still needs the list on screen.
@@ -1935,7 +2161,13 @@ try {
     delete from public.election_owners where email like '%@${DOMAIN}';
     delete from public.election_workspace_pending_owner_access;
     delete from public.platform_owners;
-    delete from public.election_workspaces where name like 'CU %';
+    -- Deliberately NOT forced: section M leaves one workspace holding Budget
+    -- data on purpose, and it is protected by the very guard M9/M10 prove. A
+    -- teardown is the last place that should learn to get around it - the
+    -- workspace is inert once its Owner's Auth account is purged below, and a
+    -- stack reset clears it.
+    delete from public.election_workspaces w
+     where w.name like 'CU %' and not public.budget_workspace_has_data(w.id);
     -- The audit is append-only BY DESIGN and refuses DELETE (K33 proves it);
   `);
   await purgeDomainUsers();
