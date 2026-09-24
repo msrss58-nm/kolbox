@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { Field, Input } from "../../components/ui/Field";
 import { ROUTES } from "../../constants/routes";
 import { multiEntityOwnerAuthClient } from "../../services/supabase/multiEntityOwnerAuthClient";
-import { validatePlatformOwnerPassword } from "../platform-owner/platformOwnerPasswordPolicy";
+import { validateMultiEntityOwnerPassword } from "./multiEntityOwnerPasswordPolicy";
 import { MULTI_ENTITY_OWNER_TEXT } from "./multi-entity-owner.constants";
 import {
   clearCapturedMultiEntityRecovery,
@@ -147,7 +147,7 @@ export function MultiEntityOwnerSetPasswordScreen() {
     e.preventDefault();
     if (saving) return;
 
-    const violation = validatePlatformOwnerPassword(password, confirmation);
+    const violation = validateMultiEntityOwnerPassword(password, confirmation);
     if (violation) {
       setError(text.errors[violation]);
       return;

@@ -380,7 +380,11 @@ section("B. ISSUE 6 + 5 - THE ELECTION OWNER'S SHELL");
 section("C. ISSUE 1 - THE CONSOLE RE-READS ON ENTERING A SECTION, NO F5");
 // =========================================================================
 const po = await newPage();
-const moduleRows = () => po.locator('[data-testid="workspace-modules-list"] > li').count();
+// The module-assignment screen was retired (2026-09-24): per-workspace module
+// editing lives in a system's own details and the global availability switch
+// moved to Settings. The staleness this section is about belongs to the same
+// shell-level read, so it is asserted on the ONE systems list instead.
+const systemRows = () => po.locator('[data-testid="workspaces-list"] > li').count();
 {
   await po.goto(`${PBASE}/platform/login`, { waitUntil: "domcontentloaded" });
   await po.getByRole("heading", { name: "כניסת בעל הפלטפורמה" }).waitFor({ timeout: 20000 });
@@ -389,13 +393,13 @@ const moduleRows = () => po.locator('[data-testid="workspace-modules-list"] > li
   await po.getByRole("button", { name: "התחברות" }).click();
   await po.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }).waitFor({ timeout: 25000 });
 
-  // Load the module-entitlement section ONCE, so its shell-level list is
-  // populated and can go stale. This hook is mounted by the shell and never
-  // remounts on navigation - that is the whole bug.
-  await po.getByRole("link", { name: "הקצאת מודולים" }).click();
-  await po.locator('[data-testid="workspace-modules-list"]').waitFor({ timeout: 25000 });
-  const before = await moduleRows();
-  check("C1 the module-entitlement list loaded", before >= 2, `rows=${before}`);
+  // Load the systems section ONCE, so its shell-level list is populated and
+  // can go stale. Those hooks are mounted by the shell and never remount on
+  // navigation - that is the whole bug.
+  await po.getByRole("link", { name: "מערכות בחירות" }).first().click();
+  await po.locator('[data-testid="workspaces-list"]').waitFor({ timeout: 25000 });
+  const before = await systemRows();
+  check("C1 the systems list loaded", before >= 2, `rows=${before}`);
 
   // A workspace comes into existence ELSEWHERE - exactly what happens when an
   // approved Owner activates their link minutes later. No dialog in this tab
@@ -407,11 +411,11 @@ const moduleRows = () => po.locator('[data-testid="workspace-modules-list"] > li
   );
 
   // Navigate away and back. NO reload, no F5.
-  await po.getByRole("link", { name: "מערכות בחירות" }).first().click();
+  await po.getByRole("link", { name: "הגדרות" }).first().click();
   await po.waitForTimeout(800);
-  await po.getByRole("link", { name: "הקצאת מודולים" }).click();
+  await po.getByRole("link", { name: "מערכות בחירות" }).first().click();
   await po.locator(`text=OI רענון ${stamp}`).first().waitFor({ timeout: 25000 });
-  const after = await moduleRows();
+  const after = await systemRows();
   check(
     "C2 re-entering the section shows the workspace created elsewhere - WITHOUT F5",
     after === before + 1,
@@ -419,12 +423,11 @@ const moduleRows = () => po.locator('[data-testid="workspace-modules-list"] > li
   );
   check(
     "C3 ... and the page was never reloaded to achieve it",
-    po.url().endsWith("/platform/modules"),
+    po.url().endsWith("/platform/workspaces"),
     po.url(),
   );
 
   // The other half: a mutation made HERE lands in its own list immediately.
-  await po.getByRole("link", { name: "מערכות בחירות" }).first().click();
   await po.getByRole("button", { name: "אישור בעלים חדש" }).click();
   const form = po
     .locator("form")

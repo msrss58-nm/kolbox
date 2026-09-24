@@ -227,10 +227,12 @@ try {
   section("PLATFORM CONSOLE: the global switch is its own control");
   const pp = await newPage();
   check("P1 Platform Owner password + TOTP -> console", await platformLogin(pp));
-  await pp.goto(`${PBASE}/platform/modules`);
-  await pp.getByTestId("workspace-modules-card").waitFor({ timeout: 15000 });
+  // The separate module-assignment screen was retired (2026-09-24); the GLOBAL
+  // availability switch - this suite's subject - moved to Settings.
+  await pp.goto(`${PBASE}/platform/settings`);
+  await pp.getByTestId("platform-settings-section").waitFor({ timeout: 15000 });
   const openBtn = pp.getByTestId("module-availability-open").first();
-  check("P2 the Modules section offers 'זמינות מודולים' as a separate action", await seen(openBtn) && (await openBtn.innerText()).includes("זמינות מודולים"));
+  check("P2 Settings offers 'זמינות מודולים' as its own action", await seen(openBtn) && (await openBtn.innerText()).includes("זמינות מודולים"));
   await openBtn.click();
   const dlg = pp.getByRole("dialog").last();
   check("P3 the dialog explains global vs per-workspace (title + 'אינו מוסיף ואינו מסיר הקצאות')",
@@ -303,10 +305,10 @@ try {
   section("RESPONSIVE (390px)");
   const pm = await newPage({ width: 390, height: 844 });
   check("R0 Platform Owner signs in at 390px", await platformLogin(pm));
-  await pm.goto(`${PBASE}/platform/modules`);
-  await pm.getByTestId("workspace-modules-card").waitFor({ timeout: 15000 });
+  await pm.goto(`${PBASE}/platform/settings`);
+  await pm.getByTestId("platform-settings-section").waitFor({ timeout: 15000 });
   const mOpen = pm.getByTestId("module-availability-open").last();
-  check("R1 390px: the action sits in the fixed bottom bar and is reachable", await seen(mOpen) && (await mOpen.isVisible()));
+  check("R1 390px: the action is reachable in Settings", await seen(mOpen) && (await mOpen.isVisible()));
   await mOpen.click();
   await pm.getByTestId("module-availability-toggle-budget").waitFor({ timeout: 10000 });
   const tb = await pm.getByTestId("module-availability-toggle-budget").boundingBox();

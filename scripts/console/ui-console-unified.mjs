@@ -565,8 +565,10 @@ try {
     `insert into public.election_workspaces (name, login_code, election_end_at)
      values ('CU נוצרה מבחוץ ${stamp}','${mkCode(44)}', now()+interval '30 days');`,
   );
-  await po.getByRole("link", { name: "הקצאת מודולים" }).click();
-  await po.locator('[data-testid="workspace-modules-list"]').waitFor({ timeout: 25000 });
+  // Away and back. The module-assignment destination is retired, so this
+  // leaves through Settings - any sibling section forces the same remount.
+  await po.getByRole("link", { name: "הגדרות" }).first().click();
+  await po.locator('[data-testid="platform-settings-section"]').waitFor({ timeout: 25000 });
   await po.getByRole("link", { name: "מערכות בחירות" }).click();
   await po.locator(`text=CU נוצרה מבחוץ ${stamp}`).first().waitFor({ timeout: 25000 });
   check(
@@ -666,8 +668,10 @@ try {
   console.log(`    election_owners.email=${JSON.stringify(ownerMail)}`);
 
   // --- and the console, WITHOUT F5 -----------------------------------------
-  await po.getByRole("link", { name: "הקצאת מודולים" }).click();
-  await po.locator('[data-testid="workspace-modules-list"]').waitFor({ timeout: 25000 });
+  // Away and back. The module-assignment destination is retired, so this
+  // leaves through Settings - any sibling section forces the same remount.
+  await po.getByRole("link", { name: "הגדרות" }).first().click();
+  await po.locator('[data-testid="platform-settings-section"]').waitFor({ timeout: 25000 });
   await po.getByRole("link", { name: "מערכות בחירות" }).click();
   await po.locator(`text=${LOD}`).first().waitFor({ timeout: 25000 });
 
@@ -751,8 +755,10 @@ try {
     ).trim() === "t",
   );
 
-  await po.getByRole("link", { name: "הקצאת מודולים" }).click();
-  await po.locator('[data-testid="workspace-modules-list"]').waitFor({ timeout: 25000 });
+  // Away and back. The module-assignment destination is retired, so this
+  // leaves through Settings - any sibling section forces the same remount.
+  await po.getByRole("link", { name: "הגדרות" }).first().click();
+  await po.locator('[data-testid="platform-settings-section"]').waitFor({ timeout: 25000 });
   await po.getByRole("link", { name: "מערכות בחירות" }).click();
   await po.locator(`text=${LOD}`).first().waitFor({ timeout: 25000 });
 
@@ -806,8 +812,10 @@ try {
      where o.workspace_id = (select id from public.election_workspaces where name = ${sqlText(LOD)});`,
   );
   const twin = await makeProvisioned("twin", LOD, ["election_day"], 47);
-  await po.getByRole("link", { name: "הקצאת מודולים" }).click();
-  await po.locator('[data-testid="workspace-modules-list"]').waitFor({ timeout: 25000 });
+  // Away and back. The module-assignment destination is retired, so this
+  // leaves through Settings - any sibling section forces the same remount.
+  await po.getByRole("link", { name: "הגדרות" }).first().click();
+  await po.locator('[data-testid="platform-settings-section"]').waitFor({ timeout: 25000 });
   await po.getByRole("link", { name: "מערכות בחירות" }).click();
   await po.waitForFunction(
     (n) =>
@@ -931,7 +939,10 @@ try {
   ).trim();
   check("G2 the other session really created the workspace", kmCode.length === 8, kmCode);
 
-  // NOTHING is done to the Platform page. It has to notice on its own.
+  // NOTHING is done to the Platform page. It has to notice on its own - and
+  // the wait is TIMED, so "it eventually caught up" cannot pass for "it caught
+  // up at the interval the app actually ships".
+  const createdAt = Date.now();
   const becameWorkspace = await po
     .waitForFunction(
       ([name, code]) => {
@@ -946,7 +957,16 @@ try {
       { timeout: 90000, polling: 500 },
     )
     .then(() => true, () => false);
-  check("G3 the row became the real workspace row ON ITS OWN", becameWorkspace);
+  const noticedInMs = Date.now() - createdAt;
+  check("G3 the row became the real workspace row ON ITS OWN", becameWorkspace, `${noticedInMs}ms`);
+  // Two intervals plus a round trip. At the previous 20s cadence this bound is
+  // unreachable, so it measures the shipped interval rather than restating it.
+  const bound = REVALIDATE_MS * 2 + 3000;
+  check(
+    "G3b ... within the interval it ships with, not merely eventually",
+    becameWorkspace && noticedInMs <= bound,
+    `noticed in ${noticedInMs}ms, bound ${bound}ms (interval ${REVALIDATE_MS}ms)`,
+  );
   check(
     "G4 ... and this page never navigated and never reloaded to do it",
     navigations === 0 &&
@@ -1147,6 +1167,711 @@ try {
   await wp.close();
 
   // =======================================================================
+  section("J. THE OWNER'S PHONE NUMBER IN THE SYSTEM'S DETAILS");
+  // =======================================================================
+  // It must be the OWNER's number - `election_owners.phone` - and not the
+  // approval's copy of it. The two agree for a normally provisioned Owner, so
+  // the only way to tell which one is on screen is to make them disagree.
+  const openDetails = async (rowText, name) => {
+    await po
+      .locator('[data-testid="workspaces-list"] > li')
+      .filter({ hasText: rowText })
+      .getByRole("button", { name: `פרטי ${name}` })
+      .click();
+    await po.getByRole("dialog").waitFor({ timeout: 10000 });
+    const t = await po.getByRole("dialog").innerText();
+    await po.keyboard.press("Escape");
+    await po.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
+    return t;
+  };
+
+  const kmPhone = psql(
+    `select o.phone from public.election_owners o
+     join public.election_workspaces w on w.id = o.workspace_id
+     where w.name = ${sqlText(KM)};`,
+  ).trim();
+  check(
+    "J1 the Owner really has a number on their own row",
+    kmPhone === "0501112222",
+    kmPhone,
+  );
+  let detailText = await openDetails(KM, KM);
+  check(
+    "J2 the details show the Owner's phone number",
+    detailText.includes("טלפון הבעלים") && detailText.includes(kmPhone),
+    detailText.replace(/\s+/g, " ").slice(0, 190),
+  );
+
+  // Make the two disagree. The approval keeps 0501112222; the Owner's own row
+  // gets a different number - and the screen must follow the Owner.
+  psql(
+    `update public.election_owners o set phone = '0539998888'
+     where o.workspace_id = (select id from public.election_workspaces where name = ${sqlText(KM)});`,
+  );
+  await po.waitForTimeout(REVALIDATE_MS + 3000);
+  detailText = await openDetails(KM, KM);
+  check(
+    "J3 ... from `election_owners`, not the approval's copy of it",
+    detailText.includes("0539998888") && !detailText.includes("0501112222"),
+    detailText.replace(/\s+/g, " ").slice(0, 190),
+  );
+  check(
+    "J4 ... and it arrived without a reload or a navigation, like everything else here",
+    navigations === 0 &&
+      (await po.evaluate(() => window.__kbSentinel)) === "alive",
+    `navigations=${navigations}`,
+  );
+
+  // A workspace whose Owner row predates the phone requirement: the row is
+  // still there, and it says so rather than going missing.
+  const legacyPhone = psql(
+    `select coalesce(o.phone,'<null>') from public.election_owners o
+     join public.election_workspaces w on w.id = o.workspace_id
+     where w.name = ${sqlText(live.wsName)};`,
+  ).trim();
+  check("J5 the legacy Owner genuinely has no number recorded", legacyPhone === "<null>", legacyPhone);
+  detailText = await openDetails(live.wsName, live.wsName);
+  check(
+    "J6 ... and the details say so plainly instead of hiding the row",
+    detailText.includes("טלפון הבעלים") && detailText.includes("לא הוזן"),
+    detailText.replace(/\s+/g, " ").slice(0, 190),
+  );
+  check(
+    "J7 no regression: the details still carry owner, code, status, end date, modules and the module editor",
+    ((t) =>
+      t.includes("בעלים live") &&
+      t.includes(live.code) &&
+      t.includes("מצב") &&
+      t.includes("סיום הבחירות") &&
+      t.includes("ניהול יום הבחירות"))(detailText),
+    detailText.replace(/\s+/g, " ").slice(0, 200),
+  );
+  await po
+    .locator('[data-testid="workspaces-list"] > li')
+    .filter({ hasText: live.wsName })
+    .getByRole("button", { name: `פרטי ${live.wsName}` })
+    .click();
+  await po.getByRole("dialog").waitFor({ timeout: 10000 });
+  await po.getByRole("button", { name: "עריכת מודולים" }).click();
+  await po.getByRole("dialog").filter({ hasText: "עריכת מודולים" }).waitFor({ timeout: 10000 });
+  check(
+    "J8 ... and the module editor still opens from it",
+    (await po.getByRole("dialog").getByRole("checkbox").count()) >= 1,
+  );
+  await po.keyboard.press("Escape");
+  await po.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
+
+  // =======================================================================
+  section("K. EDITING THE ELECTION OWNER'S OWN ACCOUNT");
+  // =======================================================================
+  // The dialog acts on the OWNER. Nothing about the system may move: the
+  // snapshot below is compared field for field at the end of the section.
+  const systemSnapshot = () =>
+    psql(`
+      select (select w.name || '|' || w.login_code || '|' || w.election_end_at::text
+              from public.election_workspaces w where w.name = ${sqlText(KM)})
+          || '|mods=' || coalesce((select string_agg(m.module_key, ',' order by m.module_key)
+              from public.election_workspace_modules m
+              join public.election_workspaces w on w.id = m.workspace_id where w.name = ${sqlText(KM)}), '')
+          || '|assign=' || (select count(*)::text from public.multi_entity_assignments a
+              join public.election_workspaces w on w.id = a.workspace_id where w.name = ${sqlText(KM)})
+          || '|users=' || (select count(*)::text from public.election_day_permission_users u
+              join public.election_workspaces w on w.id = u.workspace_id where w.name = ${sqlText(KM)})
+          || '|owners=' || (select count(*)::text from public.election_owners o
+              join public.election_workspaces w on w.id = o.workspace_id where w.name = ${sqlText(KM)})
+          || '|ownerauth=' || (select o.auth_user_id::text from public.election_owners o
+              join public.election_workspaces w on w.id = o.workspace_id where w.name = ${sqlText(KM)});
+    `).trim();
+  const beforeSystem = systemSnapshot();
+
+  const openOwnerDialog = async (wsName) => {
+    await po
+      .locator('[data-testid="workspaces-list"] > li')
+      .filter({ hasText: wsName })
+      .getByRole("button", { name: `פרטי ${wsName}` })
+      .click();
+    await po.getByRole("dialog").waitFor({ timeout: 10000 });
+    await po.getByTestId("edit-owner").click();
+    await po.locator('[data-testid="owner-account-dialog"]').waitFor({ timeout: 15000 });
+    // The frame renders immediately; its CONTENT waits on the server read.
+    await po.locator('input[name="owner-account-username"]').waitFor({ timeout: 20000 });
+  };
+  const closeOwnerDialog = async () => {
+    await po.getByRole("button", { name: "סגירה" }).last().click();
+    await po
+      .locator('[data-testid="owner-account-dialog"]')
+      .waitFor({ state: "detached", timeout: 10000 });
+  };
+
+  // The action exists where there IS an Owner, and not where there is none.
+  await po
+    .locator('[data-testid="workspaces-list"] > li')
+    .filter({ hasText: ownerless.name })
+    .getByRole("button", { name: `פרטי ${ownerless.name}` })
+    .click();
+  await po.getByRole("dialog").waitFor({ timeout: 10000 });
+  check(
+    "K1 a workspace with no Owner offers no Owner editing",
+    (await po.getByTestId("edit-owner").count()) === 0,
+  );
+  await po.keyboard.press("Escape");
+  await po.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
+
+  await openOwnerDialog(KM);
+  const dialogText = await po.locator('[data-testid="owner-account-dialog"]').innerText();
+  const persisted = psql(
+    `select o.name || '|' || o.email || '|' || coalesce(o.phone,'') from public.election_owners o
+     join public.election_workspaces w on w.id = o.workspace_id where w.name = ${sqlText(KM)};`,
+  ).trim();
+  const [pName, pEmail, pPhone] = persisted.split("|");
+  // The details are an editable form, so the values are the fields' values.
+  const shownProfile = [
+    await po.locator('input[name="owner-account-name"]').inputValue(),
+    await po.locator('input[name="owner-account-email"]').inputValue(),
+    await po.locator('input[name="owner-account-phone"]').inputValue(),
+  ].join("|");
+  check(
+    "K2 the dialog shows the Owner's persisted name, e-mail and phone",
+    shownProfile === `${pName}|${pEmail}|${pPhone}`,
+    `${persisted} :: ${shownProfile}`,
+  );
+  const pwField = po.locator('input[name="owner-account-new-password"]');
+  check(
+    "K3 the password field is empty and masked - no existing password is ever shown",
+    (await pwField.inputValue()) === "" && (await pwField.getAttribute("type")) === "password",
+  );
+  const storedHash = psql(
+    `select substring(u.encrypted_password from 1 for 20) from auth.users u
+     join public.election_owners o on o.auth_user_id = u.id
+     join public.election_workspaces w on w.id = o.workspace_id where w.name = ${sqlText(KM)};`,
+  ).trim();
+  check(
+    "K3b ... and the stored credential appears nowhere on the page",
+    storedHash.length > 10 && !(await po.locator("body").innerText()).includes(storedHash),
+  );
+  check(
+    "K4 the Owner's current login username is shown",
+    (await po.locator('input[name="owner-account-username"]').inputValue()) ===
+      `cu km ${stamp}`,
+    await po.locator('input[name="owner-account-username"]').inputValue(),
+  );
+  check(
+    "K5 the login address offered is the SHARED login - not a new route",
+    dialogText.includes("kolbox-auth.vercel.app/login") &&
+      !dialogText.includes("/election-day/owner-login"),
+  );
+
+  // --- username change ----------------------------------------------------
+  const newUsername = `cu km renamed ${stamp}`;
+  await po.locator('input[name="owner-account-username"]').fill(newUsername);
+  await po.getByTestId("owner-username-save").click();
+  await po.getByText("שם המשתמש עודכן").waitFor({ timeout: 20000 });
+  check(
+    "K6 the new username is persisted in the identity directory",
+    psql(
+      `select count(*)::text from public.auth_identities i
+       join public.election_owners o on o.auth_user_id = i.auth_user_id
+       join public.election_workspaces w on w.id = o.workspace_id
+       where w.name = ${sqlText(KM)} and i.username = ${sqlText(newUsername)} and i.realm = 'election_owner';`,
+    ).trim() === "1",
+  );
+  const resolvesToOwner = psql(
+    `select count(*)::text from public.auth_identity_resolve('election_owner', ${sqlText(newUsername)}) r
+     where r.auth_user_id = (
+       select o.auth_user_id from public.election_owners o
+       join public.election_workspaces w on w.id = o.workspace_id
+       where w.name = ${sqlText(KM)});`,
+  ).trim();
+  check(
+    "K7 ... and it resolves to THIS Owner through the same resolver the login uses",
+    resolvesToOwner === "1",
+    `rows=${resolvesToOwner}`,
+  );
+  const oldResolves = psql(
+    `select count(*)::text from public.auth_identity_resolve('election_owner', ${sqlText(`cu km ${stamp}`)});`,
+  ).trim();
+  check("K8 ... while the OLD username resolves to nobody", oldResolves === "0", `rows=${oldResolves}`);
+  await closeOwnerDialog();
+  await openOwnerDialog(KM);
+  check(
+    "K9 reopening the dialog reloads the saved username from the server",
+    (await po.locator('input[name="owner-account-username"]').inputValue()) === newUsername,
+    await po.locator('input[name="owner-account-username"]').inputValue(),
+  );
+
+  // --- password change ----------------------------------------------------
+  const newOwnerPw = randomPassword();
+  await po.locator('input[name="owner-account-new-password"]').fill("short");
+  await po.getByTestId("owner-password-save").click();
+  await po.getByText("הסיסמה חייבת להכיל לפחות 8 תווים").waitFor({ timeout: 10000 });
+  check("K10 a too-short password is refused before anything is sent", true);
+  check(
+    "K10b ... and the old password still works after that refusal",
+    (await signIn(kmMail, kmPw).then(() => true, () => false)),
+  );
+
+  await po.locator('input[name="owner-account-new-password"]').fill(newOwnerPw);
+  await po.getByTestId("owner-password-save").click();
+  await po.getByText("הסיסמה עודכנה").waitFor({ timeout: 20000 });
+  check(
+    "K11 the field is cleared the moment the password is set",
+    (await po.locator('input[name="owner-account-new-password"]').inputValue()) === "",
+  );
+  check(
+    "K12 the NEW password signs the Owner in",
+    await signIn(kmMail, newOwnerPw).then(() => true, () => false),
+  );
+  check(
+    "K13 ... and the OLD password no longer does",
+    !(await signIn(kmMail, kmPw).then(() => true, () => false)),
+  );
+  await closeOwnerDialog();
+
+  // --- nothing about the SYSTEM moved -------------------------------------
+  check(
+    "K14 the workspace, its code, end date, modules, assignments, users and Owner row are untouched",
+    systemSnapshot() === beforeSystem,
+    `${beforeSystem} -> ${systemSnapshot()}`,
+  );
+
+  // --- authorization ------------------------------------------------------
+  const rawPost = (body, headers = {}) =>
+    fetch(`${PBASE}/api/platform/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: PBASE, ...headers },
+      body: JSON.stringify(body),
+    }).then((r) => r.status);
+  const wsId = psql(
+    `select id from public.election_workspaces where name = ${sqlText(KM)};`,
+  ).trim();
+  check(
+    "K15 the account read is refused without a session",
+    (await fetch(`${PBASE}/api/platform/session?op=owner_account&workspaceId=${wsId}`).then(
+      (r) => r.status,
+    )) === 401,
+  );
+  check(
+    "K16 setting a username is refused without a session",
+    (await rawPost({ op: "set_owner_username", workspaceId: wsId, username: "x y" })) === 401,
+  );
+  check(
+    "K17 setting a password is refused without a session",
+    (await rawPost({ op: "set_owner_password", workspaceId: wsId, password: "abcdefgh" })) === 401,
+  );
+  check(
+    "K18 a foreign Origin is refused before anything else",
+    (await rawPost(
+      { op: "set_owner_password", workspaceId: wsId, password: "abcdefgh" },
+      { origin: "https://evil.invalid" },
+    )) === 403,
+  );
+  check(
+    "K19 an unknown body key is refused pre-auth - no smuggling extra fields",
+    (await rawPost({
+      op: "set_owner_username",
+      workspaceId: wsId,
+      username: "x y",
+      authUserId: "00000000-0000-4000-8000-000000000000",
+    })) === 400,
+  );
+
+  // --- profile editing -----------------------------------------------------
+  const auditRows = (action) =>
+    psql(
+      `select count(*)::text from public.platform_owner_account_audit a
+       join public.election_workspaces w on w.id = a.target_workspace_id_snapshot
+       where w.name = ${sqlText(KM)} and a.action = ${sqlText(action)};`,
+    ).trim();
+
+  await openOwnerDialog(KM);
+  const editedName = "נחום משה הבעלים";
+  const editedEmail = `km-edited-${stamp}@console-ui.invalid`;
+  await po.locator('input[name="owner-account-name"]').fill(editedName);
+  await po.locator('input[name="owner-account-email"]').fill(editedEmail);
+  await po.locator('input[name="owner-account-phone"]').fill("052-777-6655");
+  await po.getByTestId("owner-profile-save").click();
+  await po.getByText("פרטי הבעלים עודכנו").waitFor({ timeout: 20000 });
+
+  const afterEdit = psql(
+    `select o.name || '|' || o.email || '|' || coalesce(o.phone,'') from public.election_owners o
+     join public.election_workspaces w on w.id = o.workspace_id where w.name = ${sqlText(KM)};`,
+  ).trim();
+  check(
+    "K21 name, e-mail and phone persist - the phone in the canonical form",
+    afterEdit === `${editedName}|${editedEmail}|0527776655`,
+    afterEdit,
+  );
+  await closeOwnerDialog();
+  await openOwnerDialog(KM);
+  check(
+    "K22 ... and a reopened dialog reloads exactly what was stored",
+    (await po.locator('input[name="owner-account-name"]').inputValue()) === editedName &&
+      (await po.locator('input[name="owner-account-email"]').inputValue()) === editedEmail &&
+      (await po.locator('input[name="owner-account-phone"]').inputValue()) === "0527776655",
+    [
+      await po.locator('input[name="owner-account-name"]').inputValue(),
+      await po.locator('input[name="owner-account-email"]').inputValue(),
+      await po.locator('input[name="owner-account-phone"]').inputValue(),
+    ].join("|"),
+  );
+
+  // Editing ONE field must leave the others exactly as they were.
+  await po.locator('input[name="owner-account-name"]').fill("נחום משה הבעלים ב");
+  await po.getByTestId("owner-profile-save").click();
+  await po.getByText("פרטי הבעלים עודכנו").waitFor({ timeout: 20000 });
+  check(
+    "K23 editing one field leaves the others untouched",
+    psql(
+      `select o.email || '|' || coalesce(o.phone,'') from public.election_owners o
+       join public.election_workspaces w on w.id = o.workspace_id where w.name = ${sqlText(KM)};`,
+    ).trim() === `${editedEmail}|0527776655`,
+  );
+
+  // A refusal must not half-apply.
+  await po.locator('input[name="owner-account-phone"]').fill("12345");
+  await po.getByTestId("owner-profile-save").click();
+  await po.getByText("יש להזין מספר טלפון ישראלי תקין").waitFor({ timeout: 15000 });
+  check(
+    "K24 an invalid phone is refused and nothing at all is written",
+    psql(
+      `select o.name || '|' || o.email || '|' || coalesce(o.phone,'') from public.election_owners o
+       join public.election_workspaces w on w.id = o.workspace_id where w.name = ${sqlText(KM)};`,
+    ).trim() === `נחום משה הבעלים ב|${editedEmail}|0527776655`,
+  );
+  await closeOwnerDialog();
+
+  check(
+    "K25 the system itself is STILL untouched after every profile edit",
+    systemSnapshot() === beforeSystem,
+    `${beforeSystem} -> ${systemSnapshot()}`,
+  );
+  // The list joins an approval to its workspace; changing the Owner's e-mail
+  // must not knock the row back to "not created yet".
+  await po.waitForTimeout(REVALIDATE_MS + 2000);
+  check(
+    "K25b ... and the system still renders as a real workspace row after the e-mail changed",
+    (await po
+      .locator('[data-testid="workspaces-list"] > li')
+      .filter({ hasText: KM })
+      .getAttribute("data-kind")) === "workspace",
+  );
+
+  // --- the audit trail -----------------------------------------------------
+  check("K26 each real profile change wrote exactly one audit row", auditRows("profile_updated") === "2", auditRows("profile_updated"));
+  check("K27 the username change is recorded", auditRows("username_changed") === "1", auditRows("username_changed"));
+  check("K28 setting a password is recorded", auditRows("password_set") === "1", auditRows("password_set"));
+  const auditShape = psql(
+    `select a.action || ' actor=' || (a.acting_platform_owner_auth_user_id = p.auth_user_id)::text
+         || ' target=' || (a.target_owner_auth_user_id_snapshot = o.auth_user_id)::text
+         || ' ws=' || (a.target_workspace_id_snapshot = w.id)::text
+         || ' at=' || (a.performed_at is not null)::text
+         || ' details=' || a.details::text
+     from public.platform_owner_account_audit a
+     join public.election_workspaces w on w.id = a.target_workspace_id_snapshot
+     join public.election_owners o on o.workspace_id = w.id
+     cross join public.platform_owners p
+     where w.name = ${sqlText(KM)}
+     order by a.performed_at;`,
+  ).trim();
+  check(
+    "K29 every row names the actor, the target, the workspace and a timestamp",
+    auditShape.split("\n").every((l) => l.includes("actor=true target=true ws=true at=true")),
+    auditShape.replace(/\n/g, " ~ ").slice(0, 320),
+  );
+  // `details` alone - the action name lives in its own column, so the word
+  // "password" appearing here could only come from recorded content.
+  const allDetails = psql(
+    `select coalesce(string_agg(a.details::text, ' '), '') from public.platform_owner_account_audit a
+     join public.election_workspaces w on w.id = a.target_workspace_id_snapshot
+     where w.name = ${sqlText(KM)};`,
+  ).trim();
+  check(
+    "K30 the password row carries NO detail at all, and no row carries secret material",
+    auditShape.includes("password_set actor=true target=true ws=true at=true details={}") &&
+      !/password|secret|token|hash/i.test(allDetails),
+    allDetails.slice(0, 200),
+  );
+  check(
+    "K31 the username row records which name replaced which",
+    auditShape.includes(`"from": "cu km ${stamp}"`) &&
+      auditShape.includes(`"to": "cu km renamed ${stamp}"`),
+    auditShape.replace(/\n/g, " ~ ").slice(0, 320),
+  );
+  check(
+    "K32 a save that changes nothing writes no audit row",
+    (() => {
+      const before = auditRows("profile_updated");
+      psql(
+        `select public.platform_update_election_owner(
+           (select auth_user_id from public.platform_owners limit 1),
+           (select id from public.election_workspaces where name = ${sqlText(KM)}),
+           'נחום משה הבעלים ב', ${sqlText(editedEmail)}, '0527776655');`,
+      );
+      return auditRows("profile_updated") === before;
+    })(),
+  );
+
+  // --- the audit is append-only, and the function is not reachable ---------
+  check(
+    "K33 the audit refuses UPDATE and DELETE",
+    ["update public.platform_owner_account_audit set action = 'password_set';",
+     "delete from public.platform_owner_account_audit;"].every((sql) => {
+      try {
+        psql(sql);
+        return false;
+      } catch (e) {
+        return String(e).includes("AUDIT_IMMUTABLE");
+      }
+    }),
+  );
+  const grants = psql(
+    `select string_agg(r || '=' || has_function_privilege(r, 'public.platform_update_election_owner(uuid,uuid,text,text,text)', 'execute')::text, ' ')
+     from unnest(array['public','anon','authenticated','service_role']) r;`,
+  ).trim();
+  check(
+    "K34 the update function is reachable ONLY by the privileged server role",
+    grants === "public=false anon=false authenticated=false service_role=true",
+    grants,
+  );
+  const tableGrants = psql(
+    `select string_agg(r || '=' || has_table_privilege(r,'public.platform_owner_account_audit','insert')::text, ' ')
+     from unnest(array['anon','authenticated','service_role']) r;`,
+  ).trim();
+  check(
+    "K35 nothing writes the audit directly - not even the server role",
+    tableGrants === "anon=false authenticated=false service_role=false",
+    tableGrants,
+  );
+  check(
+    "K36 the profile op is refused without a session, and from a foreign Origin",
+    (await rawPost({
+      op: "set_owner_profile",
+      workspaceId: wsId,
+      name: "x",
+      email: "x@x.test",
+      phone: "",
+    })) === 401 &&
+      (await rawPost(
+        { op: "set_owner_profile", workspaceId: wsId, name: "x", email: "x@x.test", phone: "" },
+        { origin: "https://evil.invalid" },
+      )) === 403,
+  );
+  check(
+    "K37 ... and an attempt to smuggle a workspace or account change is refused pre-auth",
+    (await rawPost({
+      op: "set_owner_profile",
+      workspaceId: wsId,
+      name: "x",
+      email: "x@x.test",
+      phone: "",
+      auth_user_id: "00000000-0000-4000-8000-000000000000",
+    })) === 400,
+  );
+
+  // =======================================================================
+  section("L. ONE MODULE SCREEN, A REAL ACTIVITY LOG, AND MY OWN PASSWORD");
+  // =======================================================================
+  // --- module management is no longer duplicated --------------------------
+  await po.goto(`${PBASE}/platform/workspaces`, { waitUntil: "domcontentloaded" });
+  await po.locator('[data-testid="workspaces-list"]').waitFor({ timeout: 25000 });
+  const navNow = await navLabels();
+  check(
+    "L1 the separate module-assignment destination is gone from the navigation",
+    !navNow.some((l) => l.includes("הקצאת מודולים")),
+    navNow.join(" | "),
+  );
+  check(
+    "L1b ... while every other destination is still there",
+    ["מערכות בחירות", "רב-מערכות", "יומן פעולות", "הגדרות"].every((l) =>
+      navNow.some((x) => x.includes(l)),
+    ),
+    navNow.join(" | "),
+  );
+  await po.goto(`${PBASE}/platform/modules`, { waitUntil: "domcontentloaded" });
+  await po.locator('[data-testid="workspaces-list"]').waitFor({ timeout: 25000 });
+  check(
+    "L2 the retired /platform/modules path redirects into the systems list",
+    /\/platform\/workspaces$/.test(po.url()),
+    po.url(),
+  );
+
+  // The one capability that screen uniquely held - the GLOBAL availability
+  // switch - moved to Settings and still works.
+  await po.getByRole("link", { name: "הגדרות" }).first().click();
+  await po.locator('[data-testid="platform-settings-section"]').waitFor({ timeout: 20000 });
+  check(
+    "L3 the global module-availability control lives in Settings now",
+    (await po.getByTestId("module-availability-open").count()) === 1,
+  );
+  await po.getByTestId("module-availability-open").click();
+  const availabilityDialog = po.getByRole("dialog").filter({ hasText: "זמינות מודולים" });
+  await availabilityDialog.waitFor({ timeout: 15000 });
+  check(
+    "L3b ... and it opens with the real catalog, not an empty shell",
+    (await availabilityDialog.getByRole("button").count()) >= 1,
+  );
+  await po.keyboard.press("Escape");
+  await po.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
+
+  // --- the activity log ----------------------------------------------------
+  await po.getByRole("link", { name: "יומן פעולות" }).first().click();
+  await po.locator('[data-testid="activity-list"]').waitFor({ timeout: 25000 });
+  const activityRows = po.locator('[data-testid="activity-row"]');
+  const rowCount = await activityRows.count();
+  const dbCount = Number(
+    psql(
+      `select (select count(*) from public.platform_owner_account_audit)
+            + (select count(*) from public.platform_entitlement_audit)
+            + (select count(*) from public.platform_module_availability_audit)
+            + (select count(*) from public.multi_entity_audit);`,
+    ).trim(),
+  );
+  check(
+    "L4 the log renders real recorded events - as many as the audits actually hold",
+    rowCount > 0 && rowCount === Math.min(dbCount, 200),
+    `rendered=${rowCount} recorded=${dbCount}`,
+  );
+  const logText = await po.locator('[data-testid="activity-list"]').innerText();
+  check(
+    "L5 the account actions this run performed are all in it",
+    ["עודכנו פרטי הבעלים", "שונה שם המשתמש", "נקבעה סיסמה לבעלים"].every((a) =>
+      logText.includes(a),
+    ),
+    logText.replace(/\s+/g, " ").slice(0, 200),
+  );
+  check(
+    "L6 ... each with what it was about and when",
+    (await activityRows.first().innerText()).trim().length > 0 &&
+      (await po
+        .locator('[data-testid="activity-row"][data-source="owner_account"]')
+        .count()) >= 3 &&
+      /\d{1,2}\.\d{1,2}\.\d{4}/.test(logText),
+  );
+  check(
+    "L7 NOTHING that looks like credential material is in the log",
+    !/password|secret|token|סיסמה:/i.test(logText),
+    logText.replace(/\s+/g, " ").slice(0, 160),
+  );
+  // A log that shows only what was recorded cannot show what was not.
+  const unaudited = psql(
+    `select count(*)::text from public.platform_owner_account_audit where action = 'workspace_deleted';`,
+  ).trim();
+  check("L8 ... and no event type that was never recorded appears", unaudited === "0");
+
+  // --- the Platform Owner's own password ----------------------------------
+  const newPoPw = randomPassword();
+  await po.getByRole("link", { name: "הגדרות" }).first().click();
+  await po.getByTestId("own-password-open").click();
+  await po.locator('[data-testid="own-password-form"]').waitFor({ timeout: 15000 });
+
+  await po.locator('input[name="platform-owner-current-password"]').fill("wrong-password-1");
+  await po.locator('input[name="platform-owner-new-password"]').fill(newPoPw);
+  await po.locator('input[name="platform-owner-confirm-password"]').fill(newPoPw);
+  await po.getByTestId("own-password-save").click();
+  await po.getByText("הסיסמה הנוכחית שגויה").waitFor({ timeout: 20000 });
+  check("L9 a wrong current password is refused", true);
+  check(
+    "L9b ... and the real password still works after that refusal",
+    await signIn(email("po"), poPw).then(() => true, () => false),
+  );
+
+  await po.locator('input[name="platform-owner-current-password"]').fill(poPw);
+  await po.locator('input[name="platform-owner-new-password"]').fill(newPoPw);
+  await po.locator('input[name="platform-owner-confirm-password"]').fill(newPoPw);
+  await po.getByTestId("own-password-save").click();
+  // The FORM closing is the unambiguous success signal. The toast lingers for
+  // seconds, so waiting on its text would match the PREVIOUS save's toast and
+  // pass before this one had even been sent.
+  await po
+    .locator('[data-testid="own-password-form"]')
+    .waitFor({ state: "detached", timeout: 25000 });
+  check(
+    "L10 the NEW password signs the Platform Owner in",
+    await signIn(email("po"), newPoPw).then(() => true, () => false),
+  );
+  check(
+    "L11 ... and the OLD one no longer does",
+    !(await signIn(email("po"), poPw).then(() => true, () => false)),
+  );
+  check(
+    "L12 the change is recorded, with no detail at all",
+    psql(
+      `select coalesce(string_agg(a.details::text, ','), '') from public.platform_owner_account_audit a
+       join public.platform_owners p on p.auth_user_id = a.acting_platform_owner_auth_user_id
+       where a.action = 'self_password_set';`,
+    ).trim() === "{}",
+  );
+  check(
+    "L13 ... and it names no Election Owner, because none was involved",
+    psql(
+      `select count(*)::text from public.platform_owner_account_audit a
+       join public.platform_owners p on p.auth_user_id = a.acting_platform_owner_auth_user_id
+       where a.action = 'self_password_set'
+         and a.target_workspace_id_snapshot is null
+         and a.target_owner_auth_user_id_snapshot is null;`,
+    ).trim() === "1",
+  );
+  check(
+    "L14 the activity op is refused without a session",
+    (await fetch(`${PBASE}/api/platform/session?op=activity`).then((r) => r.status)) === 401,
+  );
+  check(
+    "L15 changing a password is refused without a session, and from a foreign Origin",
+    (await rawPost({
+      op: "change_own_password",
+      currentPassword: "x",
+      newPassword: "abcdefghijkl",
+    })) === 401 &&
+      (await rawPost(
+        { op: "change_own_password", currentPassword: "x", newPassword: "abcdefghijkl" },
+        { origin: "https://evil.invalid" },
+      )) === 403,
+  );
+
+  // Trying again in the SAME tab is refused, and the reason is worth stating:
+  // changing the password invalidated the very token this console is holding.
+  // The screen still renders - the guard has not re-resolved yet - but the
+  // next privileged call is rejected. An operator who changes their password
+  // has to sign in again before doing anything else.
+  await po.getByTestId("own-password-open").click();
+  await po.locator('[data-testid="own-password-form"]').waitFor({ timeout: 15000 });
+  await po.locator('input[name="platform-owner-current-password"]').fill(newPoPw);
+  await po.locator('input[name="platform-owner-new-password"]').fill(poPw);
+  await po.locator('input[name="platform-owner-confirm-password"]').fill(poPw);
+  await po.getByTestId("own-password-save").click();
+  await po.getByText("אין הרשאה לביצוע הפעולה").waitFor({ timeout: 20000 });
+  check("L16 the session that changed the password can no longer act with it", true);
+
+  // Signed in afresh, the same flow works again - so it is repeatable, not a
+  // one-shot. This also puts the fixture password back.
+  const pw2 = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "he-IL" })).newPage();
+  pw2.on("pageerror", (e) => pageErrors.push(String(e)));
+  await pw2.goto(`${PBASE}/platform/login`, { waitUntil: "domcontentloaded" });
+  await pw2.locator('input[type="email"]').fill(email("po"));
+  await pw2.locator('input[autocomplete="current-password"]').fill(newPoPw);
+  await pw2.getByRole("button", { name: "התחברות" }).click();
+  await pw2.getByRole("heading", { name: "מסוף בעל הפלטפורמה" }).waitFor({ timeout: 25000 });
+  check("L17 the NEW password signs in through the real login screen", true);
+  await pw2.getByRole("link", { name: "הגדרות" }).first().click();
+  await pw2.getByTestId("own-password-open").click();
+  await pw2.locator('[data-testid="own-password-form"]').waitFor({ timeout: 15000 });
+  await pw2.locator('input[name="platform-owner-current-password"]').fill(newPoPw);
+  await pw2.locator('input[name="platform-owner-new-password"]').fill(poPw);
+  await pw2.locator('input[name="platform-owner-confirm-password"]').fill(poPw);
+  await pw2.getByTestId("own-password-save").click();
+  await pw2
+    .locator('[data-testid="own-password-form"]')
+    .waitFor({ state: "detached", timeout: 20000 });
+  check(
+    "L17b ... and the change is repeatable - the original password works again",
+    await signIn(email("po"), poPw).then(() => true, () => false),
+  );
+  await pw2.close();
+
+  // NOTE: section I ends with a sign-out, and a sign-out is global - it
+  // revokes the session THIS page keeps revalidating with. It has to come
+  // last, after every section that still needs the list on screen.
+  // =======================================================================
   section("I. THE PLATFORM OWNER'S ACCOUNT BLOCK NAMES THE OWNER");
   // =======================================================================
   // It showed the e-mail address - which mailbox they happened to sign in
@@ -1199,7 +1924,7 @@ try {
 
   check("Z1 no uncaught page errors anywhere in this run", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));
 } catch (err) {
-  check("RUN completed without an exception", false, String(err).split("\n")[0]);
+  check("RUN completed without an exception", false, `${String(err).split(String.fromCharCode(10)).slice(0, 6).join(" | ")} :: url=${po.url()}`);
 } finally {
   await browser.close();
   pServer.close();
@@ -1211,6 +1936,7 @@ try {
     delete from public.election_workspace_pending_owner_access;
     delete from public.platform_owners;
     delete from public.election_workspaces where name like 'CU %';
+    -- The audit is append-only BY DESIGN and refuses DELETE (K33 proves it);
   `);
   await purgeDomainUsers();
 }

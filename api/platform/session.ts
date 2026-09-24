@@ -2,7 +2,7 @@ import {
   extractPlatformBearerToken,
   verifyPlatformOwnerJwt,
 } from "../election-day/_platformAuth.js";
-import { getServiceClient } from "../election-day/_ownerAuth.js";
+import { getAnonAuthClient, getServiceClient } from "../election-day/_ownerAuth.js";
 import { handleAuthBrokerRequest, isAuthBrokerRequest } from "./_authBroker.js";
 import { handleMultiEntityRequest, isMultiEntityRequest } from "./_multiEntitySession.js";
 
@@ -156,12 +156,21 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   purge_replaced_auth_user: ["previousAuthUserId"],
   purge_provisioning_orphan: ["authUserId"],
   reissue_owner_access: ["pendingId"],
+  // The Election Owner's own account. `workspaceId` identifies WHICH Owner -
+  // the server re-resolves them from it, so no auth id ever crosses the wire.
+  set_owner_username: ["workspaceId", "username"],
+  set_owner_password: ["workspaceId", "password"],
+  set_owner_profile: ["workspaceId", "name", "email", "phone"],
+  // The Platform Owner's OWN password. Verified and set entirely server-side.
+  change_own_password: ["currentPassword", "newPassword"],
 };
 
 const GET_OPS = new Set<string>([
   "multi_entity_state",
   "owner_access",
   "workspace_modules",
+  "owner_account",
+  "activity",
 ]);
 
 // Stage 9: syntactic shape of a module key. The database is the authority on
@@ -272,6 +281,11 @@ function mapRpcError(message: string): { status: number; code: string } {
   if (m.includes("INVALID_PENDING_ID")) {
     return { status: 400, code: "INVALID_REQUEST" };
   }
+  // The Owner profile update's own named refusals.
+  if (m.includes("OWNER_NOT_FOUND")) return { status: 404, code: "OWNER_NOT_FOUND" };
+  if (m.includes("INVALID_NAME")) return { status: 400, code: "INVALID_NAME" };
+  if (m.includes("INVALID_EMAIL")) return { status: 400, code: "INVALID_EMAIL" };
+  if (m.includes("INVALID_PHONE")) return { status: 400, code: "INVALID_PHONE" };
   if (m.includes("MISSING_OWNER_NAME") || m.includes("MISSING_OWNER_EMAIL")) {
     return { status: 400, code: "INVALID_REQUEST" };
   }
@@ -787,9 +801,12 @@ async function handleCreateOwnerAccess(
   // delete of the account created moments ago and leaves no approval behind.
   //
   // IDEMPOTENT for a re-approval: when this flow adopts an account it created
-  // earlier, that account already holds its username. A username is permanent
-  // for the life of a principal, so the existing one stands and the claim is
-  // skipped - re-approving must not fail with SUBJECT_ALREADY_ASSIGNED.
+  // earlier, that account already holds its username. Re-approval never
+  // RENAMES a principal - the existing name stands and the claim is skipped,
+  // so re-approving cannot fail with SUBJECT_ALREADY_ASSIGNED. An Election
+  // Owner's username is no longer permanent, though: an authorized Platform
+  // Owner may change it from the console through `set_owner_username`, which
+  // releases the old name and claims the new one and records the change.
   const existingUsername = await readOwnUsername(authUserId);
   const { error: usernameErr } = existingUsername
     ? { error: null as null }
@@ -1842,6 +1859,42 @@ async function handlePurgeProvisioningOrphan(
  * Stage 9: module catalog + every workspace with its current entitlements.
  * Read-only; the RPC re-resolves the Platform Owner singleton itself.
  */
+/**
+ * Each workspace's Election Owner phone number, keyed by workspace id.
+ *
+ * Read from `election_owners` - the Owner's own row, which is where a phone
+ * number actually lives. Deliberately NOT the approval's copy: an approval is
+ * a separate record of what was requested once, it does not exist at all for a
+ * workspace created through the historical-backfill path, and this console has
+ * already been bitten once by treating a copy as if it were the source.
+ *
+ * A direct service-role read, the same way `api/election-day/session.ts` reads
+ * a workspace name: `election_owners` has RLS on with zero policies, so only
+ * the service role sees it, and no new grant or function is involved. Additive
+ * and non-fatal - a failure here costs the phone column, never the list.
+ */
+async function readOwnerPhones(
+  supabase: ReturnType<typeof getServiceClient>,
+): Promise<Map<string, string>> {
+  const phones = new Map<string, string>();
+  try {
+    const { data, error } = await supabase
+      .from("election_owners")
+      .select("workspace_id, phone");
+    if (error || !Array.isArray(data)) return phones;
+    for (const row of data as { workspace_id?: unknown; phone?: unknown }[]) {
+      const id = str(row.workspace_id);
+      const phone = str(row.phone);
+      // One workspace may hold several Owner rows; the first with a number
+      // wins rather than an arbitrary later blank overwriting it.
+      if (id && phone && !phones.has(id)) phones.set(id, phone);
+    }
+  } catch {
+    /* the list is worth more than the column */
+  }
+  return phones;
+}
+
 async function handleWorkspaceModulesList(
   res: MinimalResponse,
   platformOwnerAuthUserId: string,
@@ -1855,7 +1908,483 @@ async function handleWorkspaceModulesList(
     sendError(res, status, code);
     return;
   }
-  res.status(200).json(data ?? { catalog: [], workspaces: [] });
+  const body = (data ?? { catalog: [], workspaces: [] }) as {
+    catalog?: unknown;
+    workspaces?: unknown;
+  };
+  if (Array.isArray(body.workspaces) && body.workspaces.length > 0) {
+    const phones = await readOwnerPhones(supabase);
+    body.workspaces = body.workspaces.map((w) => {
+      const row = w as Record<string, unknown>;
+      const phone = phones.get(str(row.workspace_id));
+      return phone ? { ...row, owner_phone: phone } : row;
+    });
+  }
+  res.status(200).json(body);
+}
+
+/**
+ * THE ELECTION OWNER'S OWN ACCOUNT, as the Platform console may act on it.
+ *
+ * The Owner record is `election_owners` - one row per workspace, enforced by a
+ * UNIQUE constraint on `workspace_id`. Everything below re-resolves that row
+ * from a workspace id the caller supplies and the server then validates; the
+ * client never sends, and never receives, the Owner's `auth_user_id`.
+ *
+ * DELIBERATELY NOT HERE: name, e-mail and phone are read-only. Nothing in this
+ * database updates `election_owners` - no RPC, no trigger - and no handler in
+ * this project writes any table directly, only reads. Editing them needs a new
+ * SECURITY DEFINER function, which is a migration.
+ */
+async function readWorkspaceOwner(
+  supabase: ReturnType<typeof getServiceClient>,
+  workspaceId: string,
+): Promise<{
+  authUserId: string;
+  name: string;
+  email: string;
+  phone: string | null;
+} | null> {
+  const { data, error } = await supabase
+    .from("election_owners")
+    .select("auth_user_id, name, email, phone")
+    .eq("workspace_id", workspaceId)
+    .limit(1);
+  if (error || !Array.isArray(data) || data.length === 0) return null;
+  const row = data[0] as Record<string, unknown>;
+  const authUserId = str(row.auth_user_id);
+  if (!authUserId) return null;
+  return {
+    authUserId,
+    name: str(row.name),
+    email: str(row.email),
+    phone: str(row.phone) || null,
+  };
+}
+
+/** Resolves the Owner for a caller-supplied workspace id, answering the
+ * request itself when there is no such workspace or no Owner on it. */
+async function resolveOwnerForRequest(
+  req: MinimalRequest,
+  res: MinimalResponse,
+): Promise<{
+  supabase: ReturnType<typeof getServiceClient>;
+  workspaceId: string;
+  owner: { authUserId: string; name: string; email: string; phone: string | null };
+} | null> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const workspaceId = str(body.workspaceId);
+  if (!UUID_PATTERN.test(workspaceId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return null;
+  }
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return null;
+  }
+  const owner = await readWorkspaceOwner(supabase, workspaceId);
+  if (!owner) {
+    sendError(res, 404, "OWNER_NOT_FOUND");
+    return null;
+  }
+  return { supabase, workspaceId, owner };
+}
+
+/** The Owner's persisted details plus the login username they sign in with.
+ * Read-only; every value comes from the server, never from what the console
+ * happens to be holding. */
+async function handleOwnerAccount(
+  req: MinimalRequest,
+  res: MinimalResponse,
+): Promise<void> {
+  const workspaceId = str(parseQuery(req.url).workspaceId);
+  if (!UUID_PATTERN.test(workspaceId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+  const owner = await readWorkspaceOwner(supabase, workspaceId);
+  if (!owner) {
+    sendError(res, 404, "OWNER_NOT_FOUND");
+    return;
+  }
+  res.status(200).json({
+    name: owner.name,
+    email: owner.email,
+    phone: owner.phone,
+    username: await readOwnUsername(owner.authUserId),
+  });
+}
+
+/**
+ * Records one Owner-account event that happened OUTSIDE this database - a
+ * username moved in the identity directory, a password set through the auth
+ * provider - so the two are not the only privileged actions in this console
+ * that leave no trace.
+ *
+ * Written immediately AFTER the change succeeds, which is the closest thing to
+ * same-transaction available when the change is not a database write. The
+ * result is reported back as `audited` rather than swallowed: a caller that
+ * changed something and could not record it should be able to tell.
+ *
+ * NEVER carries password material. `details` is fixed at the call site here,
+ * the RPC forces {} for a password event, and the table CHECK-constrains it.
+ */
+async function recordOwnerAccountEvent(
+  supabase: ReturnType<typeof getServiceClient>,
+  platformOwnerAuthUserId: string,
+  workspaceId: string,
+  action: "username_changed" | "password_set",
+  details: Record<string, string> = {},
+): Promise<boolean> {
+  try {
+    const { error } = await supabase.rpc("platform_record_owner_account_event", {
+      p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+      p_workspace_id: workspaceId,
+      p_action: action,
+      p_details: action === "password_set" ? {} : details,
+    });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Changes the Owner's login username.
+ *
+ * The directory has no rename: `auth_identity_assign` refuses a subject that
+ * already holds a name (SUBJECT_ALREADY_ASSIGNED), so a change is release then
+ * assign - two calls, and therefore not one transaction. The order is chosen so
+ * the failure mode is recoverable rather than silent:
+ *
+ *   1. availability is checked FIRST, through the same suggestion function the
+ *      approval flow uses, so the common refusal happens while the Owner still
+ *      holds their current name and nothing has been touched;
+ *   2. only then release + assign;
+ *   3. if the assign still fails - a name claimed in between, say - the OLD
+ *      name is put back before answering, so the Owner is never left unable to
+ *      sign in because an edit half-applied.
+ *
+ * An atomic `auth_identity_rename` would remove step 3 entirely, but that is a
+ * new database function, i.e. a migration.
+ */
+async function handleSetOwnerUsername(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const resolved = await resolveOwnerForRequest(req, res);
+  if (!resolved) return;
+  const { supabase, workspaceId, owner } = resolved;
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const username = str(body.username).trim();
+  if (username === "") {
+    sendError(res, 400, "INVALID_USERNAME");
+    return;
+  }
+
+  const current = await readOwnUsername(owner.authUserId);
+  // Same name (ignoring case and padding) is a no-op, not an error - a form
+  // submitted unchanged must not cost the Owner their username.
+  if (current && current.toLowerCase() === username.toLowerCase()) {
+    res.status(200).json({ ok: true, username: current });
+    return;
+  }
+
+  if (await usernameUnavailable(supabase, res, "election_owner", username)) return;
+
+  const { error: releaseErr } = await supabase.rpc("auth_identity_release", {
+    p_auth_user_id: owner.authUserId,
+    p_actor_id: null,
+  });
+  if (releaseErr) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+
+  const { error: assignErr } = await supabase.rpc("auth_identity_assign", {
+    p_realm: "election_owner",
+    p_username: username,
+    p_auth_user_id: owner.authUserId,
+    p_actor_id: null,
+    p_workspace_id: null,
+  });
+  if (assignErr) {
+    // Put the previous name back rather than leaving the Owner nameless.
+    if (current) {
+      await supabase.rpc("auth_identity_assign", {
+        p_realm: "election_owner",
+        p_username: current,
+        p_auth_user_id: owner.authUserId,
+        p_actor_id: null,
+        p_workspace_id: null,
+      });
+    }
+    const { status, code } = usernameErrorCode(assignErr.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  // Both names are public identifiers, and which name an account answered to
+  // is exactly what this record is for.
+  const audited = await recordOwnerAccountEvent(
+    supabase,
+    platformOwnerAuthUserId,
+    workspaceId,
+    "username_changed",
+    { from: current ?? "", to: username },
+  );
+  res.status(200).json({ ok: true, username, audited });
+}
+
+/**
+ * Sets a NEW password on the Owner's Auth account.
+ *
+ * Never reads, returns or logs an existing password - none is retrievable:
+ * GoTrue stores a hash, and this only writes a replacement through the same
+ * Admin API this handler already uses to create and delete Owner accounts.
+ *
+ * The minimum length restates the Owner's OWN set-password screen
+ * (`OwnerSetPasswordScreen.tsx`, 8 characters, no composition rules) because
+ * `api/` imports nothing from `src/`; the provider stays authoritative and its
+ * refusal is mapped rather than second-guessed.
+ */
+const OWNER_PASSWORD_MIN_LENGTH = 8;
+
+async function handleSetOwnerPassword(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const resolved = await resolveOwnerForRequest(req, res);
+  if (!resolved) return;
+  const { supabase, workspaceId, owner } = resolved;
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const password = typeof body.password === "string" ? body.password : "";
+  if (password.length < OWNER_PASSWORD_MIN_LENGTH) {
+    sendError(res, 400, "WEAK_PASSWORD");
+    return;
+  }
+
+  const { error } = await supabase.auth.admin.updateUserById(owner.authUserId, {
+    password,
+  });
+  if (error) {
+    const message = (error.message ?? "").toLowerCase();
+    if (message.includes("password") || message.includes("weak")) {
+      sendError(res, 400, "WEAK_PASSWORD");
+      return;
+    }
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  // THAT it happened, and nothing about what was set.
+  const audited = await recordOwnerAccountEvent(
+    supabase,
+    platformOwnerAuthUserId,
+    workspaceId,
+    "password_set",
+  );
+  res.status(200).json({ ok: true, audited });
+}
+
+/**
+ * Edits the Owner's own profile - name, e-mail and phone, and nothing else.
+ *
+ * Every rule lives in `platform_update_election_owner`: it locks the row,
+ * normalizes, validates, writes exactly three columns and audits the change in
+ * the same transaction. This end normalizes the phone to the canonical form
+ * the rest of the project stores (see `normalizedIsraeliPhone`) so the console
+ * and the database agree on what was typed, and lets the RPC be the authority
+ * on everything else.
+ */
+async function handleSetOwnerProfile(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const workspaceId = str(body.workspaceId);
+  if (!UUID_PATTERN.test(workspaceId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  const name = str(body.name).trim();
+  const email = str(body.email).trim();
+  const rawPhone = str(body.phone).trim();
+  if (!name || !looksLikeEmail(email)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  // An empty phone is "none recorded", which is a legitimate state; anything
+  // else has to be a real Israeli number.
+  const phone = rawPhone === "" ? null : normalizedIsraeliPhone(rawPhone);
+  if (rawPhone !== "" && !phone) {
+    sendError(res, 400, "INVALID_PHONE");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_update_election_owner", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_workspace_id: workspaceId,
+    p_name: name,
+    p_email: email,
+    p_phone: phone,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  res.status(200).json(data ?? { name, email, phone, changed: [] });
+}
+
+/** The Platform Owner's own password floor, restated here because `api/`
+ * imports nothing from `src/` - see platform-owner.constants.ts, which is the
+ * definition the console validates against. Deliberately NOT lowered with the
+ * Multi-Entity first-password rules: this is the most privileged identity in
+ * the system. */
+const PLATFORM_OWNER_PASSWORD_MIN_LENGTH = 12;
+
+/**
+ * The platform activity log - read-only, and only what was actually recorded.
+ *
+ * Every audit table in this project is RLS-on with zero policies and no grant
+ * to any role, so this goes through the one SECURITY DEFINER read that exists
+ * for it. Nothing is derived or back-filled here or in the function: an action
+ * that was never audited does not appear.
+ */
+async function handleActivityList(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const rawLimit = Number(str(parseQuery(req.url).limit));
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : 200;
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+  const { data, error } = await supabase.rpc("platform_list_activity", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_limit: limit,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  res.status(200).json({ events: data ?? [] });
+}
+
+/**
+ * The Platform Owner changes their OWN password.
+ *
+ * Done entirely on the server so the audit cannot lie: the current password is
+ * verified HERE, the new one is set HERE, and only then is the event recorded.
+ * A client that merely claims to have changed its password cannot produce a
+ * record of one.
+ *
+ * Verification reuses the auth broker's own pattern - a throwaway anon client
+ * signs in with the supplied current password and is immediately signed out
+ * with `scope: "local"`, because every owner realm shares `auth.users` and a
+ * global sign-out here would revoke the operator's real sessions.
+ *
+ * NEITHER PASSWORD IS STORED OR LOGGED. They exist only as arguments: the old
+ * one is compared by the auth provider and discarded, the new one is handed to
+ * the provider and discarded, and the audit row that follows carries `{}`.
+ */
+async function handleChangeOwnPassword(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  verified: { authUserId: string; email: string },
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const currentPassword =
+    typeof body.currentPassword === "string" ? body.currentPassword : "";
+  const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+  if (currentPassword === "" || newPassword.length < PLATFORM_OWNER_PASSWORD_MIN_LENGTH) {
+    sendError(res, 400, "WEAK_PASSWORD");
+    return;
+  }
+  if (newPassword === currentPassword) {
+    sendError(res, 400, "SAME_PASSWORD");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  let anon: ReturnType<typeof getAnonAuthClient>;
+  try {
+    supabase = getServiceClient();
+    anon = getAnonAuthClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  // Prove they know the password they are replacing. A live session is not
+  // enough: a borrowed tab would otherwise be able to lock the owner out.
+  const { data: signIn, error: signInError } = await anon.auth.signInWithPassword({
+    email: verified.email,
+    password: currentPassword,
+  });
+  const matched = !signInError && signIn?.user?.id === verified.authUserId;
+  await anon.auth.signOut({ scope: "local" });
+  if (!matched) {
+    // 400, not 401: the CALLER's session is verified and fine - it is the
+    // supplied password that is wrong. A 401 here would be read by the console
+    // as a lost session and bounce the operator to the login screen instead of
+    // telling them what they actually got wrong.
+    sendError(res, 400, "INVALID_CURRENT_PASSWORD");
+    return;
+  }
+
+  const { error } = await supabase.auth.admin.updateUserById(verified.authUserId, {
+    password: newPassword,
+  });
+  if (error) {
+    const message = (error.message ?? "").toLowerCase();
+    sendError(
+      res,
+      message.includes("password") || message.includes("weak") ? 400 : 500,
+      message.includes("password") || message.includes("weak")
+        ? "WEAK_PASSWORD"
+        : "SERVER_ERROR",
+    );
+    return;
+  }
+
+  // THAT it happened, and nothing about what was set. The recording function
+  // forces empty details for this action, and the table constrains them.
+  const { error: auditErr } = await supabase.rpc("platform_record_owner_account_event", {
+    p_platform_owner_auth_user_id: verified.authUserId,
+    p_workspace_id: null,
+    p_action: "self_password_set",
+    p_details: {},
+  });
+  res.status(200).json({ ok: true, audited: !auditErr });
 }
 
 /**
@@ -2042,6 +2571,14 @@ export default async function handler(
       await handleWorkspaceModulesList(res, verified.authUserId);
       return;
     }
+    if (getOp === "owner_account") {
+      await handleOwnerAccount(req, res);
+      return;
+    }
+    if (getOp === "activity") {
+      await handleActivityList(req, res, verified.authUserId);
+      return;
+    }
     // Default GET payload is deliberately unchanged - the Platform Owner client
     // shape-guards on exactly these two keys.
     res.status(200).json({
@@ -2066,6 +2603,18 @@ export default async function handler(
       return;
     case "set_workspace_modules":
       await handleSetWorkspaceModules(req, res, verified.authUserId);
+      return;
+    case "set_owner_username":
+      await handleSetOwnerUsername(req, res, verified.authUserId);
+      return;
+    case "set_owner_password":
+      await handleSetOwnerPassword(req, res, verified.authUserId);
+      return;
+    case "set_owner_profile":
+      await handleSetOwnerProfile(req, res, verified.authUserId);
+      return;
+    case "change_own_password":
+      await handleChangeOwnPassword(req, res, verified);
       return;
     case "set_module_availability":
       await handleSetModuleAvailability(req, res, verified.authUserId);

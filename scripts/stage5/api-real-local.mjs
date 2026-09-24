@@ -314,7 +314,12 @@ let meClient;
   meClient = s.client;
   check("AC4 password sign-in is only aal1", jwtPayload(s.token).aal === "aal1");
   const aal1Resp = await meGet("session", s.token);
-  check("M1 aal1 token called DIRECTLY -> 401", aal1Resp.statusCode === 401);
+  // This realm has no second factor any more (approved 2026-09-24), so an aal1
+  // token from a password sign-in is exactly what it runs on and the verifier
+  // accepts it. The rest of that boundary is unchanged and still asserted
+  // throughout this section: getUser first, the sub match, and the
+  // DB-authoritative resolver that is the only thing conferring authority.
+  check("M1 aal1 token called DIRECTLY -> 200 (no second factor in this realm)", aal1Resp.statusCode === 200, `status=${aal1Resp.statusCode}`);
   const en = await enrollTotp(meClient, "s5-me1");
   meFactor = en;
   ME = en.token;

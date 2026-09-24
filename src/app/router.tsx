@@ -70,13 +70,11 @@ import { OwnerSetupPage } from "../features/election-day/OwnerSetupPage";
 import { ImportPage } from "../features/import/ImportPage";
 import { MultiEntityOwnerAuthGuard } from "../features/multi-entity-owner/MultiEntityOwnerAuthGuard";
 import { MultiEntityOwnerHomePage } from "../features/multi-entity-owner/MultiEntityOwnerHomePage";
-import { MultiEntityOwnerLoginScreen } from "../features/multi-entity-owner/MultiEntityOwnerLoginScreen";
 import { MultiEntityOwnerSetPasswordScreen } from "../features/multi-entity-owner/MultiEntityOwnerSetPasswordScreen";
 import { MultiEntityOwnerWorkspacePage } from "../features/multi-entity-owner/MultiEntityOwnerWorkspacePage";
 import { PlatformAdminShell } from "../features/platform-owner/PlatformAdminShell";
 import {
   PlatformAuditSection,
-  PlatformModulesSection,
   PlatformSettingsSection,
   PlatformWorkspacesSection,
 } from "../features/platform-owner/PlatformAdminSections";
@@ -259,7 +257,14 @@ const authSurfaceRoutes: RouteObject[] = [
  * own. (The Election surface's raw no-match page is deliberately untouched.)
  */
 const multiEntityOwnerRoutes: RouteObject[] = [
-  { path: ROUTES.multiEntityLogin, element: <MultiEntityOwnerLoginScreen /> },
+  // RETIRED per-origin login. A Multi-Entity Owner signs in with a USERNAME,
+  // and only the shared login can resolve one - the same cutover the Election
+  // Owner went through. The route stays so an existing link still arrives
+  // somewhere real, and bounces; it renders no credential field.
+  {
+    path: ROUTES.multiEntityLogin,
+    element: <PlatformOriginRedirect target="sharedLogin" />,
+  },
   { path: ROUTES.multiEntitySetPassword, element: <MultiEntityOwnerSetPasswordScreen /> },
   // Leg 2 on the multi-entity origin - same shape, same MFA hand-off.
   {
@@ -331,7 +336,14 @@ const platformOwnerRoutes: RouteObject[] = [
             element: <Navigate to={ROUTES.platformWorkspaces} replace />,
           },
           { path: "workspaces", element: <PlatformWorkspacesSection /> },
-          { path: "modules", element: <PlatformModulesSection /> },
+          // Retired section. Per-workspace module editing lives in a
+          // system's own details, and the platform-wide availability switch
+          // moved to Settings; the path redirects so an existing bookmark
+          // still lands somewhere real.
+          {
+            path: "modules",
+            element: <Navigate to={ROUTES.platformWorkspaces} replace />,
+          },
           { path: "multi-entity", element: <PlatformOwnerMultiEntityPage /> },
           { path: "audit", element: <PlatformAuditSection /> },
           { path: "settings", element: <PlatformSettingsSection /> },

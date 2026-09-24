@@ -4849,3 +4849,162 @@ Typecheck + build clean; eslint **0 errors**; `git diff --check` clean. **No mig
 ### Note, not changed here
 
 The console header still reads `מחובר כ-<address>` beside the title. That is a different position from the account block this batch was asked to fix, and an existing suite asserts it; if it should become the username too, it is a one-line follow-up.
+
+---
+
+## Console: a 3-second list, the Owner's real phone, and an Owner account dialog — 2026-09-24 (LOCAL, not committed)
+
+### 1. Revalidation at 3 seconds
+
+`platformConsoleRevalidateMs` 20s → **3s**. The mechanism is unchanged and was already right: the interval exists only while the tab is visible, is torn down on `hidden` and rebuilt on `visible` with one immediate catch-up read, and ticks never overlap. Short on purpose — an operator approves an Owner and then watches for them to finish, so the wait has to feel like "it just appears". Cost stays bounded by those two rules: only an open, focused console reads at all, and never more than one round at a time.
+
+### 2. The Owner's phone, from the Owner's row
+
+The details drawer shows `election_owners.phone` — always rendered, so an Owner with none reads `לא הוזן` rather than the row vanishing.
+
+Deliberately **not** the approval's copy, which was the only phone the console could already see. That copy is taken at approval time, does not exist at all for a workspace created through the historical-backfill path, and treating a copy as the source is the defect fixed in `dcce88d`. No RPC exposes the column, so rather than a migration the existing handler reads it with the service client — the pattern `api/election-day/session.ts` already uses for the workspace name. `election_owners` has RLS on with zero policies, so only the service role sees it; no new grant, no new function. Additive and non-fatal: a failure costs the phone column, never the list.
+
+### 3. "עריכת בעל המערכת" — the Owner's own account
+
+A dedicated dialog opened from a system's details, beside `עריכת מודולים`, and offered only where there IS an Owner.
+
+- **Shown, not editable:** name, e-mail, phone, exactly as persisted.
+- **Editable:** the login username the shared sign-in screen resolves.
+- **Action:** set a NEW password. An existing one is never shown because none is retrievable — the provider stores a hash — and the field starts empty and is cleared the instant it succeeds.
+- **Shown:** the Owner's login address, which is the same shared login every other principal uses. No new route and no new auth path.
+
+Which Owner is decided by the **workspace id alone** — there is exactly one per workspace, enforced by a UNIQUE constraint — and the server re-resolves them on every call. No Auth user id ever crosses the wire in either direction.
+
+**The username change is release-then-assign, because the directory has no rename** (`auth_identity_assign` refuses a subject that already holds a name). The order is chosen so the failure mode is recoverable: availability is checked first through the same suggestion function the approval flow uses, so the common refusal happens while the Owner still holds their name; only then release and assign; and if the assign still fails, the **old name is put back** before answering. An atomic `auth_identity_rename` would remove that compensation, but it is a new database function, i.e. a migration.
+
+**No migration, no schema change, no new grant, no new DB function.** Everything is the existing GoTrue Admin API and the existing identity-directory functions, behind the console's existing authorization chain.
+
+### VERIFICATION
+
+`console/ui-console-unified` **99 PASS / 0 FAIL** (was 78).
+
+- **Revalidation:** the out-of-band workspace appeared in **2063 ms**, against a bound of two intervals plus a round trip — a bound unreachable at the old 20s cadence, so it measures the shipped interval rather than restating it. Zero navigations, URL unchanged, and a `window` sentinel survived, so nothing reloaded. **0 reads across a full interval while hidden**, one read within 3s of becoming visible, four reads over 11s while visible.
+- **Phone:** proven to come from `election_owners` by making the two records disagree — the approval keeps its number, the Owner's row gets another, and the screen followed the Owner. Legacy NULL renders `לא הוזן`; owner, code, status, end date, modules and the module editor all still work.
+- **Owner dialog:** absent where there is no Owner; shows the persisted name/e-mail/phone; password field empty and masked and the stored credential absent from the page; the new username is persisted, **resolves to that exact Owner through the same resolver the login uses**, and the old username resolves to nobody; reopening reloads the saved value from the server; a too-short password is refused and leaves the old one working; the new password signs the Owner in and **the old one no longer does**; the login address offered is the shared login and not the retired per-origin route; and a full before/after snapshot shows the workspace, its code, end date, modules, assignments, permission users and Owner row **byte-identical**. Authorization: the read and both writes are 401 without a session, 403 from a foreign Origin, and 400 for an unknown body key — all pre-auth.
+
+Regression: `ui-stage9` **85/0** · `api-stage9` **96/0**. Build clean, eslint **0 errors**, `git diff --check` clean, nothing under `supabase/`, `package*.json` or `vercel.json`, protected 15 untouched at **+138/-45**.
+
+`auth/api-auth-identity` fails on this shared scratch stack because another suite's Platform Owner singleton is still present — **proven pre-existing by stashing every change and reproducing the identical failure at HEAD.**
+
+### STOPPED, awaiting a decision
+
+**Editing the Owner's name, e-mail or phone is not implemented.** Nothing in this database updates `election_owners` — no RPC, no trigger — and no handler in this project writes any table directly, only reads. Editing them needs a new SECURITY DEFINER function, which is a migration and was therefore not taken.
+
+Worth recording alongside it: **the Platform Owner can now set a live Election Owner's password.** Before this there was no recovery path at all for a provisioned Owner — `reissue_owner_access` refuses a consumed approval — so this closes a real gap, and it is also a real increase in what the Platform Owner can do. It is not audited; there is no Owner-lifecycle audit table today.
+
+---
+
+## Owner profile editing, and an audit for what the console can do to an Owner's account — 2026-09-24 (LOCAL, not committed, NOT applied to Production)
+
+Completes the Owner account dialog recorded above. Name, e-mail and phone were read-only there because nothing in the database updated `election_owners`; that is what this migration adds, together with the record the two credential actions were missing.
+
+### Migration `20260928000000_platform_owner_account_audit.sql`
+
+**`platform_update_election_owner(uuid, uuid, text, text, text)`** — the only path that changes an Owner's name, e-mail or phone. Re-resolves the Platform Owner from `platform_owners` by the server-verified auth user id, exactly as the other `platform_*` functions do, and raises the same generic `UNAUTHORIZED` otherwise. Locks the Owner row, normalizes (trim; e-mail lower-cased; empty phone → NULL), validates (`INVALID_NAME` / `INVALID_EMAIL` / `INVALID_PHONE`, the phone against the canonical `^0\d{8,9}$` this project stores everywhere), and **names exactly three columns in its UPDATE** — `workspace_id` and `auth_user_id` are absent, so ownership cannot move however the function is called. Writes one audit row in the same transaction, and **only when something really changed**: a save that alters nothing writes nothing.
+
+**`platform_record_owner_account_event(uuid, uuid, text, jsonb)`** — for the two changes that do not happen in this database: a username moving in the identity directory, and a password set through the auth provider. Refuses `profile_updated`, so that action keeps exactly one writer.
+
+**`platform_owner_account_audit`** — append-only (BEFORE UPDATE/DELETE row triggers + BEFORE TRUNCATE statement trigger), RLS on, zero policies, and **no table privilege for any role including `service_role`**: it is written only through the two SECURITY DEFINER functions. Snapshot columns without foreign keys, for the same reason `multi_entity_audit` uses them — they must outlive workspaces and principals, and a FK cascade would be refused by the immutability trigger.
+
+**A password cannot be recorded, structurally.** `password_set` rows are CHECK-constrained to an empty details object; a second CHECK refuses any details key named after a secret on the other actions; and the recording function forces `{}` for a password event before the constraint is even reached. Usernames *are* recorded (`{"from": …, "to": …}`) — they are public identifiers, and which name an account answered to is the question this table exists to answer.
+
+Both functions are `REVOKE`d from `PUBLIC`, `anon` and `authenticated` **by name** and granted only to `service_role`, per CLAUDE.md's permanent guardrail.
+
+### Application
+
+A new `set_owner_profile` op behind the console's existing authorization chain (origin → op allow-list → bearer → `verifyPlatformOwnerJwt`), normalizing the phone to the canonical form with the existing `normalizedIsraeliPhone` and leaving every other rule to the RPC. The dialog's name, e-mail and phone are now editable, and the response carries back what was **stored**, so the form shows exactly that.
+
+### The documented username invariant, updated
+
+An Election Owner's username is **no longer permanent**: an authorized Platform Owner may change it from the console, which frees the old name and claims the new one and records the change. The Platform Owner's *own* username is still claimed once and permanent — that is the console operator's own name, and there is nobody above them to change it. Both statements now say which principal they are about.
+
+### VERIFICATION
+
+`console/ui-console-unified` **117 PASS / 0 FAIL** (was 99), run against a stack rebuilt from scratch.
+
+- **Persistence:** all three fields persist, the phone in canonical form; a reopened dialog reloads exactly what was stored; editing one field leaves the others untouched; an invalid phone is refused and **nothing at all is written**.
+- **Isolation:** a before/after snapshot of the workspace name, login code, end date, modules, Multi-Entity assignments, permission users, Owner-row count and the Owner's auth id is **identical** after every profile edit — and the system still renders as a real workspace row after its Owner's e-mail changed, so the list's join did not regress.
+- **Audit:** one row per real change and none for a no-op; every row names actor, target, workspace and timestamp; the `password_set` row's details are `{}`; **no details anywhere contain secret-looking material**; the username row records which name replaced which; UPDATE and DELETE are refused with `AUDIT_IMMUTABLE`; the update function is executable only by `service_role`; the audit table is insertable by **no role at all**.
+- **Authorization:** the profile op is 401 without a session, 403 from a foreign Origin, and 400 when an extra key is smuggled in — all pre-auth.
+- Username and password flows unchanged and still passing, including the old password ceasing to work.
+
+**Migration replay: all 111 migrations applied from empty, cleanly.** Regression on the rebuilt stack: `api-stage9` **96/0** · `ui-stage9` **85/0** · `ui-stage8` **59/0** · `auth/api-auth-identity` **66/0** (this last one had been failing on the shared stack from another suite's leftover Platform Owner singleton — proven pre-existing by reproducing it at HEAD, and it passes on the clean stack).
+
+Build clean, eslint **0 errors**, `git diff --check` clean, no dependency or config change, protected 15 untouched at **+138/-45**. **Nothing applied to Production.**
+
+### Defects found and fixed during verification
+
+- `v_changed || 'name'` in plpgsql parses the literal as an *array* literal and fails. The casts (`'name'::text`) are load-bearing, not decoration — caught by probing the function directly rather than through the UI.
+- The dialog refetched after a profile save, and a reload landing while the operator typed **re-seeded the form over their input** — so a rejected edit could look like it had worked. The save now uses what the server returned and does not refetch.
+- A constants patch matched a prefix and inserted three error strings into an unrelated block; removed.
+
+### Residual risk
+
+The username and password audit rows are written **immediately after** their change rather than in the same transaction — impossible when the change is not a database write. If that write fails the change still stands and the response says `audited: false`; the row is not retried. A same-transaction guarantee would need the identity directory and the auth provider to be one system, which they are not.
+
+---
+
+## Platform completion batch — 2026-09-24 (migration APPLIED to Production; code in this commit)
+
+Seven items in one local batch, on top of the verified Stage 1 / Stage 2 / Stage 4 work recorded above. One migration, `20260928000000`, carries everything the database needed.
+
+### 1. A real activity log
+
+`יומן פעולות` was a placeholder because every audit table here is RLS-on with zero policies and no grant to any role, and no read existed. `platform_list_activity` is that read: four sources — the Owner-account audit, the module-entitlement audit, the global availability audit and the Multi-Entity audit — normalized to `{id, source, action, at, subject, workspace, details}`, newest first, capped and Platform-Owner-only.
+
+**It shows only what was recorded.** Nothing is derived, inferred or back-filled, and the empty state says exactly that rather than implying the system has been quiet. Budget's own audit is deliberately excluded: it belongs to a workspace's finances and has its own privacy review.
+
+### 2. The Platform Owner's own password
+
+A form in Settings, done **entirely on the server** so the audit cannot lie: the current password is verified there, the new one set there, and only then is the event recorded. A client that merely claims to have changed its password cannot produce a record of one. Verification reuses the auth broker's own pattern — a throwaway anon client signs in and is immediately signed out with `scope: "local"`, because every owner realm shares `auth.users`.
+
+Neither password is stored or logged; they exist only as arguments. A wrong current password answers **400**, not 401 — the caller's session is fine, it is the input that is wrong, and a 401 would have been read by the console as a lost session.
+
+**Worth knowing:** changing your own password invalidates the token your console is holding. The screen keeps rendering, but the next privileged call is refused — so an operator who changes their password must sign in again before doing anything else. That is asserted, not assumed.
+
+### 3. One module screen, not two
+
+`הקצאת מודולים` is gone. Per-workspace entitlements are edited from a system's own details, where they were already reachable; the one capability that screen uniquely held — the platform-wide availability switch — moved to Settings. `/platform/modules` redirects rather than dead-ending. The editor gained a success toast: it used to confirm inline on the row it had just changed, and opened from a drawer there is no such row to return to.
+
+### 4-5. Multi-Entity Owner: username sign-in, no second factor
+
+The per-origin `/multi-entity/login` form is retired the same way the Election Owner's was — the route bounces to the shared login, which is the only screen that resolves a username, and renders no credential field of its own. The enrolment and challenge screens are deleted, the client no longer checks assurance level, and **`_multiEntityAuth.ts` no longer requires `aal2`**.
+
+Scoped to this realm alone. The Platform Owner still requires aal2 in `_platformAuth.ts`; the Election Owner and workers are untouched. Everything else about the Multi-Entity boundary is intact and still asserted: `getUser` first (so a revoked or deleted account is caught), the `sub` match, and `multi_entity_resolve_owner_context` as the only thing conferring authority.
+
+### 6. First-password rules, as the provider actually states them
+
+The Multi-Entity first password borrowed the Platform Owner's invented rules — twelve characters plus upper, lower, digit and symbol. The project's own auth config asks for `minimum_password_length = 6` and `password_requirements = ""`, so those classes only ever turned a valid password into a rejected one. `multiEntityOwnerPasswordPolicy.ts` now enforces the provider's floor and the confirmation match, with a specific message for each. The Platform Owner's stronger policy is untouched.
+
+### Migration `20260928000000` (also carries the Stage 4 objects)
+
+`platform_owner_account_audit` gained a fourth action, `self_password_set`, and a `target_shape` CHECK: every action against an Election Owner names its target, and the one action the Platform Owner performs on themselves names none. The empty-details constraint now covers both password actions, so **no password can be recorded whatever a future caller passes**. Plus `platform_list_activity`. All three functions are SECURITY DEFINER with `search_path`, REVOKEd from PUBLIC/anon/authenticated by name and granted only to `service_role`; the audit table is insertable by no role at all.
+
+### VERIFICATION
+
+**Migration replay: 111 migrations from a clean database, twice.** Grants re-verified after replay: all three functions service_role-only, audit table RLS-on with zero policies and no privilege for any role.
+
+**Applied to Production ahead of this code, as the rollout order requires** (the new code calls functions that must already exist): `20260928000000` pushed, Production at **111 applied / 0 pending / 0 drift**, latest `20260928000000`. Grants verified ON Production through the reachable path: the browser anon key gets `42501 permission denied for function` on all three, while the privileged role reaches each body and is refused by the function's own `UNAUTHORIZED` - two visibly different answers, so the `pg_default_acl` hazard CLAUDE.md warns about demonstrably did not fire. The audit table is directly readable by nobody, `service_role` included. `pg_proc.proacl` could not be read from here: this environment holds no database connection string, only the service-role API key.
+
+`console/ui-console-unified` **138/0** (was 117) · `ui-stage7` **83/0** · `ui-stage9` **85/0** · `ui-stage8` **59/0** · `ui-open-issues` **58/0** · `ui-real-local` **31/0** · `ui-module-availability` **23/0** · `ui-nav-roles` **57/0** · `ui-platform-owner-login` **20/0** · `api-stage9` **96/0** · `api-real-local` **121/0** · `api-multi-owner` **56/0** · `api-auth-identity` **66/0** · `api-auth-principal-switch` **31/0** · `api-module-availability` **44/0** · `api-owner-module-access` **21/0** · `api-open-issues` **30/0** · `db-multi-owner` **59/0** · `db-stage5` **102/0** · `db-stage6` **73/0** · `db-stage8` **45/0**.
+
+New coverage: the log renders exactly as many rows as the audits actually hold and no event type that was never recorded; nothing resembling credential material appears in it; the module destination is gone from the navigation while every other one remains, and `/platform/modules` redirects; the availability control works from Settings; a wrong current password is refused and leaves the old one working; the new password signs in and the old one does not; the change is recorded with empty details and names no Election Owner; the session that changed the password can no longer act with it, and after signing in again the flow repeats. For Multi-Entity: the retired route renders no credential field and bounces to the shared login; **an account holding a verified TOTP factor signs in with a password alone**, which is stronger evidence than an account with no factor at all.
+
+Build clean, eslint **0 errors**, `git diff --check` clean, no dependency or config change, protected 15 untouched at **+138/-45**.
+
+Tests were ADAPTED, never weakened. `api-auth-identity`'s M8 and `api-real-local`'s M1 asserted that an aal1 Multi-Entity token is refused; they now assert it is accepted, which is the approved behaviour, while every other assertion on that boundary stands. `ui-stage7` and `ui-real-local` gained `seedMultiEntitySession` — a REAL session from a real sign-in, so only the typing is skipped.
+
+`db-stage9` remains **77/1** on `USR11`, the documented pre-existing failure.
+
+### Residual risks
+
+1. **The username and password audit rows are written immediately after their change, not in the same transaction** — impossible when the change is not a database write. A failed audit leaves the change standing and reports `audited: false`; it is not retried. `profile_updated` has no such gap.
+2. **The Multi-Entity realm is now single-factor.** A password is the whole of it. That was the approved decision; the compensating controls are unchanged (stateful `getUser`, exclusive-principal resolution, and no self-service recovery).
+3. **The activity log has no server-side paging** — it returns the most recent 200 (500 cap) and filters client-side. Fine at today's volumes; a busy platform will eventually want a cursor.
+4. **The log reads four audits, not five.** Budget's own audit is excluded by design, so a Budget action does not appear here.
+5. **`election_owners.email` is editable while the account's auth e-mail is not**, so they can diverge. Nothing authenticates on it.

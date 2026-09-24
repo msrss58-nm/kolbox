@@ -4,8 +4,6 @@ import { LogoMark } from "../../components/Logo";
 import { Button } from "../../components/ui/Button";
 import { ROUTES } from "../../constants/routes";
 import { MULTI_ENTITY_OWNER_TEXT } from "./multi-entity-owner.constants";
-import { MultiEntityOwnerMfaChallengeScreen } from "./MultiEntityOwnerMfaChallengeScreen";
-import { MultiEntityOwnerMfaEnrollScreen } from "./MultiEntityOwnerMfaEnrollScreen";
 import { useMultiEntityOwnerSession } from "./multiEntityOwnerSession";
 
 function FullScreenSpinner() {
@@ -75,8 +73,6 @@ function BlockedScreen({
  *
  *   checking       -> spinner
  *   signed_out     -> /multi-entity/login
- *   mfa_enroll     -> enrollment screen, INLINE (aal1 - no URL can bypass it)
- *   mfa_challenge  -> challenge screen, INLINE
  *   forbidden      -> "not authorized" (aal2, server 401: not / no longer the
  *                     seat holder - replaced, revoked, or a dual principal)
  *   error          -> retry screen
@@ -121,14 +117,6 @@ export function MultiEntityOwnerAuthGuard() {
 
   if (status === "signed_out") {
     return <Navigate to={ROUTES.multiEntityLogin} replace />;
-  }
-
-  if (status === "mfa_enroll") {
-    return <MultiEntityOwnerMfaEnrollScreen />;
-  }
-
-  if (status === "mfa_challenge") {
-    return <MultiEntityOwnerMfaChallengeScreen />;
   }
 
   if (status === "forbidden") {

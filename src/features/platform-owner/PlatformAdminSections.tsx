@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Blocks, Building2, Power, ScrollText, UserPlus } from "lucide-react";
+import { useCallback, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Building2, Power, ScrollText, UserPlus } from "lucide-react";
 import {
   AdminListFrame,
   AdminSearch,
@@ -12,14 +12,17 @@ import { Field, Input, Select } from "../../components/ui/Field";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { APP_CONFIG } from "../../constants/config";
 import { moduleLabel } from "../../constants/labels";
+import { useAsyncData } from "../../hooks/useAsyncData";
 import { useVisibleInterval } from "../../hooks/useVisibleInterval";
 import { cn } from "../../lib/utils";
 import { toast } from "../../components/ui/Toast";
 import { platformOwnerAuthClient } from "../../services/supabase/platformOwnerAuthClient";
-import { setOwnUsername } from "./platformOwnerClient";
+import { changeOwnPassword, fetchActivity, setOwnUsername } from "./platformOwnerClient";
 import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
+import { validatePlatformOwnerPassword } from "./platformOwnerPasswordPolicy";
 import { formatDateTime } from "./multiEntityFormat";
 import { ModuleAvailabilityDialog } from "./ModuleAvailabilityDialog";
+import { OwnerAccountDialog } from "./OwnerAccountDialog";
 import { LtrValue } from "./MultiEntityLtrValue";
 import {
   approvalActionLabel,
@@ -30,6 +33,7 @@ import {
 import { OwnerApprovalDialog } from "./OwnerApprovalDialog";
 import { usePlatformAdmin } from "./platformAdminContext";
 import type {
+  ActivityEvent,
   MultiEntityWorkspace,
   OwnerAccessApproval,
   WorkspaceEntitlements,
@@ -113,7 +117,14 @@ function useModulesEditor() {
       error={workspaceModules.errorFor(editing.workspaceId)}
       onSave={async (modules) => {
         const ok = await workspaceModules.save(editing.workspaceId, modules);
-        if (ok) setSavedId(editing.workspaceId);
+        if (ok) {
+          setSavedId(editing.workspaceId);
+          // The editor used to sit in a list that confirmed inline on the row
+          // it had just changed. Opened from a system's details there is no
+          // such row to return to, so the confirmation is a toast - otherwise
+          // a save that worked would look like nothing happened.
+          toast.success(T.workspaceModules.saved);
+        }
         return ok;
       }}
       onClose={() => setEditing(null)}
@@ -129,140 +140,6 @@ function matchesWorkspace(w: WorkspaceEntitlements, q: string, extra = ""): bool
     .join(" ")
     .toLowerCase()
     .includes(q);
-}
-
-/** Module assignment: every workspace's entitlements, with the confirmed,
- * audited edit (Stage 9 flow, unchanged server-side). Gate 4: the GLOBAL
- * availability switch is a separate action + dialog, never mixed into the
- * per-workspace editor. */
-export function PlatformModulesSection() {
-  const { workspaceModules: modules } = usePlatformAdmin();
-  const editor = useModulesEditor();
-  const [query, setQuery] = useState("");
-  const [availabilityOpen, setAvailabilityOpen] = useState(false);
-
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return modules.workspaces.filter((w) => matchesWorkspace(w, q));
-  }, [modules.workspaces, query]);
-
-  const hasRows = modules.workspaces.length > 0;
-
-  return (
-    <>
-      <AdminSection
-        testId="workspace-modules-card"
-        title={T.modulesSection.title}
-        description={T.workspaceModules.subtitle}
-        actions={
-          <Button
-            variant="secondary"
-            onClick={() => setAvailabilityOpen(true)}
-            disabled={modules.catalog.length === 0}
-            data-testid="module-availability-open"
-          >
-            <Power className="size-4" aria-hidden />
-            {T.moduleAvailability.open}
-          </Button>
-        }
-        toolbar={
-          hasRows ? (
-            <AdminSearch
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={T.modulesSection.search}
-              aria-label={T.modulesSection.search}
-              className="min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
-            />
-          ) : undefined
-        }
-        count={
-          hasRows
-            ? T.workspaces.count(visible.length, modules.workspaces.length)
-            : undefined
-        }
-        panel
-      >
-        {modules.readError ? (
-          <LoadError message={modules.readError} onRetry={() => void modules.reload()} />
-        ) : modules.loading && !hasRows ? (
-          <ListSkeleton />
-        ) : !hasRows ? (
-          <PanelCentered>
-            <EmptyState dense icon={Blocks} title={T.workspaceModules.empty} />
-          </PanelCentered>
-        ) : visible.length === 0 ? (
-          <PanelCentered>{T.workspaces.noResults}</PanelCentered>
-        ) : (
-          <ul
-            className="space-y-2.5 md:space-y-0 md:divide-y md:divide-slate-100 md:border-b md:border-slate-100"
-            data-testid="workspace-modules-list"
-          >
-            {visible.map((w) => {
-              const error = modules.errorFor(w.workspaceId);
-              return (
-                <li
-                  key={w.workspaceId}
-                  className="space-y-1.5 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 transition-colors md:rounded-none md:bg-transparent md:px-4 md:py-3 md:shadow-none md:ring-0 md:hover:bg-slate-50 lg:px-6"
-                >
-                  {/* The action sits right after the details, not at the far
-                      edge of the working area. */}
-                  <div className="flex flex-col gap-2 sm:grid sm:grid-cols-[minmax(0,40rem)_auto] sm:items-center sm:gap-x-7">
-                    <div className="min-w-0 space-y-1">
-                      {/* `bdi`: a Latin name keeps its own direction but
-                          aligns with the RTL card. */}
-                      <p className="font-bold break-words text-slate-800">
-                        <bdi>{w.name}</bdi>
-                      </p>
-                      {w.ownerName && (
-                        <p className="text-xs text-slate-500">
-                          {T.workspaceModules.owner(w.ownerName)}
-                        </p>
-                      )}
-                      <p className="text-sm text-slate-700">
-                        {w.modules.length > 0
-                          ? w.modules.map(moduleLabel).join(" · ")
-                          : T.workspaceModules.none}
-                      </p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={modules.savingId !== null}
-                      onClick={() => editor.open(w)}
-                      className="w-full shrink-0 max-sm:h-11 sm:w-auto"
-                    >
-                      {T.workspaceModules.edit}
-                    </Button>
-                  </div>
-                  {error && (
-                    <p role="alert" className="text-sm font-medium text-opponent">
-                      {error}
-                    </p>
-                  )}
-                  {editor.savedId === w.workspaceId && (
-                    <p role="status" className="text-sm font-medium text-emerald-700">
-                      {T.workspaceModules.saved}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </AdminSection>
-      {editor.dialog}
-      {availabilityOpen && (
-        <ModuleAvailabilityDialog
-          catalog={modules.catalog}
-          busyKey={modules.availabilityKey}
-          errorFor={modules.availabilityErrorFor}
-          onSet={modules.setAvailability}
-          onClose={() => setAvailabilityOpen(false)}
-        />
-      )}
-    </>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -338,6 +215,8 @@ export function PlatformWorkspacesSection() {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [approveOpen, setApproveOpen] = useState(false);
   const [confirmReissue, setConfirmReissue] = useState<OwnerAccessApproval | null>(null);
+  /** The workspace whose OWNER is being edited, or null. */
+  const [ownerEditFor, setOwnerEditFor] = useState<WorkspaceEntitlements | null>(null);
 
   const meById = useMemo(
     () => new Map(me.workspaces.map((w) => [w.workspaceId, w])),
@@ -670,18 +549,35 @@ export function PlatformWorkspacesSection() {
         footer={
           detail &&
           (detail.kind === "workspace" ? (
-            <Button
-              className="w-full"
-              disabled={modules.savingId !== null}
-              onClick={() => {
-                // Close the drawer first - its Escape handler is not
-                // stack-aware, so it must not sit under the edit dialog.
-                setDetailId(null);
-                editor.open(detail.ws);
-              }}
-            >
-              {W.editModules}
-            </Button>
+            <div className="space-y-2">
+              <Button
+                className="w-full"
+                disabled={modules.savingId !== null}
+                onClick={() => {
+                  // Close the drawer first - its Escape handler is not
+                  // stack-aware, so it must not sit under the edit dialog.
+                  setDetailId(null);
+                  editor.open(detail.ws);
+                }}
+              >
+                {W.editModules}
+              </Button>
+              {/* Only where there IS an Owner to edit. */}
+              {detail.ws.ownerName && (
+                <Button
+                  className="w-full"
+                  variant="secondary"
+                  data-testid="edit-owner"
+                  onClick={() => {
+                    const ws = detail.ws;
+                    setDetailId(null);
+                    setOwnerEditFor(ws);
+                  }}
+                >
+                  {T.ownerAccount.open}
+                </Button>
+              )}
+            </div>
           ) : (
             approvalActionLabel(detail.approval) && (
               <Button
@@ -740,11 +636,16 @@ export function PlatformWorkspacesSection() {
                     W.noOwner
                   )}
                 </DetailRow>
-                {detail.approval?.phone && (
-                  <DetailRow label={W.ownerPhoneLabel}>
-                    <LtrValue value={detail.approval.phone} mono={false} />
-                  </DetailRow>
-                )}
+                {/* The OWNER's number, from their own row - always shown, so
+                    its absence reads as "none recorded" rather than leaving
+                    the operator wondering whether the row is missing. */}
+                <DetailRow label={W.ownerPhoneLabel}>
+                  {detail.ws.ownerPhone ? (
+                    <LtrValue value={detail.ws.ownerPhone} mono={false} />
+                  ) : (
+                    W.noPhone
+                  )}
+                </DetailRow>
                 <DetailRow label={W.codeLabel}>
                   {detail.me ? <LtrValue value={detail.me.loginCode} /> : W.notAvailable}
                 </DetailRow>
@@ -789,6 +690,14 @@ export function PlatformWorkspacesSection() {
       </Drawer>
       {editor.dialog}
 
+      {ownerEditFor && (
+        <OwnerAccountDialog
+          workspaceId={ownerEditFor.workspaceId}
+          workspaceName={ownerEditFor.name}
+          onClose={() => setOwnerEditFor(null)}
+        />
+      )}
+
       <OwnerAccessRecovery
         access={access}
         confirm={confirmReissue}
@@ -818,19 +727,137 @@ export function PlatformWorkspacesSection() {
 // Audit + Settings
 // ---------------------------------------------------------------------------
 
-/** No read API for the entitlement audit exists yet - this section says so
- * rather than inventing one (a backend read is a separate, future task). */
-export function PlatformAuditSection() {
+/**
+ * The activity log - what the server actually recorded, newest first.
+ *
+ * Read-only by construction: there is no write path on this screen, and the
+ * one function behind it only reads. It shows ONLY recorded events - an action
+ * that predates its audit, or was never audited, does not appear and is not
+ * reconstructed. That is why the empty state says so plainly rather than
+ * implying the system has been quiet.
+ */
+function ActivityRow({ event }: { event: ActivityEvent }) {
+  const A = T.audit;
+  const action = A.actions[event.action] ?? event.action;
+  const source = A.sources[event.source] ?? event.source;
+
+  // Only what the recorded details actually contain.
+  const changed = Array.isArray(event.details.changed)
+    ? (event.details.changed as unknown[]).filter((f): f is string => typeof f === "string")
+    : null;
+  const from = typeof event.details.from === "string" ? event.details.from : null;
+  const to = typeof event.details.to === "string" ? event.details.to : null;
+
   return (
-    <AdminSection testId="platform-audit-section" title={T.audit.title} panel>
-      <PanelCentered>
-        <EmptyState
-          dense
-          icon={ScrollText}
-          title={T.audit.emptyTitle}
-          hint={T.audit.emptyHint}
-        />
-      </PanelCentered>
+    <li
+      data-testid="activity-row"
+      data-source={event.source}
+      data-action={event.action}
+      className="space-y-1 rounded-xl bg-white p-3.5 shadow-sm ring-1 ring-slate-200 md:rounded-none md:bg-transparent md:px-4 md:py-3 md:shadow-none md:ring-0 lg:px-6"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+          {source}
+        </span>
+        <p className="min-w-0 font-bold break-words text-slate-800">{action}</p>
+        <span className="ms-auto shrink-0 text-xs text-slate-500">
+          {formatDateTime(event.at)}
+        </span>
+      </div>
+      {(event.subject || event.workspace) && (
+        <p className="text-sm text-slate-600">
+          {event.subject && <bdi>{event.subject}</bdi>}
+          {event.subject && event.workspace && " · "}
+          {event.workspace && <bdi>{event.workspace}</bdi>}
+        </p>
+      )}
+      {changed && changed.length > 0 && (
+        <p className="text-xs text-slate-500">
+          {T.audit.changedLabel(
+            changed.map((f) => T.audit.changedFields[f] ?? f).join(", "),
+          )}
+        </p>
+      )}
+      {from && to && (
+        <p className="text-xs text-slate-500">{T.audit.renamedLabel(from, to)}</p>
+      )}
+    </li>
+  );
+}
+
+export function PlatformAuditSection() {
+  const A = T.audit;
+  const [query, setQuery] = useState("");
+
+  const load = useCallback(async (): Promise<ActivityEvent[]> => {
+    const { data: sess } = await platformOwnerAuthClient.auth.getSession();
+    const token = sess.session?.access_token ?? null;
+    if (!token) return [];
+    const res = await fetchActivity(token);
+    if (res.status !== "ok") throw new Error(A.loadError);
+    return res.data;
+  }, [A.loadError]);
+
+  const activity = useAsyncData(load);
+  const events = activity.data ?? [];
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return events;
+    return events.filter((e) =>
+      [
+        e.subject ?? "",
+        e.workspace ?? "",
+        A.actions[e.action] ?? e.action,
+        A.sources[e.source] ?? e.source,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [events, query, A]);
+
+  const hasRows = events.length > 0;
+
+  return (
+    <AdminSection
+      testId="platform-audit-section"
+      title={A.title}
+      description={A.description}
+      toolbar={
+        hasRows ? (
+          <AdminSearch
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={A.search}
+            aria-label={A.search}
+            className="min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
+          />
+        ) : undefined
+      }
+      count={hasRows ? A.count(visible.length) : undefined}
+      panel
+    >
+      {activity.error ? (
+        <LoadError message={A.loadError} onRetry={() => void activity.reload()} />
+      ) : activity.loading && !hasRows ? (
+        <ListSkeleton />
+      ) : !hasRows ? (
+        <PanelCentered>
+          <EmptyState dense icon={ScrollText} title={A.emptyTitle} hint={A.emptyHint} />
+        </PanelCentered>
+      ) : visible.length === 0 ? (
+        <PanelCentered>{A.noResults}</PanelCentered>
+      ) : (
+        <ul
+          className="space-y-2.5 md:space-y-0 md:divide-y md:divide-slate-100 md:border-b md:border-slate-100"
+          data-testid="activity-list"
+        >
+          {visible.map((e) => (
+            <ActivityRow key={`${e.source}:${e.id}`} event={e} />
+          ))}
+        </ul>
+      )}
     </AdminSection>
   );
 }
@@ -846,32 +873,211 @@ function IdentityRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Settings: the verified identity - read-only. */
+/**
+ * The console operator's own password.
+ *
+ * Sent to the server WITH the current one, because a live session is not proof
+ * that the person at the keyboard knows the password they are replacing - a
+ * borrowed tab would otherwise be able to lock the owner out of their own
+ * console. The server verifies, sets and records; nothing here keeps either
+ * value, and the fields are cleared the moment it succeeds.
+ */
+function PlatformOwnerPasswordForm() {
+  const c = T.console;
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setCurrent("");
+    setNext("");
+    setConfirm("");
+    setError(null);
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    setError(null);
+    const violation = validatePlatformOwnerPassword(next, confirm);
+    if (violation) {
+      setError(T.setPassword.errors[violation]);
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data: sess } = await platformOwnerAuthClient.auth.getSession();
+      const token = sess.session?.access_token ?? null;
+      if (!token) {
+        setError(c.passwordErrors.UNAUTHORIZED);
+        return;
+      }
+      const res = await changeOwnPassword(token, current, next);
+      if (res.status !== "ok") {
+        const code = res.status === "error" ? res.code : "UNAUTHORIZED";
+        setError(c.passwordErrors[code] ?? c.passwordErrors.SERVER_ERROR);
+        return;
+      }
+      toast.success(c.passwordSaved);
+      reset();
+      setOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        data-testid="own-password-open"
+        onClick={() => setOpen(true)}
+      >
+        {c.passwordOpen}
+      </Button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={(e) => void submit(e)}
+      className="space-y-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200"
+      data-testid="own-password-form"
+    >
+      <h3 className="text-sm font-bold text-slate-700">{c.passwordTitle}</h3>
+      <Field label={c.passwordCurrent}>
+        <Input
+          type="password"
+          value={current}
+          onChange={(e) => {
+            setCurrent(e.target.value);
+            setError(null);
+          }}
+          name="platform-owner-current-password"
+          autoComplete="current-password"
+        />
+      </Field>
+      <Field label={c.passwordNew}>
+        <Input
+          type="password"
+          value={next}
+          onChange={(e) => {
+            setNext(e.target.value);
+            setError(null);
+          }}
+          name="platform-owner-new-password"
+          autoComplete="new-password"
+        />
+      </Field>
+      <Field label={c.passwordConfirm} error={error ?? undefined}>
+        <Input
+          type="password"
+          value={confirm}
+          onChange={(e) => {
+            setConfirm(e.target.value);
+            setError(null);
+          }}
+          name="platform-owner-confirm-password"
+          autoComplete="new-password"
+          invalid={!!error}
+        />
+        <p className="mt-1 text-xs text-slate-400">{c.passwordHint}</p>
+      </Field>
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          size="sm"
+          loading={busy}
+          disabled={!current || !next || !confirm}
+          data-testid="own-password-save"
+        >
+          {c.passwordSubmit}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            reset();
+            setOpen(false);
+          }}
+        >
+          {c.passwordCancel}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Settings: the verified identity, the operator's own password, and the one
+ * platform-wide control that is not about a single workspace - a module's
+ * GLOBAL availability. That control used to live on a separate module screen
+ * whose only other job, per-workspace entitlements, is done from a system's
+ * own details; the screen is gone and this is where the global switch landed.
+ */
 export function PlatformSettingsSection() {
   const owner = usePlatformOwnerSession((s) => s.owner);
+  const { workspaceModules: modules } = usePlatformAdmin();
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const c = T.console;
   return (
-    <AdminSection
-      testId="platform-settings-section"
-      title={T.settings.title}
-      description={T.settings.description}
-    >
-      <div className="max-w-2xl space-y-3">
-        <AdminListFrame>
-          <dl className="divide-y divide-slate-100">
-            <IdentityRow label={c.emailLabel} value={owner?.email ?? ""} />
-            <IdentityRow label={c.ownerIdLabel} value={owner?.platformOwnerId ?? ""} />
-            <IdentityRow
-              label={c.usernameLabel}
-              value={owner?.username ?? c.usernameUnset}
-            />
-            <IdentityRow label={c.mfaLabel} value={c.mfaValue} />
-          </dl>
-        </AdminListFrame>
-        {owner && owner.username === null && <PlatformOwnerUsernameForm />}
-        <p className="text-xs text-slate-500">{c.stageNote}</p>
-      </div>
-    </AdminSection>
+    <>
+      <AdminSection
+        testId="platform-settings-section"
+        title={T.settings.title}
+        description={T.settings.description}
+      >
+        <div className="max-w-2xl space-y-3">
+          <AdminListFrame>
+            <dl className="divide-y divide-slate-100">
+              <IdentityRow label={c.emailLabel} value={owner?.email ?? ""} />
+              <IdentityRow label={c.ownerIdLabel} value={owner?.platformOwnerId ?? ""} />
+              <IdentityRow
+                label={c.usernameLabel}
+                value={owner?.username ?? c.usernameUnset}
+              />
+              <IdentityRow label={c.mfaLabel} value={c.mfaValue} />
+            </dl>
+          </AdminListFrame>
+          {owner && owner.username === null && <PlatformOwnerUsernameForm />}
+          <PlatformOwnerPasswordForm />
+
+          <div className="space-y-2 border-t border-slate-200 pt-3">
+            <h3 className="text-sm font-bold text-slate-700">
+              {T.moduleAvailability.open}
+            </h3>
+            <p className="text-xs text-slate-500">{T.moduleAvailability.subtitle}</p>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setAvailabilityOpen(true)}
+              disabled={modules.catalog.length === 0}
+              data-testid="module-availability-open"
+            >
+              <Power className="size-4" aria-hidden />
+              {T.moduleAvailability.open}
+            </Button>
+          </div>
+
+          <p className="text-xs text-slate-500">{c.stageNote}</p>
+        </div>
+      </AdminSection>
+      {availabilityOpen && (
+        <ModuleAvailabilityDialog
+          catalog={modules.catalog}
+          busyKey={modules.availabilityKey}
+          errorFor={modules.availabilityErrorFor}
+          onSet={modules.setAvailability}
+          onClose={() => setAvailabilityOpen(false)}
+        />
+      )}
+    </>
   );
 }
 

@@ -451,7 +451,11 @@ check(
       where realm='multi_entity_owner' and auth_user_id='${meId}';`) === "1",
 );
 
-// MFA is unchanged: the broker mints aal1 and the ME verifier demands aal2.
+// The Multi-Entity realm no longer has a second factor (approved 2026-09-24):
+// an aal1 session from a password sign-in is exactly what that realm runs on,
+// and the verifier accepts it. Everything else about that boundary is intact -
+// getUser first, the sub match, and the DB-authoritative resolver - which is
+// what this asserts by requiring a 200 for the REAL owner.
 const meSession = await signIn(`me-${stamp}@kolbox.test`, PW);
 let mr = await callHandler(H.platformSession, {
   method: "GET",
@@ -459,8 +463,8 @@ let mr = await callHandler(H.platformSession, {
   headers: { authorization: `Bearer ${meSession.token}`, host: "me.test" },
 });
 check(
-  "M8 an aal1 Multi-Entity session is refused (MFA preserved)",
-  mr.statusCode === 401 || mr.statusCode === 403,
+  "M8 an aal1 Multi-Entity session is ACCEPTED - this realm has no second factor",
+  mr.statusCode === 200,
   `status=${mr.statusCode}`,
 );
 

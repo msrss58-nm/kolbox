@@ -94,6 +94,12 @@ export const APP_CONFIG = {
    * nothing in the console's tab can be notified of that, and an operator
    * watching the list should not have to press F5 to see it. Paused entirely
    * while the tab is hidden, with one immediate read on becoming visible
-   * again, so a backgrounded console costs nothing. */
-  platformConsoleRevalidateMs: 20_000,
+   * again, so a backgrounded console costs nothing.
+   *
+   * Short ON PURPOSE: an operator approves an Owner and then watches for them
+   * to finish, so the wait has to feel like "it just appears" rather than
+   * "eventually". The cost is bounded by the visibility rule above and by the
+   * no-overlap rule in `useVisibleInterval` - only an OPEN, FOCUSED console
+   * reads at all, and never more than one round at a time. */
+  platformConsoleRevalidateMs: 3_000,
 } as const;

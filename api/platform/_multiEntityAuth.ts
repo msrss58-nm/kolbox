@@ -69,7 +69,7 @@ const deny = (reason: MultiEntityDenyReason): MultiEntityVerification => ({
  *    first: getClaims() is stateless and was empirically proven (Platform
  *    Stage 0a/2) to keep accepting a REVOKED session or a DELETED user for
  *    the token's remaining lifetime. Only getUser() catches those.
- * 2. auth.getClaims(token) - signature + exp, then aal === "aal2", then
+ * 2. auth.getClaims(token) - signature + exp, then the `sub` match. No
  *    claims.sub === the id getUser() just verified.
  * 3. multi_entity_resolve_owner_context(verified id) - the ONLY check that
  *    confers authority. It requires the id to hold a Multi-Entity Owner row
@@ -108,11 +108,19 @@ export async function verifyMultiEntityOwnerJwt(
     const authUserId = userData.user.id;
     const email = userData.user.email;
 
-    // CHECK 2 - signature/exp, MFA assurance, identity agreement.
+    // CHECK 2 - signature/exp and identity agreement. No MFA assurance:
+    // this realm has no second factor (see below).
     const { data: claimsData, error: claimsError } =
       await supabase.auth.getClaims(rawToken);
     if (claimsError || !claimsData?.claims) return deny("claims");
-    if (claimsData.claims.aal !== "aal2") return deny("aal");
+    // NO SECOND FACTOR FOR THIS REALM (approved 2026-09-24). A Multi-Entity
+    // Owner signs in with a username and a password through the shared login,
+    // and that is the whole of it - so there is no assurance-level check here.
+    // Everything else that made this boundary what it is stays exactly as it
+    // was: getUser FIRST (stateful, so a revoked or deleted account is caught),
+    // then the signature/expiry check and the `sub` match below, then the
+    // DB-authoritative resolver. Scoped to this realm alone - the Platform
+    // Owner still requires aal2 in _platformAuth.ts.
     if (claimsData.claims.sub !== authUserId) return deny("sub_mismatch");
 
     // CHECK 3 - the only authority. p_auth_user_id is the SERVER-VERIFIED id

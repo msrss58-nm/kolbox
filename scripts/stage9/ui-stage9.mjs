@@ -610,14 +610,17 @@ try {
 
   // -------------------------------------------------------------------------
   section("ENTITLEMENT EDIT FROM THE PLATFORM CONSOLE");
-  // Admin shell: module assignment is its own section; the editor is a dialog
-  // and the confirmation stacks on it.
-  await page.goto(`${PBASE}/platform/modules`);
-  const wsRow = page.locator('[data-testid="workspace-modules-list"] li').filter({ hasText: WS_NAME });
+  // The separate module-assignment section was retired (2026-09-24): a
+  // workspace's modules are edited from its OWN details, and the editor is
+  // still a dialog with the confirmation stacked on it.
+  await page.goto(`${PBASE}/platform/workspaces`);
+  const wsRow = page.locator('[data-testid="workspaces-list"] > li').filter({ hasText: WS_NAME });
   const modDlg = page.getByRole("dialog").filter({ hasText: "עריכת מודולים" });
   await wsRow.waitFor({ timeout: 15000 });
   check("E1 the console lists the new workspace with Election Day", (await wsRow.innerText()).includes("ניהול יום הבחירות"));
-  await wsRow.getByRole("button", { name: "עריכת מודולים" }).click();
+  await wsRow.getByRole("button", { name: `פרטי ${WS_NAME}` }).click();
+  await page.getByRole("dialog").waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: "עריכת מודולים" }).click();
   await modDlg.getByRole("checkbox", { name: "ניהול יום הבחירות" }).uncheck();
   await modDlg.getByRole("checkbox", { name: /ניהול תקציב/ }).check();
   await modDlg.getByRole("button", { name: "שמירה" }).click();
@@ -660,7 +663,11 @@ try {
       (await ePage.locator('aside a[href$="/owner/users"]').count()) === 1,
     `sections=${e6Sections.join("/")} card=${e6Card.slice(0, 120).split(String.fromCharCode(10)).join(" | ")}`);
 
-  await wsRow.getByRole("button", { name: "עריכת מודולים" }).click();
+  // Re-open the system's details: the editor is reached from there now, and
+  // the drawer was closed when the dialog above opened over it.
+  await wsRow.getByRole("button", { name: `פרטי ${WS_NAME}` }).click();
+  await page.getByRole("dialog").waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: "עריכת מודולים" }).click();
   await modDlg.getByRole("checkbox", { name: "ניהול יום הבחירות" }).check();
   await modDlg.getByRole("button", { name: "שמירה" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "עדכון" }).click();
@@ -787,9 +794,9 @@ try {
   `);
   for (const [w, h] of [[1440, 900], [1280, 800], [1024, 768]]) {
     await page.setViewportSize({ width: w, height: h });
-    await page.goto(`${PBASE}/platform/modules`);
-    await page.locator('[data-testid="workspace-modules-list"] li').nth(35).waitFor({ timeout: 15000 });
-    const region = page.locator('[data-testid="workspace-modules-card"] [data-admin-scroll-region]');
+    await page.goto(`${PBASE}/platform/workspaces`);
+    await page.locator('[data-testid="workspaces-list"] > li').nth(35).waitFor({ timeout: 15000 });
+    const region = page.locator('[data-testid="platform-workspaces-section"] [data-admin-scroll-region]');
     const r = await region.evaluate((el) => {
       const overflows = el.scrollHeight > el.clientHeight + 1;
       el.scrollTop = 400;
@@ -797,9 +804,9 @@ try {
     });
     check(`L12 Platform ${w}px: 40+ workspaces scroll inside the list region; the page does not`,
       r.overflows && r.scrolled && !(await pageScrolls(page)) && (await noOverflow(page)), JSON.stringify(r));
-    check(`L13 Platform ${w}px: fixed side menu, active item = הקצאת מודולים`,
-      (await sideMenu(page).isVisible()) && (await activeNav(page)).includes("הקצאת מודולים"));
-    await shot(page, `15-platform-modules-${w}`);
+    check(`L13 Platform ${w}px: fixed side menu, active item = מערכות בחירות`,
+      (await sideMenu(page).isVisible()) && (await activeNav(page)).includes("מערכות בחירות"));
+    await shot(page, `15-platform-systems-${w}`);
   }
 
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -815,7 +822,14 @@ try {
   await page.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
 
   await page.goto(`${PBASE}/platform/audit`);
-  check("L15 Audit: an explicit 'not available yet' state (no invented backend)", await waitText(page, "תצוגת היומן תתווסף בהמשך"));
+  // The placeholder became a real log (2026-09-24). It renders recorded events
+  // only - this run has made plenty by now - and never invents history.
+  await page.locator('[data-testid="activity-list"]').waitFor({ timeout: 20000 });
+  check(
+    "L15 Audit: the real activity log, rendering recorded events",
+    (await page.locator('[data-testid="activity-row"]').count()) > 0 &&
+      !(await page.locator("body").innerText()).includes("תצוגת היומן תתווסף בהמשך"),
+  );
   await page.goto(`${PBASE}/platform/settings`);
   check("L16 Settings: the verified identity", await waitText(page, email("po")));
 

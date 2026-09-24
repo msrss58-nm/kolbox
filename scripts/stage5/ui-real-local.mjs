@@ -26,6 +26,7 @@ import {
   psql,
   randomPassword,
   section,
+  seedMultiEntitySession,
   signIn,
   sleep,
   tally,
@@ -140,37 +141,31 @@ try {
   const keysAfterSet = await page.evaluate(() => Object.keys(localStorage));
   check("U2 recovery session signed out (no ME session left in storage)", !keysAfterSet.includes("kb-multi-entity-owner-auth-token"), keysAfterSet.join(","));
 
-  section("LOGIN -> aal1 -> TOTP ENROLL (guard + no privileged call at aal1)");
-  await page.getByRole("button", { name: "המשך למסך הכניסה" }).click();
-  await page.getByRole("heading", { name: "כניסת בעל רב-מערכות" }).waitFor();
-  await shot("02-login-390");
-  await page.locator('input[type="email"]').fill(email("me"));
-  await page.locator('input[autocomplete="current-password"]').fill(mePw);
-  await page.getByRole("button", { name: "התחברות" }).click();
-  await page.getByText("הגדרת אימות דו-שלבי").waitFor({ timeout: 15000 });
-  await page.locator('[data-testid="mfa-secret"]').waitFor();
-  check("U3 aal1 session is diverted to TOTP enrollment", true);
+  section("SIGN IN (username + password only - this realm has no second factor)");
+  // The per-origin login was retired and the second factor removed for this
+  // realm (2026-09-24): an owner signs in with a USERNAME on the shared login,
+  // which lives on the auth deployment and cannot run in a single-surface
+  // suite. A REAL session is seeded instead - the same state that screen would
+  // leave - so the guard and every server call behave exactly as for a human.
   await page.goto(`${BASE}/multi-entity`);
-  await page.getByText("הגדרת אימות דו-שלבי").waitFor({ timeout: 15000 });
-  check("U4 direct navigation at aal1 still shows MFA (guard bypass refused)", !(await text()).includes("המערכות שלי"));
-  check("U4 ZERO calls to /api/multi-entity/session while at aal1", sessionCalls.length === 0, `calls=${sessionCalls.length}`);
+  await page.waitForURL(/\/multi-entity\/login$/, { timeout: 20000 });
+  check("U3 signed out -> the login route, and it renders no credential field of its own",
+    (await page.locator('input[type="email"]').count()) === 0 &&
+      (await page.locator('input[type="password"]').count()) === 0);
+  check("U3b no MFA screen exists for this realm any more", !(await text()).includes("אימות דו-שלבי"));
+  check("U4 ZERO calls to /api/multi-entity/session while signed out", sessionCalls.length === 0, `calls=${sessionCalls.length}`);
+
+  await seedMultiEntitySession(page, BASE, email("me"), mePw);
+  await page.goto(`${BASE}/multi-entity`);
+  const enrolled = await page
+    .getByRole("heading", { name: "המערכות שלי" })
+    .waitFor({ timeout: 20000 })
+    .then(() => true, () => false);
   const keysAal1 = await page.evaluate(() => Object.keys(localStorage));
   check("U5 only the Multi-Entity storage key holds a session", keysAal1.includes("kb-multi-entity-owner-auth-token") && !keysAal1.includes("kb-platform-owner-auth-token") && !keysAal1.includes("kb-owner-auth-token"), keysAal1.join(","));
-  await shot("03-mfa-enroll-390");
-
-  const secret = (await page.locator('[data-testid="mfa-secret"]').innerText()).trim();
-  let enrolled = false;
-  for (let attempt = 0; attempt < 3 && !enrolled; attempt++) {
-    await page.locator('input[autocomplete="one-time-code"]').fill(totp(secret, Date.now() + attempt * 30000));
-    await page.getByRole("button", { name: "אימות" }).click();
-    enrolled = await page
-      .getByRole("heading", { name: "המערכות שלי" })
-      .waitFor({ timeout: 8000 })
-      .then(() => true, () => false);
-    if (!enrolled) await sleep(1000);
-  }
-  check("U6 TOTP verified -> server 200 -> authorized home", enrolled);
-  check("U6 privileged call happened only after aal2", sessionCalls.length >= 1);
+  await shot("03-signed-in-390");
+  check("U6 password alone -> server 200 -> authorized home", enrolled);
+  check("U6 the privileged call happened once authorized", sessionCalls.length >= 1);
   // Since Stage 7 the empty state renders only after the aggregate read
   // returns, so wait for it rather than reading the page the instant the
   // heading appears (same assertion, no longer timing-dependent).
@@ -208,7 +203,9 @@ try {
   check("U11 replaced holder lands on the forbidden screen", !(await text()).includes("המערכות שלי"));
   await shot("06-forbidden-390");
   await page.getByRole("button", { name: "התנתקות" }).click();
-  await page.getByRole("heading", { name: "כניסת בעל רב-מערכות" }).waitFor({ timeout: 10000 });
+  // The login ROUTE is the destination now; its screen is the bounce to the
+  // shared login, so the URL is what to wait on.
+  await page.waitForURL(/\/multi-entity\/login$/, { timeout: 15000 });
   const keysOut = await page.evaluate(() => Object.keys(localStorage));
   check("U12 logout clears the Multi-Entity session", !keysOut.includes("kb-multi-entity-owner-auth-token"));
 
@@ -220,11 +217,19 @@ try {
   await page.getByText("הקישור אינו תקף").waitFor({ timeout: 10000 });
   check("U14 no link in this page load -> invalid (storage is not evidence)", true);
   await shot("07-invalid-link-390");
+  // This surface's own login route is a bounce now, so a foreign path no
+  // longer lands on a Multi-Entity login FORM - it lands on something that
+  // renders no credential field at all. That is the claim: this origin hosts
+  // nobody else's login, and after the cutover it hosts no form of its own.
+  await page.route("https://kolbox-auth.vercel.app/**", (route) => route.fulfill({ status: 204 }));
   for (const foreign of ["/platform/login", "/election-day/login", "/election-day/owner-login", "/login"]) {
     await page.goto(`${BASE}${foreign}`);
-    await page.getByRole("heading", { name: "כניסת בעל רב-מערכות" }).waitFor({ timeout: 10000 });
+    await page.waitForTimeout(500);
     const t = await text();
-    check(`U15 ${foreign} never renders a foreign login form here`, !t.includes("כניסת בעל הפלטפורמה") && !t.includes("כניסה למערכת הבחירות") && !t.includes("כניסת בעלים"));
+    check(`U15 ${foreign} never renders a foreign login form here`,
+      !t.includes("כניסת בעל הפלטפורמה") && !t.includes("כניסה למערכת הבחירות") && !t.includes("כניסת בעלים") &&
+        (await page.locator('input[type="email"]').count()) === 0 &&
+        (await page.locator('input[type="password"]').count()) === 0);
   }
   const health = await (await fetch(`${BASE}/api/health`)).json();
   check("U16 /api/health through the rewrite table", health.ok === true);

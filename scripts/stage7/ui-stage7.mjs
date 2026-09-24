@@ -33,10 +33,10 @@ import {
   psql,
   randomPassword,
   section,
+  seedMultiEntitySession,
   signIn,
   sleep,
   tally,
-  totp,
 } from "../stage5/lib.mjs";
 
 /** Unified identity: provisioning now claims a LOGIN username. */
@@ -163,6 +163,10 @@ await setup.auth.verifyOtp({ token_hash: new URL(prov.body.activationLink).searc
 const mePw = randomPassword();
 await setup.auth.updateUser({ password: mePw });
 await setup.auth.signOut();
+// The factor is enrolled DELIBERATELY even though this realm no longer uses
+// one: an account that holds a verified factor and still signs in with a
+// password alone is the strongest evidence that the requirement is gone,
+// rather than merely unexercised.
 const meTotp = await enrollTotp((await signIn(email("me"), mePw)).client, "s7-me");
 check("SETUP seat provisioned, activated and TOTP-enrolled; 5 workspaces with fixture contacts", prov.statusCode === 201 && !!meTotp.secret && Object.keys(WS).length === 5);
 
@@ -195,52 +199,68 @@ const refreshBtn = () => page.getByRole("button", { name: "רענון" });
 const visible = () => page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
 const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
-async function loginUi() {
-  await page.goto(`${BASE}/multi-entity/login`);
-  await page.getByRole("heading", { name: "כניסת בעל רב-מערכות" }).waitFor({ timeout: 15000 });
-  await page.locator('input[type="email"]').fill(email("me"));
-  await page.locator('input[autocomplete="current-password"]').fill(mePw);
-  await page.getByRole("button", { name: "התחברות" }).click();
-  await page.getByText("אימות דו-שלבי", { exact: true }).waitFor({ timeout: 15000 });
-}
-async function passMfa() {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await page.locator('input[autocomplete="one-time-code"]').fill(totp(meTotp.secret, Date.now() + attempt * 30000));
-    await page.getByRole("button", { name: "אימות" }).click();
-    const ok = await page.getByRole("heading", { name: "המערכות שלי" }).waitFor({ timeout: 8000 }).then(() => true, () => false);
-    if (ok) return true;
-    await sleep(1000);
-  }
-  return false;
+// The per-origin login was retired and this realm's second factor removed
+// (2026-09-24): an owner signs in with a USERNAME on the shared login, which
+// lives on the auth deployment and cannot run in a single-surface suite. A
+// REAL session is seeded instead - the same state that screen would leave -
+// so every guard and server call behaves exactly as it does for a human.
+async function signInAsOwner() {
+  await seedMultiEntitySession(page, BASE, email("me"), mePw);
+  await page.goto(`${BASE}/multi-entity`);
+  return page
+    .getByRole("heading", { name: "המערכות שלי" })
+    .waitFor({ timeout: 20000 })
+    .then(() => true, () => false);
 }
 
 try {
   // -------------------------------------------------------------------------
-  section("AUTH (anonymous, aal1, aal2)");
+  section("AUTH (anonymous, signed in - no second factor)");
+  // The login route bounces to the shared login on the auth origin. 204 to a
+  // top-level navigation means "nothing to show", so the browser STAYS PUT -
+  // which is what makes the reads below deterministic, and keeps the suite on
+  // its own stack. (An abort would replace the document with a browser error
+  // page and any read after it would be vacuous.)
+  let bouncedTo = null;
+  await page.route("https://kolbox-auth.vercel.app/**", async (route) => {
+    bouncedTo = route.request().url();
+    await route.fulfill({ status: 204 });
+  });
+
   await page.goto(`${BASE}/multi-entity`);
-  await page.getByRole("heading", { name: "כניסת בעל רב-מערכות" }).waitFor({ timeout: 15000 });
-  check("AU1 anonymous -> redirected to the Multi-Entity login", page.url().endsWith("/multi-entity/login"));
+  await page.waitForURL(/\/multi-entity\/login$/, { timeout: 15000 });
+  check("AU1 anonymous -> redirected to the Multi-Entity login route", page.url().endsWith("/multi-entity/login"));
   await page.goto(`${BASE}/multi-entity/workspaces/${WS.Alpha.id}`);
-  await page.getByRole("heading", { name: "כניסת בעל רב-מערכות" }).waitFor({ timeout: 15000 });
-  check("AU1 anonymous deep link to a workspace -> login", page.url().endsWith("/multi-entity/login"));
-  await loginUi();
-  check("AU2 password sign-in (aal1) is diverted to the TOTP challenge", !(await bodyText()).includes("המערכות שלי"));
-  await page.goto(`${BASE}/multi-entity/workspaces/${WS.Alpha.id}`);
-  await page.getByText("אימות דו-שלבי", { exact: true }).waitFor({ timeout: 15000 });
-  check("AU2 aal1 deep link still shows MFA", !(await bodyText()).includes(WS.Alpha.name));
-  check("AU2 ZERO aggregate or session requests at aal1", calls.agg === 0 && calls.one === 0 && calls.session === 0, JSON.stringify(calls));
-  // Back to the dashboard URL: after aal2 the guard reveals whatever route is
-  // current, and this suite completes MFA on the dashboard.
-  await page.goto(`${BASE}/multi-entity`);
-  await page.getByText("אימות דו-שלבי", { exact: true }).waitFor({ timeout: 15000 });
-  check("AU3 TOTP -> aal2 -> dashboard", await passMfa());
+  await page.waitForURL(/\/multi-entity\/login$/, { timeout: 15000 });
+  check("AU1b anonymous deep link to a workspace -> the same route", page.url().endsWith("/multi-entity/login"));
+  // The bounce runs in an effect after the route renders, so give it a moment
+  // rather than reading the instant the URL matches.
+  for (let i = 0; i < 20 && bouncedTo === null; i++) await sleep(250);
+  check(
+    "AU1c ... which bounces to the SHARED login - the only screen that resolves a username",
+    (bouncedTo ?? "").startsWith("https://kolbox-auth.vercel.app/login"),
+    bouncedTo ?? "<no navigation attempted>",
+  );
+  check("AU2 ZERO aggregate or session requests while signed out", calls.agg === 0 && calls.one === 0 && calls.session === 0, JSON.stringify(calls));
+  // The retired route renders NO credential field of its own - it bounces to
+  // the shared login, which is the only screen that resolves a username.
+  check(
+    "AU2b the retired per-origin login offers no e-mail or password field",
+    (await page.locator('input[type="email"]').count()) === 0 &&
+      (await page.locator('input[type="password"]').count()) === 0,
+  );
+  check(
+    "AU2c ... and no MFA screen exists for this realm any more",
+    !(await bodyText()).includes("אימות דו-שלבי"),
+  );
+  check("AU3 username + password alone reaches the dashboard - no second factor", await signInAsOwner());
 
   // -------------------------------------------------------------------------
   section("ZERO ASSIGNMENTS");
   await page.getByText("אין מערכות משויכות").waitFor({ timeout: 15000 });
   check("Z1 zero assignments -> empty state (not an error)", (await page.locator('[data-testid="dashboard-error"]').count()) === 0);
   check("Z1 no summary and no metric on the empty dashboard", (await page.locator('[data-testid="summary"]').count()) === 0 && (await page.locator("[data-metric]").count()) === 0);
-  check("Z1 aggregates fetched after aal2", calls.agg >= 1, `agg=${calls.agg}`);
+  check("Z1 aggregates fetched once authorized", calls.agg >= 1, `agg=${calls.agg}`);
   await shot("01-empty-390");
   await capture();
 
@@ -490,10 +510,10 @@ try {
     localStorage.setItem(key, JSON.stringify(s));
   }, STORAGE_KEY);
   await page.reload();
-  await page.getByRole("heading", { name: "כניסת בעל רב-מערכות" }).waitFor({ timeout: 20000 });
-  check("EX1 expired session with no valid refresh -> login screen, no dashboard numbers", (await page.locator("[data-metric]").count()) === 0);
-  await loginUi();
-  check("EX2 re-login with TOTP restores the dashboard", await passMfa());
+  // The login ROUTE is the destination now; its own screen is the bounce.
+  await page.waitForURL(/\/multi-entity\/login$/, { timeout: 20000 });
+  check("EX1 expired session with no valid refresh -> back to the login route, no dashboard numbers", (await page.locator("[data-metric]").count()) === 0);
+  check("EX2 signing in again restores the dashboard", await signInAsOwner());
   await waitCards(4);
 
   // -------------------------------------------------------------------------
@@ -505,8 +525,8 @@ try {
   check("RP1 replaced holder -> forbidden screen with NO numbers or workspace names", (await page.locator("[data-metric]").count()) === 0 && !(await bodyText()).includes("S7UI"));
   await shot("09-forbidden-390");
   await page.getByRole("button", { name: "התנתקות" }).click();
-  await page.getByRole("heading", { name: "כניסת בעל רב-מערכות" }).waitFor({ timeout: 15000 });
-  check("RP2 logout clears the Multi-Entity session", !(await page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY)));
+  await page.waitForURL(/\/multi-entity\/login$/, { timeout: 15000 });
+  check("RP2 logout returns to the login route and clears the Multi-Entity session", !(await page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY)));
 
   // -------------------------------------------------------------------------
   section("API THROUGH THE REWRITE TABLE");

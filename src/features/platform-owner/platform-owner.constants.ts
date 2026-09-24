@@ -172,13 +172,33 @@ export const PLATFORM_OWNER_TEXT = {
     stageNote:
       "אישור בעלים יוצר חשבון ללא סיסמה ומפיק קישור חד-פעמי. הסיסמה נבחרת על ידי הבעלים בלבד.",
     logout: "התנתקות",
+
+    /** Changing the console operator's OWN password. */
+    passwordTitle: "החלפת הסיסמה שלי",
+    passwordOpen: "החלפת סיסמה",
+    passwordCurrent: "הסיסמה הנוכחית",
+    passwordNew: "סיסמה חדשה",
+    passwordConfirm: "אימות הסיסמה החדשה",
+    passwordSubmit: "שמירת הסיסמה",
+    passwordCancel: "ביטול",
+    passwordSaved: "הסיסמה עודכנה",
+    passwordHint:
+      "נדרשת הסיסמה הנוכחית. הסיסמה הקיימת אינה ניתנת לצפייה.",
+    passwordErrors: {
+      INVALID_CURRENT_PASSWORD: "הסיסמה הנוכחית שגויה",
+      SAME_PASSWORD: "הסיסמה החדשה חייבת להיות שונה מהנוכחית",
+      WEAK_PASSWORD: "הסיסמה אינה עומדת בדרישות",
+      MISMATCH: "הסיסמאות אינן תואמות",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
   },
 
   /** The console's side navigation (one route per section). */
   shell: {
     nav: {
       workspaces: "מערכות בחירות",
-      modules: "הקצאת מודולים",
       multiEntity: "רב-מערכות",
       audit: "יומן פעולות",
       settings: "הגדרות",
@@ -236,6 +256,67 @@ export const PLATFORM_OWNER_TEXT = {
     requestedModulesLabel: "מודולים שנבחרו באישור",
   },
 
+  /** The Election Owner's own account, as the console may act on it. */
+  ownerAccount: {
+    open: "עריכת בעל המערכת",
+    title: (name: string) => `בעל המערכת - ${name}`,
+    loading: "טועןים את פרטי הבעלים...",
+    loadError: "לא הצלחנו לטעון את פרטי הבעלים.",
+    detailsTitle: "פרטי הבעלים",
+    detailsHint:
+      "פרטים אלה נשמרים ברשומת הבעלים של המערכת. שינוי נרשם ביומן הפעולות.",
+    detailsSave: "שמירת פרטי הבעלים",
+    detailsSaved: "פרטי הבעלים עודכנו",
+    phoneHint: "מספר ישראלי. ניתן להשאיר ריק.",
+    nameLabel: "שם הבעלים",
+    emailLabel: "אימייל",
+    phoneLabel: "טלפון",
+    noPhone: "לא הוזן",
+
+    usernameTitle: "שם משתמש לכניסה",
+    usernameLabel: "שם משתמש",
+    usernameHint:
+      "השם שהבעלים מזין במסך הכניסה. שינוי משחרר את השם הקודם לשימוש אחר.",
+    usernameUnset: "טרם הוגדר",
+    usernameSave: "שמירת שם המשתמש",
+    usernameSaved: "שם המשתמש עודכן",
+
+    passwordTitle: "קביעת סיסמה חדשה",
+    passwordLabel: "סיסמה חדשה",
+    passwordHint:
+      "לפחות 8 תווים. הסיסמה הקיימת אינה ניתנת לצפייה - ניתן רק לקבוע אחת חדשה.",
+    passwordShow: "הצג סיסמה",
+    passwordHide: "הסתר סיסמה",
+    passwordSave: "קביעת הסיסמה",
+    passwordSaved:
+      "הסיסמה עודכנה. מסרו אותה לבעלים בערוץ מאובטח.",
+    passwordTooShort: "הסיסמה חייבת להכיל לפחות 8 תווים",
+
+    loginTitle: "כתובת הכניסה של הבעלים",
+    loginHint:
+      "זו כתובת הכניסה למערכת שלהם. הבעלים נכנסים בשם המשתמש ובסיסמה שלהם.",
+    loginCopy: "העתקת כתובת הכניסה",
+    loginCopied: "הכתובת הועתקה",
+    close: "סגירה",
+    errors: {
+      OWNER_NOT_FOUND:
+        "לא נמצא בעלים למערכת זו. רעננו את הדף.",
+      USERNAME_TAKEN: "שם המשתמש תפוס",
+      USERNAME_ALREADY_SET: "שם המשתמש כבר מוגדר עבור חשבון זה",
+      INVALID_NAME: "יש להזין שם בעלים",
+      INVALID_EMAIL: "יש להזין כתובת אימייל תקינה",
+      INVALID_PHONE: "יש להזין מספר טלפון ישראלי תקין",
+      INVALID_USERNAME:
+        "שם המשתמש אינו תקין. אסור להשתמש ב-@ וברווח כפול.",
+      WEAK_PASSWORD: "הסיסמה נדחתה. בחרו סיסמה ארוכה יותר.",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      INVALID_REQUEST: "הבקשה אינה תקינה.",
+      SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
+  },
+
   /** Module-entitlement section heading (the list itself: workspaceModules). */
   modulesSection: {
     title: "הקצאת מודולים",
@@ -247,9 +328,45 @@ export const PLATFORM_OWNER_TEXT = {
    * section says so instead of inventing one. */
   audit: {
     title: "יומן פעולות",
-    emptyTitle: "תצוגת היומן תתווסף בהמשך",
+    description:
+      "פעולות ניהול שנרשמו בשרת, מהחדשה לישנה. לצפייה בלבד.",
+    /** The log shows ONLY recorded events - it never reconstructs history. */
+    emptyTitle: "טרם נרשמו פעולות",
     emptyHint:
-      "שינויי מודולים ופעולות ניהול רגישות כבר נרשמים ביומן מאובטח בשרת. צפייה ביומן מתוך המסוף תתווסף בשלב נפרד.",
+      "פעולות ניהול יופיעו כאן מרגע שיירשמו. פעולות שבוצעו לפני שהיומן הופעל אינן מוצגות, ואינן משוחזרות.",
+    loadError: "לא הצלחנו לטעון את יומן הפעולות.",
+    count: (n: number) => `${n} רשומות`,
+    search: "חיפוש ביומן",
+    noResults: "לא נמצאו רשומות התואמות לחיפוש",
+    sources: {
+      owner_account: "חשבון בעלים",
+      entitlement: "מודולים",
+      module_availability: "זמינות מודולים",
+      multi_entity: "רב-מערכות",
+    } as Record<string, string>,
+    actions: {
+      profile_updated: "עודכנו פרטי הבעלים",
+      username_changed: "שונה שם המשתמש",
+      password_set: "נקבעה סיסמה לבעלים",
+      self_password_set: "בעל הפלטפורמה החליף את סיסמתו",
+      approval_selected: "מודולים נבחרו באישור",
+      provisioning_granted: "מודולים הוקצו בהקמה",
+      enabled: "הופעל",
+      disabled: "הושבת",
+      backfill_granted: "הוקצה במיגרציה",
+      provisioned: "הוקצה בעל רב-מערכות",
+      replaced: "בעל רב-מערכות הוחלף",
+      removed: "בעל רב-מערכות הוסר",
+      assigned: "שויכה מערכת",
+      unassigned: "בוטל שיוך מערכת",
+    } as Record<string, string>,
+    changedFields: {
+      name: "שם",
+      email: "אימייל",
+      phone: "טלפון",
+    } as Record<string, string>,
+    changedLabel: (fields: string) => `שונו: ${fields}`,
+    renamedLabel: (from: string, to: string) => `${from} ← ${to}`,
   },
 
   settings: {
@@ -706,6 +823,13 @@ export function platformWorkspaceModulesError(code: string): string {
   return (
     PLATFORM_OWNER_TEXT.workspaceModules.errors[code] ??
     PLATFORM_OWNER_TEXT.workspaceModules.errors.SERVER_ERROR
+  );
+}
+
+export function platformOwnerAccountError(code: string): string {
+  return (
+    PLATFORM_OWNER_TEXT.ownerAccount.errors[code] ??
+    PLATFORM_OWNER_TEXT.ownerAccount.errors.SERVER_ERROR
   );
 }
 

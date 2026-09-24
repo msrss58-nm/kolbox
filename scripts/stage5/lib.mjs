@@ -161,6 +161,33 @@ export async function signIn(email, password) {
  * always-served route of that origin so storage for it can be written, and
  * the caller navigates wherever it needs afterwards.
  */
+/**
+ * The Multi-Entity Owner twin of `seedOwnerSession`.
+ *
+ * That realm's per-origin login was retired in the same batch that removed its
+ * second factor: an owner signs in with a USERNAME on the shared login, which
+ * only the auth deployment can resolve and a single-surface suite does not
+ * run. The session written here is genuine - a real signInWithPassword against
+ * the scratch stack - so every guard, refresh and server call behaves exactly
+ * as it does for a human; only the typing is skipped.
+ *
+ * Writes storage directly rather than through addInitScript, for the same
+ * reason: it can be called again after a sign-out instead of silently
+ * resurrecting a session a test has just ended.
+ */
+export async function seedMultiEntitySession(page, base, email, password) {
+  const { client } = await signIn(email, password);
+  const { data } = await client.auth.getSession();
+  if (!data.session) throw new Error("seedMultiEntitySession: no session to seed");
+  // A cheap same-origin page: the login route now bounces cross-origin, and a
+  // suite must never leave the stack.
+  await page.goto(`${base}/api/health`, { waitUntil: "domcontentloaded" });
+  await page.evaluate(
+    ([key, value]) => window.localStorage.setItem(key, value),
+    ["kb-multi-entity-owner-auth-token", JSON.stringify(data.session)],
+  );
+}
+
 export async function seedOwnerSession(page, base, email, password) {
   const { client } = await signIn(email, password);
   const { data } = await client.auth.getSession();

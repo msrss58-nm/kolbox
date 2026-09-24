@@ -1,4 +1,3 @@
-import { PLATFORM_OWNER_PASSWORD_MIN_LENGTH } from "../platform-owner/platform-owner.constants";
 
 /**
  * Platform Stage 5: every Hebrew string on the Multi-Entity Owner surface.
@@ -9,6 +8,13 @@ import { PLATFORM_OWNER_PASSWORD_MIN_LENGTH } from "../platform-owner/platform-o
 
 /** Friendly name attached to the Multi-Entity Owner's TOTP factor. Not
  * user-visible copy - kept here so enrollment has one source of truth. */
+/** The auth provider's OWN minimum, and the only rule this realm's first
+ * password has: `minimum_password_length = 6` with `password_requirements = ""`
+ * in supabase/config.toml. The uppercase/symbol/mixed-case requirements that
+ * used to be shown here were invented by this app, not by the provider. */
+export const MULTI_ENTITY_OWNER_PASSWORD_MIN_LENGTH = 6;
+
+
 export const MULTI_ENTITY_OWNER_MFA_FACTOR_NAME = "KolBox Multi-Entity Owner";
 
 export const MULTI_ENTITY_OWNER_TEXT = {
@@ -38,12 +44,7 @@ export const MULTI_ENTITY_OWNER_TEXT = {
     hidePassword: "הסתר סיסמה",
     submit: "שמירת הסיסמה",
     rulesTitle: "דרישות הסיסמה",
-    rules: [
-      `לפחות ${PLATFORM_OWNER_PASSWORD_MIN_LENGTH} תווים`,
-      "אות גדולה ואות קטנה באנגלית",
-      "לפחות ספרה אחת",
-      "לפחות תו מיוחד אחד",
-    ],
+    rules: [`לפחות ${MULTI_ENTITY_OWNER_PASSWORD_MIN_LENGTH} תווים`],
     invalid: {
       title: "הקישור אינו תקף",
       body: "הקישור לקביעת סיסמה פג תוקף, כבר נעשה בו שימוש, או שאינו תקין. בקשו מבעל הפלטפורמה קישור חדש.",
@@ -51,11 +52,11 @@ export const MULTI_ENTITY_OWNER_TEXT = {
     },
     success: {
       title: "הסיסמה נשמרה",
-      body: "התחברו עם הסיסמה החדשה. בכניסה הראשונה תתבקשו להגדיר אימות דו-שלבי.",
+      body: "התחברו עם שם המשתמש והסיסמה החדשה.",
       continue: "המשך למסך הכניסה",
     },
     errors: {
-      tooShort: `הסיסמה חייבת להכיל לפחות ${PLATFORM_OWNER_PASSWORD_MIN_LENGTH} תווים`,
+      tooShort: `הסיסמה חייבת להכיל לפחות ${MULTI_ENTITY_OWNER_PASSWORD_MIN_LENGTH} תווים`,
       missingLower: "הסיסמה חייבת להכיל אות קטנה באנגלית",
       missingUpper: "הסיסמה חייבת להכיל אות גדולה באנגלית",
       missingDigit: "הסיסמה חייבת להכיל לפחות ספרה אחת",

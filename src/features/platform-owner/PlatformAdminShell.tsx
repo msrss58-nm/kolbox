@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Blocks, Building2, Network, ScrollText, Settings } from "lucide-react";
+import { Building2, Network, ScrollText, Settings } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AdminShell, type AdminNavItem } from "../../components/admin/AdminShell";
 import { ROUTES } from "../../constants/routes";
@@ -14,7 +14,6 @@ const nav = PLATFORM_OWNER_TEXT.shell.nav;
 
 const NAV_ITEMS: AdminNavItem[] = [
   { to: ROUTES.platformWorkspaces, label: nav.workspaces, icon: Building2 },
-  { to: ROUTES.platformModules, label: nav.modules, icon: Blocks },
   { to: ROUTES.platformMultiEntity, label: nav.multiEntity, icon: Network },
   { to: ROUTES.platformAudit, label: nav.audit, icon: ScrollText },
   { to: ROUTES.platformSettings, label: nav.settings, icon: Settings },

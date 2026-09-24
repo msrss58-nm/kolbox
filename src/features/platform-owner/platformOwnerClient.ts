@@ -751,6 +751,10 @@ export interface WorkspaceEntitlements {
   electionEndAt: string | null;
   ownerName: string | null;
   ownerEmail: string | null;
+  /** The Election Owner's own phone number, from `election_owners` - not the
+   * approval's copy of it. Null when the Owner has none recorded, which is the
+   * ordinary state for a workspace created before phone became required. */
+  ownerPhone: string | null;
   modules: string[];
 }
 
@@ -799,6 +803,7 @@ export async function fetchWorkspaceModules(
         electionEndAt: str(w.election_end_at),
         ownerName: str(w.owner_name),
         ownerEmail: str(w.owner_email),
+        ownerPhone: str(w.owner_phone),
         modules: strList(w.modules),
       });
     }
@@ -873,9 +878,12 @@ export type SetOwnUsernameResult =
   | { status: "error" };
 
 /**
- * Claims the Platform Owner's own application username - the identity the
- * dedicated /login/platform-owner screen resolves. Claimed once; a username is
- * permanent for the life of the principal. No external verification is
+ * Claims the PLATFORM OWNER's own application username - the identity the
+ * dedicated /login/platform-owner screen resolves. Claimed once, and still
+ * permanent for the life of that principal: this is the console operator's own
+ * name, and there is nobody above them to change it. An ELECTION Owner's
+ * username is a different matter - see `setOwnerUsername`, which an authorized
+ * Platform Owner may use to change one. No external verification is
  * involved.
  */
 export async function setOwnUsername(
@@ -916,5 +924,230 @@ export async function setOwnUsername(
     return { status: "error" };
   } catch {
     return { status: "error" };
+  }
+}
+
+/* ==========================================================================
+ * The Election Owner's own account, as the Platform console sees and edits it.
+ *
+ * `workspaceId` identifies WHICH Owner - there is exactly one per workspace,
+ * enforced by a UNIQUE constraint - and the server re-resolves them from it on
+ * every call. No Auth user id ever crosses the wire, and no password is ever
+ * returned: the only direction a password travels is in.
+ * ========================================================================== */
+
+export interface OwnerAccount {
+  name: string;
+  email: string;
+  phone: string | null;
+  /** The login username the shared sign-in screen resolves. Null when the
+   * Owner predates the username directory. */
+  username: string | null;
+}
+
+export async function fetchOwnerAccount(
+  accessToken: string,
+  workspaceId: string,
+): Promise<MultiEntityResult<OwnerAccount>> {
+  try {
+    const res = await fetch(
+      `${PLATFORM_SESSION_ENDPOINT}?op=owner_account&workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: "GET", headers: { authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = await parseJson(res);
+    if (res.status !== 200) return failure<OwnerAccount>(res.status, parsed);
+    const o = rec(parsed);
+    if (!o || typeof o.name !== "string") return { status: "error", code: "SERVER_ERROR" };
+    return {
+      status: "ok",
+      data: {
+        name: o.name,
+        email: typeof o.email === "string" ? o.email : "",
+        phone: str(o.phone),
+        username: str(o.username),
+      },
+    };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
+  }
+}
+
+async function ownerAccountWrite(
+  accessToken: string,
+  body: Record<string, unknown>,
+): Promise<MultiEntityResult<true>> {
+  try {
+    const res = await fetch(PLATFORM_SESSION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const parsed = await parseJson(res);
+    if (res.status !== 200) return failure<true>(res.status, parsed);
+    return { status: "ok", data: true };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
+  }
+}
+
+/**
+ * Updates the Owner's own profile - name, e-mail and phone, and nothing else.
+ * The server writes exactly those three columns; ownership, the workspace and
+ * its modules are not reachable from this call.
+ */
+export async function setOwnerProfile(
+  accessToken: string,
+  workspaceId: string,
+  profile: { name: string; email: string; phone: string },
+): Promise<MultiEntityResult<{ name: string; email: string; phone: string | null }>> {
+  try {
+    const res = await fetch(PLATFORM_SESSION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        op: "set_owner_profile",
+        workspaceId,
+        name: profile.name,
+        email: profile.email,
+        phone: profile.phone,
+      }),
+    });
+    const parsed = await parseJson(res);
+    if (res.status !== 200) {
+      return failure<{ name: string; email: string; phone: string | null }>(res.status, parsed);
+    }
+    const o = rec(parsed);
+    if (!o || typeof o.name !== "string") return { status: "error", code: "SERVER_ERROR" };
+    // What came BACK is what was stored - normalization included - so the form
+    // can show exactly that without a second read.
+    return {
+      status: "ok",
+      data: {
+        name: o.name,
+        email: typeof o.email === "string" ? o.email : profile.email,
+        phone: str(o.phone),
+      },
+    };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
+  }
+}
+
+/** Changes the Owner's login username. The server frees the old name and
+ * claims the new one, and puts the old one back if the claim fails. */
+export function setOwnerUsername(
+  accessToken: string,
+  workspaceId: string,
+  username: string,
+): Promise<MultiEntityResult<true>> {
+  return ownerAccountWrite(accessToken, {
+    op: "set_owner_username",
+    workspaceId,
+    username,
+  });
+}
+
+/** Sets a NEW password on the Owner's account. Nothing comes back but a
+ * result - an existing password is neither readable nor returned. */
+export function setOwnerPassword(
+  accessToken: string,
+  workspaceId: string,
+  password: string,
+): Promise<MultiEntityResult<true>> {
+  return ownerAccountWrite(accessToken, {
+    op: "set_owner_password",
+    workspaceId,
+    password,
+  });
+}
+
+/* ==========================================================================
+ * The platform activity log, and the Platform Owner's own password.
+ * ========================================================================== */
+
+export interface ActivityEvent {
+  id: string;
+  /** Which audit recorded it: owner_account | entitlement |
+   * module_availability | multi_entity. */
+  source: string;
+  action: string;
+  at: string;
+  /** What the action was about - an address, a module key. May be absent. */
+  subject: string | null;
+  workspace: string | null;
+  details: Record<string, unknown>;
+}
+
+export async function fetchActivity(
+  accessToken: string,
+  limit = 200,
+): Promise<MultiEntityResult<ActivityEvent[]>> {
+  try {
+    const res = await fetch(`${PLATFORM_SESSION_ENDPOINT}?op=activity&limit=${limit}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    const parsed = await parseJson(res);
+    if (res.status !== 200) return failure<ActivityEvent[]>(res.status, parsed);
+    const list = rec(parsed)?.events;
+    if (!Array.isArray(list)) return { status: "error", code: "SERVER_ERROR" };
+    const out: ActivityEvent[] = [];
+    for (const raw of list) {
+      const o = rec(raw);
+      const id = o && str(o.id);
+      const action = o && str(o.action);
+      const at = o && str(o.at);
+      // A malformed row is dropped rather than rendered half-read - the same
+      // rule every other list on this surface follows.
+      if (!o || !id || !action || !at) continue;
+      out.push({
+        id,
+        source: str(o.source) ?? "",
+        action,
+        at,
+        subject: str(o.subject),
+        workspace: str(o.workspace),
+        details: (rec(o.details) ?? {}) as Record<string, unknown>,
+      });
+    }
+    return { status: "ok", data: out };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
+  }
+}
+
+/**
+ * Replaces the signed-in Platform Owner's own password.
+ *
+ * The current password is sent so the SERVER can verify it - a live session is
+ * not enough to lock the owner out of their own account. Nothing comes back
+ * but a result: no password travels in the other direction, and none is stored
+ * anywhere by this call.
+ */
+export async function changeOwnPassword(
+  accessToken: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<MultiEntityResult<true>> {
+  try {
+    const res = await fetch(PLATFORM_SESSION_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ op: "change_own_password", currentPassword, newPassword }),
+    });
+    const parsed = await parseJson(res);
+    if (res.status !== 200) return failure<true>(res.status, parsed);
+    return { status: "ok", data: true };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
   }
 }

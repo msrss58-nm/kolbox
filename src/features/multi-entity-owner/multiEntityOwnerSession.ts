@@ -123,32 +123,16 @@ export const useMultiEntityOwnerSession = create<MultiEntityOwnerSessionState>(
           return;
         }
 
-        const { data: aal, error: aalError } =
-          await multiEntityOwnerAuthClient.auth.mfa.getAuthenticatorAssuranceLevel();
-        if (aalError || !aal) {
-          apply({ context: null, status: "error", bootstrapped: true });
-          return;
-        }
-
-        if (aal.currentLevel !== "aal2") {
-          // aal1 - returns BEFORE the privileged fetch below.
-          const { data: factors, error: factorsError } =
-            await multiEntityOwnerAuthClient.auth.mfa.listFactors();
-          if (factorsError || !factors) {
-            apply({ context: null, status: "error", bootstrapped: true });
-            return;
-          }
-          const verified =
-            factors.totp.find((factor) => factor.status === "verified") ?? null;
-          apply({
-            context: null,
-            status: verified ? "mfa_challenge" : "mfa_enroll",
-            mfaState: { ...EMPTY_MFA_STATE, factorId: verified?.id ?? null },
-            bootstrapped: true,
-          });
-          return;
-        }
-
+        // NO SECOND FACTOR FOR THIS REALM (approved 2026-09-24). A password
+        // sign-in through the shared login is the whole of it, so there is no
+        // assurance-level check here and nothing to divert to - the enrolment
+        // and challenge screens are gone. The boundary that actually matters
+        // moved with it: `api/platform/_multiEntityAuth.ts` no longer requires
+        // aal2 either, in the same batch. Deliberately scoped to the
+        // Multi-Entity Owner; the Platform Owner, the Election Owner and
+        // workers are untouched. `mfaState` and the two MFA actions below
+        // remain in the store, unreachable, the same way the Platform Owner's
+        // did when mandatory MFA was switched off there.
         const result = await fetchMultiEntityOwnerSession(session.access_token);
         if (result.status === "ok") {
           apply({
