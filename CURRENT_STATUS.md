@@ -5250,3 +5250,47 @@ The user approved exactly that consequence on the state as it then stood: `לו�
 **Protected files.** The 15 protected scripts remain dirty and untouched at exactly **+138/-45** throughout; they were never staged, and after the commit the working tree contains nothing else.
 
 **Residual, carried forward:** there is still no console kill switch for this value while `availability_switchable` is `false` — undoing it needs another migration and a push. Voter Management still has no server-side worker runtime, and its screens remain per-browser `MockApi`/localStorage.
+
+---
+
+## Three isolated fixes: the Owner's admin heading, every password rule, and the approval dialog — 2026-09-25
+
+**CLOSED / PASS, local.** Three separately-verified fixes in one commit. No migration, no schema change, no Production DB action: **Production stays at 114 applied / 0 pending / 0 drift**.
+
+### FIX 1 - "ניהול המערכת" is gone from the Election Owner product
+
+The request was to remove the group; the code held **two** things by that name, and only one of them was ever on screen:
+
+- **Live:** `ElectionDayShell` rendered a `PageHeader` titled "ניהול המערכת - בעלים" over every `/election-day/owner/*` route. Removed. Each section already titles itself (Users, Roles & Permissions, Settings), so nothing lost a heading - the banner said only what the screen underneath already said. The owner routes still get **no** Election Day title and **no** countdown, which is what that branch existed for.
+- **Legacy, unrouted:** `OwnerAdminShell.tsx` - a whole second admin shell with its own `ניהול כללי` sidebar group and an obsolete **Modules** entry. Nothing imported or routed it (`OwnerAdminOutlet` replaced it), so it was 196 lines of dead duplicate navigation. Deleted, together with the five text keys only it used.
+
+**Kept on purpose:** the Users / Roles / Settings routes and the `owner/modules` route. `owner/modules` has no sidebar entry (two retained suites already assert that) but is still reached directly by `ui-stage9`, and its content lives on the Settings screen. Two comments that pointed at the deleted file were corrected.
+
+**Verified:** `tsc -b` clean, `npm run lint` 0 errors, build clean, `git diff --check` clean. `ui-nav-roles` **57/0**, `ui-stage9` **85/0**, `ui-open-issues` **58/0**.
+
+### FIX 2 - KOLBOX imposes no password policy anywhere
+
+Every application-level length and complexity rule is gone, for every identity. What was removed: the Platform Owner's **12** characters plus upper / lower / digit / symbol and its 72-byte client ceiling; the Election Owner's **8**; the Multi-Entity Owner's **6**; and the rule lists, hints and messages that advertised them. Both validators now return only `empty` or `mismatch`.
+
+- **A real bug fixed with it:** `PermissionUsersPanel` sent `password.trim()` when the Owner created a worker. A password with a leading or trailing space was stored trimmed and could then never sign in. It is now sent exactly as typed. Nothing anywhere trims, normalises or case-folds a password, and none is ever logged.
+- **Server-side too** (`api/platform/session.ts`): the Election Owner's set-password handler dropped its 8-character floor and the Platform Owner's own change dropped its 12, each now refusing only an empty value. Current-password verification is unchanged and still required.
+- **The DB never had a rule** - the PermissionUser RPCs only reject null/blank - so nothing there changed, and no migration was needed.
+- **Empty is still invalid** everywhere, and the confirmation must still match **exactly** (no trimming on either side).
+
+**The provider limits that remain, and they are the provider's, not KOLBOX's:** Supabase Auth enforces `minimum_password_length = 6` with `password_requirements = ""`, and bcrypt's hard **72-byte** ceiling (Hebrew costs 2 bytes per letter). These bind the three Supabase-Auth identities (Platform Owner, Election Owner, Multi-Entity Owner). Worker / PermissionUser passwords are **not** Supabase Auth - they are bcrypt hashes in `election_day_permission_users` - so only "non-empty" applies to them. The console now reports the provider's refusal instead of pre-empting it; the 5-vs-6 character bracket is asserted live in `ui-console-unified` (K10c / K10e).
+
+**Verified:** repository-wide search finds no stale KOLBOX password rule or text. New retained suite `scripts/password/logic-password-policy.mjs` **64/0** bundles the two real validators with esbuild and covers 1 character, digits only, symbols only, Hebrew only, one Hebrew letter, spaces (leading, trailing, only), tabs and newlines, emoji, combining marks, RTL marks, Cyrillic, CJK, 200 characters, over 72 bytes, lengths 1..200, exact-confirmation mismatches and empty rejection - for **both** realms. `ui-console-unified` **187/0** covers the wrong current password, the provider refusal and a 6-character all-lowercase password being accepted end-to-end. `tsc -b`, a standalone `api/` typecheck, lint (0 errors) and the build are all clean.
+
+### FIX 3 - the "אישור בעלים חדש" dialog cannot be closed by accident
+
+A stray click on the backdrop used to discard the whole form. `Modal` gained one additive prop, `dismissOnBackdrop` (default **true**, so all 35 of its other consumers are unchanged by construction - with the default the backdrop handler compiles to the same condition it had). Only `OwnerApprovalDialog` passes `false`. The X in the header and a new `ביטול` button - in the same action row as `אישור ויצירת קישור`, `variant="secondary"`, disabled while a request is in flight - are the two ways out; `ביטול` calls `onClose` and nothing else. **Escape still closes it**, deliberately: it is a keyboard equivalent of the X, not an accidental gesture, and removing it would cost accessibility for nothing.
+
+**Verified:** `ui-console-unified` section CX, **7/7** - the backdrop click leaves the dialog open **and** the typed value intact, the Cancel button sits in the submit button's row, Cancel closes it, the approval count is unchanged after both Cancel and X, and the X still closes it. Submission itself is unchanged and still proven by the suite's three real approval flows.
+
+### Consolidated regression gate (all three fixes in place)
+
+`ui-console-unified` **187/0** (was 177/0) · `ui-stage9` **85/0** · `ui-nav-roles` **57/0** · `ui-open-issues` **58/0** · `ui-stage8` **59/0** · `ui-stage7` **83/0** · `ui-module-availability` **23/0** · `ui-real-local` **31/0** · `ui-platform-owner-login` **20/0** · `api-stage9` **96/0** · `api-real-local` **121/0** · `api-open-issues` **32/0** · `api-module-availability` **44/0** · `api-owner-module-access` **21/0** · `api-multi-owner` **56/0** · `api-auth-principal-switch` **31/0** · `bundle-isolation` **18/0** · `bundle-stage7` **16/0** · `logic-password-policy` **64/0**. Protected 15 scripts untouched at **+138/-45** throughout.
+
+**Not re-run, with reasons:** the DB suites (no migration and no schema change), `api-auth-identity` (documented as requiring a freshly reset stack, which would have discarded the fixtures the rest of this gate ran against), and the Budget UI suites (they need a Storage-enabled stack; the only shared code they touch is `Modal`, whose new prop leaves their code path provably identical).
+
+**Docker note:** Docker Desktop had stopped mid-session and was restarted; the scratch stack came back healthy at 114 migrations before any suite in this gate ran.

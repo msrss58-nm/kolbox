@@ -27,19 +27,11 @@ export const PLATFORM_OWNER_MFA_FACTOR_NAME = "KolBox Platform Owner";
 export const PLATFORM_OWNER_MFA_REQUIRED = false;
 
 /** Platform Stage 2 (password set/recovery): minimum length for the Platform
- * Owner's password. Deliberately well above the campaign app's bar - this is
- * the single most privileged identity in the system. Enforced client-side by
- * `platformOwnerPasswordPolicy.ts` (a quality gate, not a security boundary -
- * Supabase's own project policy is the server-side authority) and quoted in
- * the Hebrew rule list below, so the number has exactly one definition. */
-export const PLATFORM_OWNER_PASSWORD_MIN_LENGTH = 12;
-
-/** Platform Stage 2 (password set/recovery): hard upper bound, in BYTES.
- * bcrypt - which GoTrue uses - silently truncates beyond 72 bytes, and the
- * server rejects longer input with `validation_failed`. Enforced client-side
- * so a long passphrase gets a specific Hebrew message instead of a dead-end
- * generic error. Bytes, not characters: Hebrew is 2 bytes per letter in UTF-8. */
-export const PLATFORM_OWNER_PASSWORD_MAX_BYTES = 72;
+ * Owner's password. KOLBOX no longer defines a password policy of its own -
+ * no minimum length, no maximum and no character classes, for this or any
+ * other identity. `platformOwnerPasswordPolicy.ts` checks only that something
+ * was typed and that the confirmation matches; the auth provider is the sole
+ * authority on what it accepts. */
 
 export const PLATFORM_OWNER_TEXT = {
   login: {
@@ -69,13 +61,6 @@ export const PLATFORM_OWNER_TEXT = {
     showPassword: "הצג סיסמה",
     hidePassword: "הסתר סיסמה",
     submit: "שמירת הסיסמה",
-    rulesTitle: "דרישות הסיסמה",
-    rules: [
-      `לפחות ${PLATFORM_OWNER_PASSWORD_MIN_LENGTH} תווים`,
-      "אות גדולה ואות קטנה באנגלית",
-      "לפחות ספרה אחת",
-      "לפחות תו מיוחד אחד",
-    ],
     invalid: {
       title: "הקישור אינו תקף",
       body: "קישור הגדרת הסיסמה פג תוקף, כבר נעשה בו שימוש, או שאינו שייך לחשבון בעל הפלטפורמה. בקשו קישור חדש ונסו שוב.",
@@ -87,12 +72,11 @@ export const PLATFORM_OWNER_TEXT = {
       continue: "המשך למסך הכניסה",
     },
     errors: {
-      tooShort: `הסיסמה חייבת להכיל לפחות ${PLATFORM_OWNER_PASSWORD_MIN_LENGTH} תווים`,
-      missingLower: "הסיסמה חייבת להכיל אות קטנה באנגלית",
-      missingUpper: "הסיסמה חייבת להכיל אות גדולה באנגלית",
-      missingDigit: "הסיסמה חייבת להכיל לפחות ספרה אחת",
-      missingSymbol: "הסיסמה חייבת להכיל לפחות תו מיוחד אחד",
-      tooLong: `הסיסמה ארוכה מדי - עד ${PLATFORM_OWNER_PASSWORD_MAX_BYTES} תווים`,
+      empty: "יש להזין סיסמה",
+      /** NOT a KOLBOX rule: the auth provider itself refuses a password over
+       * 72 BYTES (bcrypt's own ceiling - Hebrew costs 2 bytes per letter).
+       * Shown only when the provider actually refuses one. */
+      tooLong: "ספק האימות דחה את הסיסמה - עד 72 בייטים",
       mismatch: "הסיסמאות אינן תואמות",
       sameAsOld: "הסיסמה החדשה חייבת להיות שונה מהסיסמה הקודמת",
       weak: "הסיסמה נדחתה על ידי מדיניות האבטחה. בחרו סיסמה חזקה יותר",
@@ -284,13 +268,13 @@ export const PLATFORM_OWNER_TEXT = {
     passwordTitle: "קביעת סיסמה חדשה",
     passwordLabel: "סיסמה חדשה",
     passwordHint:
-      "לפחות 8 תווים. הסיסמה הקיימת אינה ניתנת לצפייה - ניתן רק לקבוע אחת חדשה.",
+      "הסיסמה הקיימת אינה ניתנת לצפייה - ניתן רק לקבוע אחת חדשה.",
     passwordShow: "הצג סיסמה",
     passwordHide: "הסתר סיסמה",
     passwordSave: "קביעת הסיסמה",
     passwordSaved:
       "הסיסמה עודכנה. מסרו אותה לבעלים בערוץ מאובטח.",
-    passwordTooShort: "הסיסמה חייבת להכיל לפחות 8 תווים",
+    passwordEmpty: "יש להזין סיסמה",
 
     loginTitle: "כתובת הכניסה של הבעלים",
     loginHint:

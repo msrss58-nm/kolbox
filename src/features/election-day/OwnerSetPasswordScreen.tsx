@@ -16,7 +16,6 @@ import {
 } from "./electionDayOwnerRecoveryUrl";
 
 const text = OWNER_PROVISIONING_TEXT.setPassword;
-const MIN_PASSWORD_LENGTH = 8;
 
 type Phase = "checking" | "ready" | "invalid" | "success";
 
@@ -125,10 +124,14 @@ export function OwnerSetPasswordScreen() {
     if (saving) return;
     setError(null);
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(text.tooShort);
+    // KOLBOX imposes no password policy - no length floor, no ceiling, no
+    // character classes. Only "something was typed" is checked here; the auth
+    // provider is the authority on everything else.
+    if (password === "") {
+      setError(text.empty);
       return;
     }
+    // Exact comparison, nothing trimmed on either side.
     if (password !== confirm) {
       setError(text.mismatch);
       return;

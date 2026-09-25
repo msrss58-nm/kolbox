@@ -8,12 +8,9 @@
 
 /** Friendly name attached to the Multi-Entity Owner's TOTP factor. Not
  * user-visible copy - kept here so enrollment has one source of truth. */
-/** The auth provider's OWN minimum, and the only rule this realm's first
- * password has: `minimum_password_length = 6` with `password_requirements = ""`
- * in supabase/config.toml. The uppercase/symbol/mixed-case requirements that
- * used to be shown here were invented by this app, not by the provider. */
-export const MULTI_ENTITY_OWNER_PASSWORD_MIN_LENGTH = 6;
-
+/** KOLBOX defines no password policy: the minimum length that used to live
+ * here is gone, along with every other application-level password rule in this
+ * project. The auth provider is the only authority on what it accepts. */
 
 export const MULTI_ENTITY_OWNER_MFA_FACTOR_NAME = "KolBox Multi-Entity Owner";
 
@@ -43,8 +40,6 @@ export const MULTI_ENTITY_OWNER_TEXT = {
     showPassword: "הצג סיסמה",
     hidePassword: "הסתר סיסמה",
     submit: "שמירת הסיסמה",
-    rulesTitle: "דרישות הסיסמה",
-    rules: [`לפחות ${MULTI_ENTITY_OWNER_PASSWORD_MIN_LENGTH} תווים`],
     invalid: {
       title: "הקישור אינו תקף",
       body: "הקישור לקביעת סיסמה פג תוקף, כבר נעשה בו שימוש, או שאינו תקין. בקשו מבעל הפלטפורמה קישור חדש.",
@@ -56,12 +51,10 @@ export const MULTI_ENTITY_OWNER_TEXT = {
       continue: "המשך למסך הכניסה",
     },
     errors: {
-      tooShort: `הסיסמה חייבת להכיל לפחות ${MULTI_ENTITY_OWNER_PASSWORD_MIN_LENGTH} תווים`,
-      missingLower: "הסיסמה חייבת להכיל אות קטנה באנגלית",
-      missingUpper: "הסיסמה חייבת להכיל אות גדולה באנגלית",
-      missingDigit: "הסיסמה חייבת להכיל לפחות ספרה אחת",
-      missingSymbol: "הסיסמה חייבת להכיל לפחות תו מיוחד אחד",
-      tooLong: "הסיסמה ארוכה מדי",
+      empty: "יש להזין סיסמה",
+      /** NOT a KOLBOX rule: the auth provider refuses a password over 72
+       * BYTES (bcrypt's ceiling). Shown only when it actually refuses one. */
+      tooLong: "ספק האימות דחה את הסיסמה - עד 72 בייטים",
       mismatch: "הסיסמאות אינן תואמות",
       sameAsOld: "הסיסמה החדשה חייבת להיות שונה מהסיסמה הקודמת",
       weak: "הסיסמה נדחתה על ידי מדיניות האבטחה. בחרו סיסמה חזקה יותר",

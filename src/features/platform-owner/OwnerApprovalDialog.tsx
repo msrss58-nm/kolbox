@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "../../components/ui/Button";
 import { Field, Input } from "../../components/ui/Field";
 import { Modal } from "../../components/ui/Modal";
+import { COMMON_TEXT } from "../../constants/common-text";
 import { moduleLabel } from "../../constants/labels";
 import { platformOwnerAuthClient } from "../../services/supabase/platformOwnerAuthClient";
 import {
@@ -161,7 +162,16 @@ export function OwnerApprovalDialog({
   };
 
   return (
-    <Modal open wide title={text.title} onClose={approving ? () => {} : onClose}>
+    // A click outside does NOT close this one: it is a long form, and a
+    // misplaced click would discard everything typed into it. The X in the
+    // header and the Cancel button below are the two deliberate ways out.
+    <Modal
+      open
+      wide
+      title={text.title}
+      dismissOnBackdrop={false}
+      onClose={approving ? () => {} : onClose}
+    >
       {!created && (
         <form onSubmit={(e) => void submit(e)} className="space-y-3">
           <p className="text-sm text-slate-600">{text.subtitle}</p>
@@ -287,9 +297,23 @@ export function OwnerApprovalDialog({
             </p>
           )}
 
-          <Button type="submit" loading={approving} className="w-full">
-            {approving ? text.submitting : text.submit}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="submit" loading={approving} className="flex-1">
+              {approving ? text.submitting : text.submit}
+            </Button>
+            {/* Closes the dialog and nothing else - it creates, saves and
+                mutates nothing. Disabled while a request is in flight, for the
+                same reason the X is neutered then. */}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={approving}
+              data-testid="approve-owner-cancel"
+            >
+              {COMMON_TEXT.cancel}
+            </Button>
+          </div>
         </form>
       )}
 

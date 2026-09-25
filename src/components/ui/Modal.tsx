@@ -22,6 +22,7 @@ export function Modal({
   children,
   wide = false,
   dismissible = true,
+  dismissOnBackdrop = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -35,6 +36,13 @@ export function Modal({
    * after handling one of its own actions. Defaults to `true` (today's
    * behavior, unchanged for every existing caller). */
   dismissible?: boolean;
+  /** When `false`, a click on the backdrop does NOT close the modal, while the
+   * X button and Escape keep working. For a dialog whose form is long enough
+   * that a misplaced click outside it would throw away typed input - losing it
+   * to a stray click is not a decision the user made. Narrower than
+   * `dismissible={false}`, which removes every way out. Defaults to `true`
+   * (today's behaviour, unchanged for every existing caller). */
+  dismissOnBackdrop?: boolean;
 }) {
   // `onClose` is excluded from the registration effect's deps (a ref carries
   // its latest value instead) - callers routinely pass a fresh inline
@@ -103,7 +111,7 @@ export function Modal({
   // already uses - makes backdrop dismissal correct regardless of which
   // DOM element the click physically landed on.
   const handleBackdropClick = () => {
-    if (!dismissible) return;
+    if (!dismissible || !dismissOnBackdrop) return;
     if (openModalStack[openModalStack.length - 1] !== idRef.current) return;
     onClose();
   };

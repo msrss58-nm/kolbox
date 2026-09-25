@@ -22,12 +22,6 @@ import {
 
 const text = PLATFORM_OWNER_TEXT.ownerAccount;
 
-/** The Owner's own set-password screen's rule, restated for the form that
- * sets it on their behalf - 8 characters, no composition requirements. See
- * `OwnerSetPasswordScreen.tsx`; the server enforces the same minimum and the
- * auth provider remains the authority. */
-const MIN_PASSWORD_LENGTH = 8;
-
 /** THE address an Election Owner signs in at. Taken from the hard-coded origin
  * map, never derived from a link or the address bar, and never a new route:
  * this is the same shared login every other principal uses. */
@@ -196,8 +190,10 @@ export function OwnerAccountDialog({
     if (passwordBusy) return;
     setPasswordError(null);
     setPasswordSaved(false);
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setPasswordError(text.passwordTooShort);
+    // KOLBOX imposes no password policy: only "something was typed" is
+    // checked here, and the auth provider decides the rest.
+    if (password === "") {
+      setPasswordError(text.passwordEmpty);
       return;
     }
     setPasswordBusy(true);

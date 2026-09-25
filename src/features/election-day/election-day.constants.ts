@@ -1224,9 +1224,6 @@ export const ELECTION_DAY_TEXT = {
     },
     entryLinkLabel: "כניסת בעלים",
     rolesPage: {
-      /** Platform Stage 9: the page is now the Owner's whole administration
-       * area (workspace, modules, users, roles), not roles only. */
-      title: "ניהול המערכת - בעלים",
       signedInAs: (email: string) => `מחובר כ-${email}`,
       logout: "התנתקות",
       workspaceTitle: "המערכת שלכם",
@@ -1255,16 +1252,7 @@ export const ELECTION_DAY_TEXT = {
       nav: {
         users: "משתמשים",
         roles: "תפקידים והרשאות",
-        modules: "מודולים",
         settings: "הגדרות",
-        /** Header for the workspace-wide group in the Owner sidebar; each
-         * entitled module with its own Owner section gets its own group. */
-        generalSection: "ניהול כללי",
-        /** The Owner's entry into a module's own full surface - the SAME
-         * screens a worker uses, not an Owner copy of them. Shown only for a
-         * module the workspace is actually entitled to. */
-        openElectionDay: "ניהול יום הבחירות",
-        openBudget: "ניהול תקציב",
       },
       users: {
         add: "הוספת משתמש",

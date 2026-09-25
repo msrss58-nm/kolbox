@@ -22,10 +22,11 @@ import { useOwnerSession } from "./ownerSession";
  * already renders, and the Owner's admin links are one more section in that
  * same sidebar.
  *
- * It replaces `OwnerAdminShell` as the parent of these routes. Each hook is
- * still called exactly ONCE for the whole admin area, so switching sections
- * never refetches and a section never shows data another has moved past -
- * the property the old shell's own doc comment described.
+ * It replaced a separate Owner admin shell as the parent of these routes -
+ * that shell has since been deleted, along with the duplicate sidebar group it
+ * carried. Each hook is still called exactly ONCE for the whole admin area, so
+ * switching sections never refetches and a section never shows data another has
+ * moved past - the property the old shell's own doc comment described.
  *
  * Authorization is unchanged and still belongs to the server: every section's
  * data and mutations go through `owner-actions.ts`, which requires the Owner

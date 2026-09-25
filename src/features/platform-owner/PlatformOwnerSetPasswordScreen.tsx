@@ -262,9 +262,10 @@ export function PlatformOwnerSetPasswordScreen() {
           // the owner retries the generic message forever with no way out.
           setError(text.errors.reauthNeeded);
         } else if (code === "validation_failed") {
-          // Most commonly bcrypt is 72-byte ceiling on the password. The
-          // policy rejects this before the round trip, but a server-side
-          // policy difference must not collapse into "try again".
+          // Most commonly bcrypt's 72-byte ceiling on the password. KOLBOX no
+          // longer pre-empts this - the provider is the authority - so this is
+          // the only place a too-long password is reported, and it must not
+          // collapse into "try again".
           setError(text.errors.tooLong);
         } else if (code === "insufficient_aal") {
           // A recovery session is always aal1. If the account already has a
@@ -390,17 +391,6 @@ export function PlatformOwnerSetPasswordScreen() {
             required
           />
         </Field>
-
-        <div className="space-y-1.5 rounded-xl bg-slate-50 px-3.5 py-3 ring-1 ring-slate-200">
-          <span className="block text-xs font-semibold text-slate-600">
-            {text.rulesTitle}
-          </span>
-          <ul className="list-disc space-y-1 ps-4 text-xs text-slate-500">
-            {text.rules.map((rule) => (
-              <li key={rule}>{rule}</li>
-            ))}
-          </ul>
-        </div>
 
         <Button
           type="submit"

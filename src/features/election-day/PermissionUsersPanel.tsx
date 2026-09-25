@@ -116,7 +116,10 @@ function CreateUserDialog({
     try {
       const result = await onAdd({
         name: name.trim(),
-        password: password.trim(),
+        // The password is sent EXACTLY as typed - never trimmed. Trimming it
+        // here stored a different secret than the one the user was given, so
+        // a password with a leading or trailing space could never sign in.
+        password,
         roleId: effectiveRoleId,
         username: effectiveUsername.trim(),
       });

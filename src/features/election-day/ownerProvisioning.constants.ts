@@ -19,7 +19,7 @@ export const OWNER_PROVISIONING_TEXT = {
     showPassword: "הצגת הסיסמה",
     hidePassword: "הסתרת הסיסמה",
     mismatch: "הסיסמאות אינן זהות",
-    tooShort: "הסיסמה חייבת להכיל לפחות 8 תווים",
+    empty: "יש להזין סיסמה",
     successTitle: "הסיסמה נשמרה",
     successBody: "אפשר להתחבר עכשיו עם כתובת האימייל והסיסמה שבחרתם.",
     goToLogin: "מעבר להתחברות",

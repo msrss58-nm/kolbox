@@ -287,17 +287,6 @@ export function MultiEntityOwnerSetPasswordScreen() {
           />
         </Field>
 
-        <div className="space-y-1.5 rounded-xl bg-slate-50 px-3.5 py-3 ring-1 ring-slate-200">
-          <span className="block text-xs font-semibold text-slate-600">
-            {text.rulesTitle}
-          </span>
-          <ul className="list-disc space-y-1 ps-4 text-xs text-slate-500">
-            {text.rules.map((rule) => (
-              <li key={rule}>{rule}</li>
-            ))}
-          </ul>
-        </div>
-
         <Button
           type="submit"
           size="lg"

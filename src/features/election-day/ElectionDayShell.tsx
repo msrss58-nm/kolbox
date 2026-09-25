@@ -260,11 +260,11 @@ export function ElectionDayShell() {
         {/* The Owner's administration sections share this shell but are NOT
             the Election Day module: they must not be titled after it, and
             must not carry its countdown - which offers a deadline for a
-            module the workspace may not even be entitled to. The sections
-            keep the heading the old Owner admin shell gave them. */}
-        {onOwnerAdminRoute ? (
-          <PageHeader title={ELECTION_DAY_TEXT.owner.rolesPage.title} />
-        ) : (
+            module the workspace may not even be entitled to. They carry no
+            shared heading of their own either: every section already titles
+            itself (Users, Roles & Permissions, Settings), so the group
+            header above them said nothing the screen did not already say. */}
+        {!onOwnerAdminRoute && (
           <>
             <PageHeader
               title={ELECTION_DAY_TEXT.title}

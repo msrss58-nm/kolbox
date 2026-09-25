@@ -528,6 +528,77 @@ try {
   await po.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
 
   // =======================================================================
+  section("CX. THE APPROVAL DIALOG CANNOT BE CLOSED BY ACCIDENT");
+  // =======================================================================
+  // It is a long form. A stray click on the backdrop used to discard every
+  // value typed into it, so the backdrop no longer dismisses it at all: the X
+  // in the header and the Cancel button are the two deliberate ways out, and
+  // neither creates anything.
+  {
+    const approvalsBefore = psql(
+      "select count(*)::text from public.election_workspace_pending_owner_access;",
+    ).trim();
+    const openDialog = async () => {
+      await po.getByRole("button", { name: "אישור בעלים חדש" }).click();
+      const f = po
+        .locator("form")
+        .filter({ has: po.getByRole("button", { name: "אישור ויצירת קישור" }) });
+      await f
+        .locator('[data-testid="approval-modules"] input[type="checkbox"]')
+        .first()
+        .waitFor({ timeout: 20000 });
+      return f;
+    };
+
+    const f1 = await openDialog();
+    const typed = `CX ${stamp}`;
+    await f1.getByLabel("שם הבעלים").fill(typed);
+    // Top-left corner: outside the centred dialog on this 1440x900 viewport.
+    await po.mouse.click(5, 5);
+    await po.waitForTimeout(600);
+    check(
+      "CX1 a click on the backdrop does NOT close the dialog",
+      await po.getByRole("dialog").isVisible(),
+    );
+    check(
+      "CX2 ... and nothing typed into it was lost",
+      (await f1.getByLabel("שם הבעלים").inputValue()) === typed,
+      await f1.getByLabel("שם הבעלים").inputValue(),
+    );
+    check(
+      "CX3 the Cancel button sits in the same row as the submit button",
+      await po
+        .locator("div")
+        .filter({ has: po.getByRole("button", { name: "אישור ויצירת קישור" }) })
+        .filter({ has: po.getByTestId("approve-owner-cancel") })
+        .first()
+        .isVisible(),
+    );
+    await po.getByTestId("approve-owner-cancel").click();
+    await po.getByRole("dialog").waitFor({ state: "detached", timeout: 10000 });
+    check("CX4 the Cancel button closes it", true);
+    check(
+      "CX5 ... and created, saved and mutated nothing",
+      psql(
+        "select count(*)::text from public.election_workspace_pending_owner_access;",
+      ).trim() === approvalsBefore,
+      `approvals ${approvalsBefore} -> ${psql("select count(*)::text from public.election_workspace_pending_owner_access;").trim()}`,
+    );
+
+    // The X still works - the backdrop is the only thing that stopped closing.
+    await openDialog();
+    await po.getByRole("dialog").getByRole("button", { name: "סגירה" }).click();
+    await po.getByRole("dialog").waitFor({ state: "detached", timeout: 10000 });
+    check("CX6 the X in the header still closes it", true);
+    check(
+      "CX7 ... and it created nothing either",
+      psql(
+        "select count(*)::text from public.election_workspace_pending_owner_access;",
+      ).trim() === approvalsBefore,
+    );
+  }
+
+  // =======================================================================
   section("D. THE LIST STAYS CURRENT WITHOUT F5");
   // =======================================================================
   const before = await rows().count();
@@ -1400,19 +1471,54 @@ try {
   );
 
   // --- password change ----------------------------------------------------
-  const newOwnerPw = randomPassword();
-  await po.locator('input[name="owner-account-new-password"]').fill("short");
-  await po.getByTestId("owner-password-save").click();
-  await po.getByText("הסיסמה חייבת להכיל לפחות 8 תווים").waitFor({ timeout: 10000 });
-  check("K10 a too-short password is refused before anything is sent", true);
+  // KOLBOX imposes no password policy any more - no length floor, no ceiling
+  // and no character classes - so a short password is ACCEPTED here. The only
+  // input that cannot be submitted is an empty one, and the save button stays
+  // disabled for it, so it never even reaches the handler.
+  // The positive control for the removed policy IS the real save below: six
+  // lower-case letters, no upper case, no digit and no symbol - which KOLBOX's
+  // own 8- and 12-character rules would each have refused. Deliberately not a
+  // second extra save, so the audit-row counts below stay exact.
+  const newOwnerPw = "abcdef";
+  await po.locator('input[name="owner-account-new-password"]').fill("");
   check(
-    "K10b ... and the old password still works after that refusal",
+    "K10 an EMPTY password cannot be submitted at all - the save button is disabled",
+    await po.getByTestId("owner-password-save").isDisabled(),
+  );
+  check(
+    "K10b ... and nothing was sent, so the old password still works",
     (await signIn(kmMail, kmPw).then(() => true, () => false)),
   );
-
+  // Where the floor actually lives now. KOLBOX has none; the AUTH PROVIDER
+  // keeps its own `minimum_password_length = 6`, so five characters are still
+  // refused - by Supabase, not by this application - and the console reports
+  // the provider's refusal rather than pre-empting it.
+  await po.locator('input[name="owner-account-new-password"]').fill("short");
+  await po.getByTestId("owner-password-save").click();
+  await po.getByText("הסיסמה נדחתה. בחרו סיסמה ארוכה יותר.").waitFor({ timeout: 20000 });
+  check(
+    "K10c five characters are refused by the AUTH PROVIDER (minimum_password_length = 6), not by a KOLBOX rule",
+    true,
+  );
+  check(
+    "K10d ... and that refusal changed nothing - the old password still works",
+    await signIn(kmMail, kmPw).then(() => true, () => false),
+  );
   await po.locator('input[name="owner-account-new-password"]').fill(newOwnerPw);
   await po.getByTestId("owner-password-save").click();
-  await po.getByText("הסיסמה עודכנה").waitFor({ timeout: 20000 });
+  // The CLEARED field is the unambiguous success signal: the provider refusal
+  // above left its own text on screen, so waiting on the confirmation text
+  // could match a stale message instead of this save.
+  await po.waitForFunction(
+    () =>
+      document.querySelector('input[name="owner-account-new-password"]')?.value === "",
+    undefined,
+    { timeout: 20000 },
+  );
+  check(
+    "K10e the 6-character all-lowercase password - no upper case, no digit, no symbol - was accepted",
+    true,
+  );
   check(
     "K11 the field is cleared the moment the password is set",
     (await po.locator('input[name="owner-account-new-password"]').inputValue()) === "",

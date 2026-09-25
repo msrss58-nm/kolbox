@@ -2231,12 +2231,11 @@ async function handleSetOwnerUsername(
  * GoTrue stores a hash, and this only writes a replacement through the same
  * Admin API this handler already uses to create and delete Owner accounts.
  *
- * The minimum length restates the Owner's OWN set-password screen
- * (`OwnerSetPasswordScreen.tsx`, 8 characters, no composition rules) because
- * `api/` imports nothing from `src/`; the provider stays authoritative and its
+ * KOLBOX imposes NO password policy - no minimum length, no maximum and no
+ * character classes, matching the Owner's own set-password screen. Only an
+ * EMPTY password is refused here; the auth provider stays authoritative and its
  * refusal is mapped rather than second-guessed.
  */
-const OWNER_PASSWORD_MIN_LENGTH = 8;
 
 async function handleSetOwnerPassword(
   req: MinimalRequest,
@@ -2248,8 +2247,9 @@ async function handleSetOwnerPassword(
   const { supabase, workspaceId, owner } = resolved;
 
   const body = (req.body ?? {}) as Record<string, unknown>;
+  // Taken EXACTLY as sent - never trimmed or normalised.
   const password = typeof body.password === "string" ? body.password : "";
-  if (password.length < OWNER_PASSWORD_MIN_LENGTH) {
+  if (password === "") {
     sendError(res, 400, "WEAK_PASSWORD");
     return;
   }
@@ -2587,12 +2587,10 @@ async function handleDeleteWorkspace(
   });
 }
 
-/** The Platform Owner's own password floor, restated here because `api/`
- * imports nothing from `src/` - see platform-owner.constants.ts, which is the
- * definition the console validates against. Deliberately NOT lowered with the
- * Multi-Entity first-password rules: this is the most privileged identity in
- * the system. */
-const PLATFORM_OWNER_PASSWORD_MIN_LENGTH = 12;
+/** KOLBOX imposes NO password policy for any identity, the Platform Owner
+ * included: only an empty password is refused, and the auth provider decides
+ * the rest. Stated here as well as in platform-owner.constants.ts because
+ * `api/` imports nothing from `src/`. */
 
 /**
  * The platform activity log - read-only, and only what was actually recorded.
@@ -2654,7 +2652,10 @@ async function handleChangeOwnPassword(
   const currentPassword =
     typeof body.currentPassword === "string" ? body.currentPassword : "";
   const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
-  if (currentPassword === "" || newPassword.length < PLATFORM_OWNER_PASSWORD_MIN_LENGTH) {
+  // Both values are used EXACTLY as sent - never trimmed or normalised. The
+  // current password is still required (it is verified below); the new one only
+  // has to be non-empty.
+  if (currentPassword === "" || newPassword === "") {
     sendError(res, 400, "WEAK_PASSWORD");
     return;
   }
