@@ -198,7 +198,7 @@ check("S2 start state: budget available=false; target has election_day+budget, c
 // ---------------------------------------------------------------------------
 section("A. DATABASE CATALOG / ACL / IMMUTABILITY");
 check("A1 availability_switchable: budget only (voter_management / election_day fixed)",
-  catalogStr() === "voter_management:false:false,election_day:true:false,budget:false:true", catalogStr());
+  catalogStr() === "voter_management:true:false,election_day:true:false,budget:false:true", catalogStr());
 check("A2 platform_set_module_availability: SECURITY DEFINER, search_path='', service_role only (no PUBLIC / anon / authenticated)",
   psql(`select p.prosecdef and p.proconfig = array['search_path=""']
           and has_function_privilege('service_role', p.oid, 'EXECUTE')
@@ -311,7 +311,7 @@ const auditBefore = Number(auditCount());
     r.statusCode === 200 && r.body?.changed === true && r.body?.previousAvailable === false && r.body?.available === true &&
       r.body?.moduleKey === "budget" && String(r.body?.entitledWorkspaces) === budgetEntitled, JSON.stringify(r.body));
   check("D2 catalog: budget available=true; nothing else in the catalog changed",
-    catalogStr() === "voter_management:false:false,election_day:true:false,budget:true:true");
+    catalogStr() === "voter_management:true:false,election_day:true:false,budget:true:true");
   check("D3 exactly ONE audit row: budget, false -> true, actor = the Platform Owner, now",
     Number(auditCount()) === auditBefore + 1 && lastAudit() === `budget|false|true|${po.user.id}|true`, lastAudit());
   check("D4 no entitlement added or removed; the entitlement audit untouched",

@@ -178,9 +178,9 @@ begin
   select login_code into code_d from public.election_workspaces where id = wd;
 
   -- ---- catalog / ACL / RLS ------------------------------------------------
-  perform pg_temp.chk('CAT1 module catalog: voter_management, election_day (available), budget',
+  perform pg_temp.chk('CAT1 module catalog: voter_management + election_day available, budget not',
     (select string_agg(key || ':' || available, ',' order by sort_order) from public.platform_modules)
-      = 'voter_management:false,election_day:true,budget:false',
+      = 'voter_management:true,election_day:true,budget:false',
     (select string_agg(key || ':' || available, ',' order by sort_order) from public.platform_modules));
   perform pg_temp.chk('CAT2 entitlement + audit tables: RLS on, zero policies',
     (select bool_and(c.relrowsecurity) from pg_class c where c.oid in (

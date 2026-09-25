@@ -374,6 +374,11 @@ section("B. ISSUE 6 + 5 - THE ELECTION OWNER'S SHELL");
     JSON.stringify(await navSections(q)),
   );
   await q.context().close();
+  // Back to the catalog baseline. Since 20261001000000 that is AVAILABLE, not
+  // unavailable: this section drives the flag both ways on purpose, so it must
+  // hand the scratch stack back in the state the migrations define - otherwise
+  // it silently breaks every later suite that asserts the real catalog.
+  psql("update public.platform_modules set available = true where key = 'voter_management';");
 }
 
 // =========================================================================

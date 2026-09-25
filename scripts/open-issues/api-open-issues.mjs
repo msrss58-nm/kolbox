@@ -4,12 +4,15 @@
 // stack (never Production, never the developer's own kolbox stack):
 //
 //   Issue 2  the "יבנה" case - a workspace entitled ONLY to Election Day.
-//            The authorization proof: the server never reports
-//            `voter_management` as an effective module to anyone, for either
-//            principal, and the module's own screens have no server surface
-//            to reach. This is what makes hiding the menu correct rather than
-//            cosmetic - the menu was the ONLY thing that disagreed with the
-//            server.
+//            The authorization proof: access follows the ENTITLEMENT ROW, not
+//            the menu. Since 20261001000000 voter_management is globally
+//            available, so the proof is no longer "nobody ever gets it": an
+//            Owner WITH the row does (the approved decision), an Owner WITHOUT
+//            it does not, and NO worker gets it either way because
+//            election_day_workspace_worker_modules never names the key. The
+//            module's own screens still have no server surface to reach. This
+//            is what makes hiding the menu correct rather than cosmetic - the
+//            menu was the ONLY thing that disagreed with the server.
 //   Issue 3  the Multi-Entity seat carries its login username as DURABLE
 //            server state, so the hand-off survives a reload - while the
 //            one-time password link is still never persisted.
@@ -156,7 +159,7 @@ check(
 );
 
 // ========================================================================
-section("A. ISSUE 2 - AUTHORIZATION: voter_management is never effective");
+section("A. ISSUE 2 - AUTHORIZATION: voter_management follows the entitlement row");
 // ========================================================================
 const worker = await makeWorker(yavne, `worker-${stamp}`);
 check("A1 the worker signed in (200) - the fixture is real", worker.status === 200, `status=${worker.status}`);
@@ -180,8 +183,10 @@ check(
   JSON.stringify(workerGet.body?.modules),
 );
 // DISCRIMINATING: the control workspace HAS the entitlement row, and the
-// server still refuses to report it - because effective access is the row AND
-// global availability, and voter_management is not globally available.
+// WORKER path still refuses to report it - no longer because of availability
+// (which is now true) but because election_day_workspace_worker_modules names
+// only election_day and budget. Workers stay blocked until a worker runtime is
+// designed; this check is what proves that, independently of the flag.
 const grantedWorker = await makeWorker(granted, `worker-granted-${stamp}`);
 check(
   "A4 even a workspace WITH the entitlement row is not reported voter_management",
@@ -194,9 +199,17 @@ const availability = psql(
   "select available || '/' || availability_switchable from public.platform_modules where key='voter_management';",
 ).trim();
 check(
-  "A5 ... and the reason is server state: voter_management is globally unavailable AND not switchable",
-  availability === "false/false",
+  "A5 server state after the approved availability decision: voter_management is globally AVAILABLE and still not switchable",
+  availability === "true/false",
   `available/switchable=${availability}`,
+);
+const workerModules = psql(
+  `select public.election_day_workspace_worker_modules('${granted.workspaceId}')::text;`,
+).trim();
+check(
+  "A5b so A4's reason is the worker module list itself, not availability: it names election_day only, for the workspace that HOLDS the row",
+  workerModules === "{election_day}",
+  `worker_modules=${workerModules}`,
 );
 // The Owner path, same question.
 const yavneModules = await ownerGet(yavne, "workspace_modules");
@@ -213,11 +226,19 @@ check(
   JSON.stringify(effective(yavneModules.body)),
 );
 check(
-  "A7 the control Owner's granted row is reported enabled but NOT available -> still not effective",
+  "A7 APPROVED: the control Owner HOLDS the row, so voter_management is reported enabled AND available -> effective for that Owner",
   grantedModules.statusCode === 200 &&
-    (grantedModules.body ?? []).some((m) => m.module_key === "voter_management" && m.enabled && !m.available) &&
-    !effective(grantedModules.body).includes("voter_management"),
+    (grantedModules.body ?? []).some((m) => m.module_key === "voter_management" && m.enabled && m.available) &&
+    effective(grantedModules.body).includes("voter_management"),
   JSON.stringify(grantedModules.body),
+);
+// The discriminator for A6: availability alone grants nothing. The same
+// globally-available module is reported to יבנה as available but NOT enabled,
+// which is exactly why A6 sees election_day only.
+check(
+  "A7b ... while availability alone grants nothing: יבנה is reported voter_management available but NOT enabled",
+  (yavneModules.body ?? []).some((m) => m.module_key === "voter_management" && m.available && !m.enabled),
+  JSON.stringify(yavneModules.body),
 );
 // And there is no server surface behind the module at all - the strongest
 // statement available, and the one that makes the menu the only defect.
