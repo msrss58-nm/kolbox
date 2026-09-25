@@ -5082,3 +5082,104 @@ One test-hygiene note, stated rather than hidden: both new suites and the consol
 3. **Storage objects outlive the rows.** A deleted workspace's Budget document files are left in the private bucket and removed by `budget_storage_orphans` — which is still not scheduled (a Stage 7B decision). They are unreachable without a document version row, and the deletion export has already served them.
 4. **`platform_deletion_audit` has no read surface.** The activity log unions four audits and this is not one of them, so a deletion does not appear in `יומן פעולות`. The record exists and is permanent; reading it back today needs database access.
 5. **No product path deletes a Platform Owner or a Multi-Entity seat**, and this feature does not add one. Deleting a workspace unassigns it from every seat but never removes the seat.
+
+---
+
+## Activity-log purge + deletion by selection — 2026-09-24 (applied to Production 2026-09-25)
+
+Two approved changes in one batch, on top of `33b85d6`. One migration, `20260930000000`.
+
+### 1. `מחיקת כל היומן` — a real deletion of the activity log
+
+A destructive button beside the log's search, offered **only when there is something to delete**, opening its own dialog that says plainly this is a permanent deletion and not a hide, shows how many records will go, and stays disabled until the operator types `מחיקה`. The word is compared by the **database** as well, so an accidental or replayed request cannot erase an audit trail.
+
+All four tables the log reads are RLS-on with zero policies, no role holds DELETE on any of them, and each refuses UPDATE and DELETE by trigger. So the purge is neither a grant nor a TRUNCATE: it is one privileged function that those triggers have been taught to recognise, through the **same transaction-local token mechanism the Budget purge already uses**. Narrow on purpose:
+
+- **DELETE only.** UPDATE and TRUNCATE still raise `AUDIT_IMMUTABLE` *even with the token set*.
+- **Only the four log sources.** `platform_deletion_audit` keeps its unconditional trigger — it is not a log source, it is the permanent record of a workspace deletion. `budget_audit_events` is untouched and still answers with its own `BUDGET_APPEND_ONLY`.
+- **The token confers nothing by itself.** Proven: with the token set, `service_role` and `anon` still get `42501` — they have no DELETE privilege at all. The token decides *which definer function* may, never *who*.
+- **It is cleared before the function returns**, so a later DELETE in the same session is refused again.
+
+Erasing an audit trail untraceably would be indefensible, so the purge writes `platform_audit_purge_log` — who, when, and how many rows of each table — in the same transaction. That table is immutable with **no** escape (the purge token does nothing to it) and is deliberately **not** a log source, which is why the log genuinely reads empty afterwards while the fact that someone emptied it survives. The function then verifies the log really is empty (`PURGE_INCOMPLETE`) before recording anything.
+
+### 2. Deleting a system: chosen from a list, not typed
+
+The deletion dialog is now two deliberate steps.
+
+**Step 1** offers a `<Select>` of the **real** systems — every one of them, no approvals — pre-set to the system whose details it was opened from. There is no free-text field for a name anywhere in it any more, so a name that does not exist, or a near-miss of one that does, is not expressible. Choosing a system asks the **server** what it holds: the per-table row counts (the same catalog sweep the deletion itself uses) and the Budget side's own verdict from `budget_op_export_status`. Changing the selection re-reads that system's contents rather than carrying the previous one's over.
+
+**Holding data never blocks deletion.** The only thing that can is an unmet safety prerequisite: a system holding Budget data needs a fresh **verified** Budget export. When one is needed the dialog offers to produce it, and does so with **the very same driver the Election Owner's own export uses** (`features/budget/budgetExport.ts`, whose transport is now injected instead of hard-coded) — the same manifest, the same per-part checksums verified before each file is written, the same documents fetched from their signed links and checked against their recorded sha256, the same `export_verify`. It streams into a folder the operator picks, one part at a time, so the export is really produced and really delivered. There is exactly one implementation of what a deletion export is; this only changed who may ask for it.
+
+**Step 2** is the final warning, naming the chosen system, listing what is destroyed and what survives. Only there is the destructive button armed. Going back deletes nothing.
+
+`platform_budget_export` is a thin **fixed** dispatcher onto the existing export ops and nothing else — no new export logic, no reachable path to any other `budget_op_*`, no step that writes Budget business data. `election_workspaces_budget_delete_guard` is untouched and is still the only thing that decides whether a workspace holding Budget data may be deleted.
+
+Two decisions worth stating rather than burying:
+
+1. **The export deliberately does not require the Budget module entitlement.** The entitlement is licensing; this is a deletion prerequisite. A workspace whose Budget entitlement was removed still *holds* its Budget rows, so requiring it here would make such a workspace permanently undeletable — the export could never be produced and the guard would never pass.
+2. **The Budget actor carries `type: 'owner'`**, because `budget_require_owner` demands it and relaxing that would weaken the Budget boundary for every other op. Its id is the Platform Owner's real auth id and its **name says so in words**, so `budget_data_exports.created_by_name` and `budget_document_access_log` name the real actor rather than implying the Election Owner did it.
+
+One honest consequence of the product decision: the database still compares `p_confirm_name`, but the console now supplies the chosen system's own name instead of one the operator typed. That check has therefore become a **consistency** check — it makes deleting workspace A while naming B impossible — and the deliberate-intent gate has moved to the two-step dialog. The boundary is still server-side; what it proves is narrower than before.
+
+### Migration `20260930000000`
+
+- `platform_audit_purge_log` — new, immutable (UPDATE/DELETE/TRUNCATE all `AUDIT_IMMUTABLE`), RLS-on with zero policies, REVOKEd from public/anon/authenticated/service_role, with a `row_counts` shape CHECK that keeps a credential-shaped key out of its only free-shaped column.
+- `platform_audit_purge_log_prevent_mutation()` — postgres-only, like every other `*_prevent_mutation` here.
+- `platform_owner_account_audit_prevent_mutation()`, `platform_entitlement_audit_prevent_mutation()` (which serves the module-availability audit too) and `multi_entity_audit_prevent_mutation()` — replaced, each now allowing exactly one thing: a DELETE while the transaction-local purge token names the activity-log purge.
+- `platform_purge_activity_log(uuid, text)`, `platform_workspace_deletion_preview(uuid, uuid)`, `platform_budget_export(uuid, uuid, text, jsonb)` — all SECURITY DEFINER with `set search_path = ''`, REVOKEd from PUBLIC/anon/authenticated **by name**, granted only to `service_role`.
+
+### A REAL BUG THIS BATCH CAUGHT
+
+The purge's per-table delete was written as a bare `DELETE FROM <table>`. It worked as `postgres` and **failed through PostgREST with `21000: DELETE requires a WHERE clause`** — Supabase loads its `safeupdate` hook for the role PostgREST connects as, and not for `postgres`. So the DB suite passed while the real transport did not. This is the same trap `election_day_atomic_import` hit in 2026-08. Fixed with `where true` and a comment saying why it is not decoration. **The API suite is the gate for this class of bug; a psql-only suite cannot see it.**
+
+### VERIFICATION
+
+**Migration replay: 113 migrations from a clean database**, grants re-verified afterwards.
+
+New suites: **`platform/db-audit-purge.sql` 49/0** and **`platform/api-audit-purge.mjs` 41/0**. `console/ui-console-unified` grew to **177/0** (was 154) — section M rewritten for the new flow (26 checks) and a new section N for the purge (13 checks).
+
+Proven, not assumed:
+
+- The purge is refused without a session, from a foreign Origin, with an **Election Owner's** own token, with a null identity, with the wrong word, with no word, and with an extra body key — and every refusal leaves the log exactly as it was.
+- It really empties all four tables; the activity endpoint then returns nothing; the trace row appears and is **not** in the log; purging an empty log is a confirmed no-op that is still recorded.
+- The tables stay immutable to everything else, including **with the token set** (UPDATE, TRUNCATE), with a **wrong** token, and for `service_role`/`anon` who have no privilege regardless. `platform_deletion_audit` and `budget_audit_events` are untouched by the token — asserted against tables that actually hold rows, because a row-level BEFORE DELETE trigger never fires on an empty one.
+- A log purge is **not** a data purge: the workspace, its Budget rows and its Owner are all still there afterwards.
+- The dropdown offers exactly the real systems and no approval; there is no name field in the dialog at all; the preview reports the real per-table counts; changing the selection re-reads from the server.
+- A system holding Budget data shows the prerequisite and its deletion step is **closed**; once a real export is verified the same dialog opens it; and **a system holding data — Budget included — is then deleted completely through the UI**.
+- An export started but never completed does **not** satisfy the guard, verifying without having fetched the parts is refused (`BUDGET_EXPORT_INCOMPLETE`), and after each refusal the workspace is intact row for row with its business data.
+- Every part served hashes to exactly what the manifest recorded; the document step refuses a version outside the workspace; the Budget side records its own deletion row naming the export that allowed it.
+- Another workspace is unchanged throughout, no orphan rows remain anywhere, and the Auth account is purged only when nothing else holds it.
+
+Regression, on the replayed stack: `ui-stage7` **83/0** · `ui-stage9` **85/0** · `ui-stage8` **59/0** · `ui-open-issues` **58/0** · `ui-real-local` **31/0** · `ui-module-availability` **23/0** · `ui-platform-owner-login` **20/0** · `ui-nav-roles` **57/0** · `ui-budget-stage7` **36/0** · `api-stage9` **96/0** · `api-real-local` **121/0** · `api-multi-owner` **56/0** · `api-auth-identity` **66/0** · `api-auth-principal-switch` **31/0** · `api-module-availability` **44/0** · `api-owner-module-access` **21/0** · `api-open-issues` **30/0** · `api-workspace-deletion` **35/0** · **`api-budget-stage7` 160/0** · `db-multi-owner` **59/0** · `db-stage5` **102/0** · `db-stage6` **73/0** · `db-stage8` **45/0** · `db-stage8d` **20/0** · `db-workspace-deletion` **42/0** · `stage7/bundle-stage7` **16/0**.
+
+`db-stage9` remains **77/1** on `USR11`, the documented pre-existing failure.
+
+`stage5/bundle-isolation` was **17/1** on a **stale expectation, not a regression**, and is now **18/0**. It required the multi_entity bundle to contain `כניסת בעל רב-מערכות`, the Multi-Entity login screen the 2026-09-24 completion batch deliberately deleted — `MultiEntityOwnerLoginScreen` is gone, `/multi-entity/login` renders `PlatformOriginRedirect target="sharedLogin"` with no credential field, the title survives only as dead copy nothing references, and the `a400116` Production acceptance asserted it is ABSENT from the live bundle. Corrected by moving `meLogin` from that surface's `present` list to its `absent` list, which makes it asserted absent from EVERY surface — stricter than before, and no other assertion touched. No product code was changed for it. It was independently proven not to be this batch's doing first: none of this batch's code reaches that bundle at all (`delete-workspace-form`, `purge-activity-form`, `workspace_budget_export`, `purge_activity_log`, `deletion_preview`, `kolbox-budget-export-` and both new Hebrew labels are all absent from it), and every platform/election/both assertion — the isolation question this batch's new cross-feature import actually raises — passed throughout.
+
+Build clean, `tsc -b` clean, eslint **0 errors**, `git diff --check` clean, no dependency or config change, protected 15 untouched at **+138/-45**.
+
+Two of this batch's own new tests were **state-dependent** and were corrected after a dirty shared stack exposed them - both strengthened, neither weakened:
+
+1. A row-level `BEFORE DELETE` trigger never fires on an EMPTY table, so "this table is still immutable" passed vacuously wherever the fixture had left one empty. `multi_entity_audit` now gets a fixture row, `FIX1` requires all four log sources to be non-empty rather than tolerating zero, and `IMM1` asserts each of the four separately (the suite grew 49 -> **52/0**).
+2. `platform_audit_purge_log` is immutable BY DESIGN, so no fixture can clear it - an absolute count of 1 could only hold on a virgin database. Every assertion about it now measures the INCREASE the run causes.
+
+`api-workspace-deletion` had the same class of problem from the previous batch: it used FIXED usernames and a fixed session token hash, which are unique GLOBALLY, while the suite deliberately leaves one Budget-holding workspace behind (the guard protects it, and a fixture must not learn to get around that). Those three fixture strings now carry the run's stamp; no assertion changed. All four suites now pass **twice in a row** on a dirty stack.
+
+### Applied to Production, 2026-09-25
+
+`20260930000000` applied as the only pending migration: **113 applied / 0 pending / 0 drift**, latest `20260930000000`.
+
+Grants verified ON Production, **14 ok / 0 FAIL**, through the reachable path (this environment holds no database connection string, only the service-role API key, so `pg_proc.proacl` cannot be read from here): the browser anon key gets `42501 permission denied for function` on all three new functions while the privileged role reaches each body and is refused by the function's own `UNAUTHORIZED` - two visibly different answers, so the `pg_default_acl` hazard demonstrably did not fire. `platform_audit_purge_log` is unreadable AND unwritable by anon (401) and by `service_role` (403), and all four audited tables remain 403 to the server key.
+
+The deployed `33b85d6` was verified working against the migrated database BEFORE the push (14 ok / 1 expected-baseline miss, below): its own state read, the activity-log read whose four tables' triggers had just been replaced, and the previous batch's deletion function all still answer correctly, and every surface's security headers are unchanged.
+
+**One Production observation, not caused by this batch.** The pre-push check found **4** election systems where the batch's own baseline had recorded 5. The missing one is `ניסוי קבלה Production`, the Budget ACCEPTANCE workspace; the four that remain are the real municipalities. Three independent signs say this was the deletion feature shipped in `33b85d6` being used deliberately and working exactly as designed: the workspace, its Owner and its APPROVAL all dropped by exactly one together (only `platform_delete_election_workspace` removes the approval, which has no foreign key to the workspace - a stray SQL DELETE would have orphaned it); zero orphaned workspace-owned rows anywhere; and zero pending Auth cleanup or provisioning orphans, so the Auth purge completed and was confirmed. That workspace was also the only Budget-entitled one, so its deletion required the Budget export guard to be satisfied first. Migration `20260930000000` contains no DML against any business table - its only top-level statements create the new audit table and enable RLS on it - so it cannot have caused this.
+
+### Residual risks
+
+1. **The typed-name boundary is now a consistency check**, not an independent expression of operator intent — see above. The deliberate-intent gate is the two-step dialog, which is client-side.
+2. **The assisted export needs the File System Access API** (desktop Chrome/Edge). Elsewhere the dialog says so and deletion of a Budget-holding system stays blocked — a legitimate unmet prerequisite, but it means that one case cannot be completed from every browser.
+3. **A verified export means "served and confirmed", not "retained forever".** The driver writes every part and document to the chosen folder and checks each against its sha256 before writing, which is as strong as the Election Owner's own export — but nothing afterwards proves the operator kept the folder.
+4. **Purging the log destroys the only read surface for four audits.** `platform_audit_purge_log` records that it happened and how much went, but not what the rows said. There is no export-before-purge step, by design of the approved request.
+5. **The Platform Owner can now read a workspace's Budget data** (through the export) even when Budget is not entitled to it. Deliberate — otherwise such a workspace could never be deleted — and every use is recorded in `budget_data_exports.created_by_name` and `budget_document_access_log` under a name that says it was the Platform Owner.
+6. Unchanged from the previous batch: deletion is permanent with no undo; the Auth purge cannot be transactional; Budget Storage objects are cleaned by the still-unscheduled `budget_storage_orphans`.

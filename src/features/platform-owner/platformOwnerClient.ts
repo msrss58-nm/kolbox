@@ -998,6 +998,116 @@ async function ownerAccountWrite(
  * The server writes exactly those three columns; ownership, the workspace and
  * its modules are not reachable from this call.
  */
+/** Permanently deletes every record the activity log shows. `confirm` is the
+ * deliberate word the DATABASE also compares, so an accidental or replayed
+ * request cannot erase an audit trail. */
+export async function purgeActivityLog(
+  accessToken: string,
+  confirm: string,
+): Promise<MultiEntityResult<{ purged: number }>> {
+  return postOp<{ purged: number }>(
+    accessToken,
+    { op: "purge_activity_log", confirm },
+    (parsed) => {
+      const o = rec(parsed);
+      if (!o) return null;
+      return { purged: typeof o.purged === "number" ? o.purged : 0 };
+    },
+  );
+}
+
+/** What deleting a workspace would destroy. Read-only: the row counts and the
+ * Budget verdict both come from the server, and `deletionAllowed` is the Budget
+ * side's own answer - never one computed here. */
+export type WorkspaceDeletionPreview = {
+  workspaceId: string;
+  name: string;
+  totalRows: number;
+  /** Table name -> rows the workspace holds there. Only non-zero entries. */
+  rowCounts: { table: string; rows: number }[];
+  hasBudgetData: boolean;
+  deletionAllowed: boolean;
+};
+
+export async function fetchDeletionPreview(
+  accessToken: string,
+  workspaceId: string,
+): Promise<MultiEntityResult<WorkspaceDeletionPreview>> {
+  try {
+    const res = await fetch(
+      `${PLATFORM_SESSION_ENDPOINT}?op=deletion_preview&workspaceId=${encodeURIComponent(workspaceId)}`,
+      { method: "GET", headers: { authorization: `Bearer ${accessToken}` } },
+    );
+    const parsed = await parseJson(res);
+    if (res.status !== 200) {
+      return failure<WorkspaceDeletionPreview>(res.status, parsed);
+    }
+    const o = rec(parsed);
+    if (!o) {
+      return { status: "error", code: "SERVER_ERROR" };
+    }
+    const budget = rec(o.budget) ?? {};
+    const counts = rec(o.rowCounts) ?? {};
+    return {
+      status: "ok",
+      data: {
+        workspaceId: str(o.workspaceId) ?? workspaceId,
+        name: str(o.name) ?? "",
+        totalRows: typeof o.totalRows === "number" ? o.totalRows : 0,
+        rowCounts: Object.entries(counts)
+          .filter((e): e is [string, number] => typeof e[1] === "number")
+          .map(([table, rows]) => ({ table, rows }))
+          .sort((a, b) => b.rows - a.rows),
+        hasBudgetData: budget.hasBudgetData === true,
+        deletionAllowed: budget.deletionAllowed === true,
+      },
+    };
+  } catch {
+    return { status: "error", code: "SERVER_ERROR" };
+  }
+}
+
+/**
+ * One step of a workspace's Budget DELETION EXPORT, shaped so that the SAME
+ * export driver the Election Owner uses (`features/budget/budgetExport.ts`) can
+ * run unchanged from this console. There is one implementation of what a
+ * deletion export is; this only changes who is asking.
+ *
+ * Rejects with an Error whose message is the server's fixed code, which is what
+ * the driver's own `BudgetApiError` carries too - so the caller can read either
+ * the same way.
+ */
+export function platformBudgetExportCall(accessToken: string, workspaceId: string) {
+  return async <T>(step: string, args: Record<string, unknown>): Promise<T> => {
+    // The driver speaks in Budget op names; the Platform surface takes steps.
+    const stepName = step.replace(/^export_/, "");
+    let res: Response;
+    try {
+      res = await fetch(PLATFORM_SESSION_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          op: "workspace_budget_export",
+          workspaceId,
+          step: stepName,
+          args,
+        }),
+      });
+    } catch {
+      throw new Error("NETWORK");
+    }
+    const parsed = await parseJson(res);
+    if (res.status !== 200) {
+      const o = rec(parsed);
+      throw new Error((o && str(o.error)) ?? "SERVER_ERROR");
+    }
+    return parsed as T;
+  };
+}
+
 /** What the server reports after a workspace was permanently deleted. The
  * deletion itself is already done and irreversible by the time this resolves;
  * `authUserPurged` is the ONE part that can be incomplete - the Owner's Auth

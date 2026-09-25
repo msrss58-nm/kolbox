@@ -343,9 +343,35 @@ export const PLATFORM_OWNER_TEXT = {
       "רישום המחיקה עצמה - שם המערכת, הבעלים והמועד - נשמר לצמיתות ואינו ניתן לשינוי",
       "יומן הפעולות ההיסטורי של המערכת נשמר",
     ],
-    confirmLabel: (name: string) => `להמשך, הקלידו את שם המערכת: ${name}`,
-    confirmPlaceholder: "שם המערכת",
-    confirmMismatch: "השם שהוקלד אינו זהה לשם המערכת",
+    /** The system is CHOSEN from the real list, not typed - so a name that
+     * does not exist, or a near-miss of one that does, is not expressible. */
+    selectLabel: "בחרו את מערכת הבחירות למחיקה",
+    selectPlaceholder: "בחרו מערכת",
+    selectEmpty: "אין מערכות בחירות למחיקה",
+    /** What the chosen system actually holds, read from the server. */
+    inspecting: "בודקים מה המערכת מכילה...",
+    inspectError: "לא הצלחנו לבדוק את תוכן המערכת.",
+    contentsTitle: "תוכן המערכת",
+    contents: (rows: number) => `${rows} רשומות יימחקו`,
+    contentsEmpty: "המערכת אינה מכילה נתונים",
+    contentsRow: (table: string, n: number) => `${table}: ${n}`,
+    /** Budget data does not block deletion - it only adds a prerequisite. */
+    budgetTitle: "נתוני תקציב",
+    budgetNeedsExport:
+      "למערכת יש נתוני תקציב. לפני המחיקה יש לייצא אותם ולשמור אותם אצלכם - זו הדרישה שמגנה על הנתונים, והמחיקה לא תתאפשר בלעדיה.",
+    budgetExport: "ייצוא נתוני התקציב ושמירה בתיקייה",
+    budgetExporting: (done: number, total: number) =>
+      `מייצא... ${done} מתוך ${total}`,
+    budgetReady: "הייצוא הושלם ואומת. ניתן להמשיך למחיקה.",
+    budgetAlreadyReady: "קיים ייצוא מאומת ועדכני. ניתן להמשיך למחיקה.",
+    budgetNone: "למערכת אין נתוני תקציב",
+    budgetUnsupported:
+      "ייצוא לתיקייה נתמך ב-Chrome או Edge במחשב. פתחו את המסוף בדפדפן כזה כדי להשלים את הייצוא.",
+    budgetExportFailed: "הייצוא לא הושלם. המערכת לא נמחקה ולא השתנתה.",
+    /** Step 2: the final, named warning. */
+    continueLabel: "המשך למחיקה",
+    back: "חזרה",
+    aboutToDelete: (name: string) => `אתם עומדים למחוק את "${name}"`,
     submit: "מחיקה לצמיתות",
     submitting: "מוחק...",
     cancel: "ביטול",
@@ -354,8 +380,17 @@ export const PLATFORM_OWNER_TEXT = {
     deletedAuthLeft: (name: string) =>
       `המערכת "${name}" נמחקה, אך לא הצלחנו למחוק את חשבון הבעלים. פנו לתמיכה כדי להשלים את הניקוי.`,
     errors: {
-      WORKSPACE_NAME_MISMATCH: "השם שהוקלד אינו זהה לשם המערכת",
+      WORKSPACE_NAME_MISMATCH:
+        "שם המערכת אינו תואם את המערכת שנבחרה. רעננו את הדף ונסו שוב.",
       WORKSPACE_NOT_FOUND: "המערכת אינה קיימת. רעננו את הדף.",
+      BUDGET_EXPORT_INCOMPLETE:
+        "הייצוא לא הושלם במלואו. יש לבצע ייצוא תקציב חדש.",
+      NOT_FOUND: "המידע המבוקש אינו קיים. רעננו את הדף.",
+      STORAGE_ERROR: "לא הצלחנו להוריד את קבצי התקציב. נסו שוב.",
+      CHECKSUM_MISMATCH: "אחד הקבצים שהתקבלו אינו תקין. יש לבצע ייצוא חדש.",
+      NETWORK: "אין חיבור לאינטרנט - בדקו את החיבור ונסו שוב",
+      EXPORT_UNSUPPORTED:
+        "ייצוא לתיקייה נתמך ב-Chrome או Edge במחשב.",
       BUDGET_EXPORT_REQUIRED:
         "למערכת יש נתוני תקציב. יש לבצע ייצוא תקציב מאומת לפני המחיקה.",
       BUDGET_EXPORT_STALE:
@@ -418,6 +453,32 @@ export const PLATFORM_OWNER_TEXT = {
     } as Record<string, string>,
     changedLabel: (fields: string) => `שונו: ${fields}`,
     renamedLabel: (from: string, to: string) => `${from} ← ${to}`,
+
+    /** Emptying the log is a real, permanent deletion of the records - not a
+     * filter and not a "clear from view". The copy has to say so. */
+    purgeOpen: "מחיקת כל היומן",
+    purgeTitle: "מחיקת כל יומן הפעולות",
+    purgeWarningTitle: "הפעולה הזו אינה ניתנת לביטול",
+    purgeWarning:
+      "כל הרשומות ביומן יימחקו לצמיתות מהשרת. זו מחיקה אמיתית, לא הסתרה - הרשומות לא יהיו זמינות לשחזור.",
+    purgeCount: (n: number) => `יימחקו ${n} רשומות`,
+    purgeKept:
+      "עצם המחיקה נרשמת בנפרד - מי ביצע אותה, מתי, וכמה רשומות נמחקו - ורישום זה אינו ניתן לשינוי או למחיקה.",
+    purgeConfirmWord: "מחיקה",
+    purgeConfirmLabel: "להמשך, הקלידו: מחיקה",
+    purgeMismatch: "יש להקליד את המילה מחיקה",
+    purgeSubmit: "מחיקה לצמיתות",
+    purgeSubmitting: "מוחק...",
+    purgeCancel: "ביטול",
+    purged: (n: number) => `${n} רשומות נמחקו מהיומן`,
+    purgeErrors: {
+      PURGE_NOT_CONFIRMED: "יש להקליד את המילה מחיקה",
+      FORBIDDEN_ORIGIN: "הבקשה נחסמה. רעננו את הדף ונסו שוב.",
+      UNAUTHORIZED: "אין הרשאה לביצוע הפעולה.",
+      INVALID_REQUEST: "הבקשה אינה תקינה.",
+      SERVER_CONFIG_MISSING: "השירות אינו מוגדר כראוי. פנו לתמיכה.",
+      SERVER_ERROR: "אירעה שגיאה, נסו שוב",
+    } as Record<string, string>,
   },
 
   settings: {
@@ -874,6 +935,13 @@ export function platformWorkspaceModulesError(code: string): string {
   return (
     PLATFORM_OWNER_TEXT.workspaceModules.errors[code] ??
     PLATFORM_OWNER_TEXT.workspaceModules.errors.SERVER_ERROR
+  );
+}
+
+export function platformPurgeAuditError(code: string): string {
+  return (
+    PLATFORM_OWNER_TEXT.audit.purgeErrors[code] ??
+    PLATFORM_OWNER_TEXT.audit.purgeErrors.SERVER_ERROR
   );
 }
 

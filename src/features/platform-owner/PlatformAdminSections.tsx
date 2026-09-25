@@ -9,6 +9,7 @@ import { Button } from "../../components/ui/Button";
 import { Drawer } from "../../components/ui/Drawer";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Field, Input, Select } from "../../components/ui/Field";
+import { Modal } from "../../components/ui/Modal";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { APP_CONFIG } from "../../constants/config";
 import { moduleLabel } from "../../constants/labels";
@@ -17,8 +18,16 @@ import { useVisibleInterval } from "../../hooks/useVisibleInterval";
 import { cn } from "../../lib/utils";
 import { toast } from "../../components/ui/Toast";
 import { platformOwnerAuthClient } from "../../services/supabase/platformOwnerAuthClient";
-import { changeOwnPassword, fetchActivity, setOwnUsername } from "./platformOwnerClient";
-import { PLATFORM_OWNER_TEXT } from "./platform-owner.constants";
+import {
+  changeOwnPassword,
+  fetchActivity,
+  purgeActivityLog,
+  setOwnUsername,
+} from "./platformOwnerClient";
+import {
+  PLATFORM_OWNER_TEXT,
+  platformPurgeAuditError,
+} from "./platform-owner.constants";
 import { validatePlatformOwnerPassword } from "./platformOwnerPasswordPolicy";
 import { formatDateTime } from "./multiEntityFormat";
 import { ModuleAvailabilityDialog } from "./ModuleAvailabilityDialog";
@@ -729,8 +738,11 @@ export function PlatformWorkspacesSection() {
 
       {deleteFor && (
         <WorkspaceDeleteDialog
-          workspaceId={deleteFor.workspaceId}
-          workspaceName={deleteFor.name}
+          workspaces={modules.workspaces.map((w) => ({
+            workspaceId: w.workspaceId,
+            name: w.name,
+          }))}
+          initialWorkspaceId={deleteFor.workspaceId}
           onClose={() => setDeleteFor(null)}
           onDeleted={(result) => {
             setDeleteFor(null);
@@ -835,9 +847,111 @@ function ActivityRow({ event }: { event: ActivityEvent }) {
   );
 }
 
+/**
+ * Permanently deletes every record the activity log shows.
+ *
+ * A real deletion, not a filter and not a "clear from view": the server removes
+ * the rows from the four audit tables the log reads. The one thing that
+ * survives is the fact that someone did it - who, when, and how many rows of
+ * each table went - on a separate immutable record the log does not read, which
+ * is why the log really does come back empty.
+ *
+ * The deliberate word is compared by the DATABASE as well as here, so this can
+ * never happen by an accidental or replayed request.
+ */
+function AuditPurgeDialog({
+  count,
+  onClose,
+  onPurged,
+}: {
+  count: number;
+  onClose: () => void;
+  onPurged: (purged: number) => void;
+}) {
+  const A = T.audit;
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const matches = typed.trim() === A.purgeConfirmWord;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy || !matches) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const { data: sess } = await platformOwnerAuthClient.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) {
+        void usePlatformOwnerSession.getState().refreshStatus();
+        return;
+      }
+      const res = await purgeActivityLog(token, typed.trim());
+      if (res.status === "unauthorized") {
+        void usePlatformOwnerSession.getState().refreshStatus();
+        return;
+      }
+      if (res.status === "error") {
+        setError(platformPurgeAuditError(res.code));
+        return;
+      }
+      onPurged(res.data.purged);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={A.purgeTitle}>
+      <form className="space-y-4" onSubmit={submit} data-testid="purge-activity-form">
+        <div className="space-y-1 rounded-lg bg-opponent-soft p-3 text-opponent">
+          <p className="text-sm font-bold">{A.purgeWarningTitle}</p>
+          <p className="text-sm">{A.purgeWarning}</p>
+          <p className="text-sm font-semibold">{A.purgeCount(count)}</p>
+        </div>
+        <p className="text-xs text-slate-500">{A.purgeKept}</p>
+
+        <Field label={A.purgeConfirmLabel}>
+          <Input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            data-testid="purge-activity-confirm"
+          />
+        </Field>
+        {typed !== "" && !matches && (
+          <p className="text-xs text-opponent">{A.purgeMismatch}</p>
+        )}
+        {error && (
+          <p className="text-sm text-opponent" data-testid="purge-activity-error">
+            {error}
+          </p>
+        )}
+
+        <div className="flex flex-col gap-2 sm:flex-row-reverse">
+          <Button
+            type="submit"
+            variant="danger"
+            className="sm:flex-1"
+            disabled={!matches || busy}
+            loading={busy}
+            data-testid="purge-activity-submit"
+          >
+            {busy ? A.purgeSubmitting : A.purgeSubmit}
+          </Button>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+            {A.purgeCancel}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 export function PlatformAuditSection() {
   const A = T.audit;
   const [query, setQuery] = useState("");
+  const [purgeOpen, setPurgeOpen] = useState(false);
 
   const load = useCallback(async (): Promise<ActivityEvent[]> => {
     const { data: sess } = await platformOwnerAuthClient.auth.getSession();
@@ -876,13 +990,24 @@ export function PlatformAuditSection() {
       description={A.description}
       toolbar={
         hasRows ? (
-          <AdminSearch
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={A.search}
-            aria-label={A.search}
-            className="min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
-          />
+          <>
+            <AdminSearch
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={A.search}
+              aria-label={A.search}
+              className="min-w-0 flex-1 basis-44 sm:w-72 sm:flex-none"
+            />
+            {/* Offered only when there is something to delete - an empty log
+                has nothing to purge, and the button would be a trap. */}
+            <Button
+              variant="danger-outline"
+              onClick={() => setPurgeOpen(true)}
+              data-testid="purge-activity-open"
+            >
+              {A.purgeOpen}
+            </Button>
+          </>
         ) : undefined
       }
       count={hasRows ? A.count(visible.length) : undefined}
@@ -907,6 +1032,20 @@ export function PlatformAuditSection() {
             <ActivityRow key={`${e.source}:${e.id}`} event={e} />
           ))}
         </ul>
+      )}
+      {purgeOpen && (
+        <AuditPurgeDialog
+          count={events.length}
+          onClose={() => setPurgeOpen(false)}
+          onPurged={(purged) => {
+            setPurgeOpen(false);
+            setQuery("");
+            // Re-read rather than assume: what the log shows now is the
+            // server's answer, and it should be nothing.
+            void activity.reload();
+            toast.success(A.purged(purged));
+          }}
+        />
       )}
     </AdminSection>
   );

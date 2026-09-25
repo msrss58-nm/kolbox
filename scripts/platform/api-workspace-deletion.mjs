@@ -45,6 +45,12 @@ const H = await buildHandlers();
 const PS = H.platformSession;
 const A = admin();
 const DOMAIN = "wsdel-api.invalid";
+// Usernames are unique GLOBALLY across the worker / election-owner /
+// multi-entity realms, and this suite deliberately leaves one
+// Budget-holding workspace behind - which keeps its worker username. So the
+// fixture names carry this run's stamp rather than colliding with the
+// suite's own previous run.
+const stamp = Date.now();
 const email = (l) => `${l}@${DOMAIN}`;
 
 const auth = (t) => ({ authorization: `Bearer ${t}` });
@@ -150,7 +156,7 @@ async function makeOwner(label, { withBudget = false } = {}) {
        approved_by_platform_owner_auth_user_id)
       values ('${authUserId}', 'WSDEL Owner ${label}', '${mail}', 'consumed',
               now() + interval '7 days', now(), now(), array['election_day'], '${poUser.user.id}');
-    select public.auth_identity_assign('election_owner', 'wsdel-${label}', '${authUserId}', null, null);
+    select public.auth_identity_assign('election_owner', 'wsdel-${label}-${stamp}', '${authUserId}', null, null);
     insert into public.election_day_voters (workspace_id, masad, first_name, last_name, city, street, house_number)
       values ('${ws}', 'WSDEL', '${label}', 'Voter', 'City', 'Street', 1);
   `);
@@ -161,9 +167,9 @@ async function makeOwner(label, { withBudget = false } = {}) {
   const worker = one(`insert into public.election_day_permission_users (workspace_id, name, password_hash, role_id)
     values ('${ws}', 'WSDEL Worker ${label}', extensions.crypt('x', extensions.gen_salt('bf')), '${role}') returning id;`);
   psql(`
-    select public.auth_identity_assign('worker', 'wsdel-worker-${label}', null, '${worker}', '${ws}');
+    select public.auth_identity_assign('worker', 'wsdel-worker-${label}-${stamp}', null, '${worker}', '${ws}');
     insert into public.election_day_sessions (permission_user_id, workspace_id, token_hash, expires_at)
-      values ('${worker}', '${ws}', extensions.digest('wsdel-${label}', 'sha256'), now() + interval '1 day');
+      values ('${worker}', '${ws}', extensions.digest('wsdel-${label}-${stamp}', 'sha256'), now() + interval '1 day');
   `);
   const { token } = await signIn(mail, PW);
   return {

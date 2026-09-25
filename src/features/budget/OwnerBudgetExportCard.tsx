@@ -31,7 +31,8 @@ export function OwnerBudgetExportCard() {
     }
     setProgress({ done: 0, total: 0 });
     try {
-      await runDeletionExport(root, setProgress);
+      // The Owner drives it with the Owner's own principal, as before.
+      await runDeletionExport(root, setProgress, (op, args) => budgetCall(op, args, "owner"));
       toast.success(t.done);
     } catch (e) {
       toast.error(budgetErrorMessage(e instanceof BudgetApiError ? e.code : undefined));

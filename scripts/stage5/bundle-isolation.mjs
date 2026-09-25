@@ -8,6 +8,16 @@
 // ternary keeps or drops. Auth-client MODULES are side-effectful and are
 // present on every surface (pre-existing, documented) - the storage keys are
 // reported for information, not asserted absent.
+//
+// `meLogin` is the one marker asserted absent from EVERY surface, its own
+// included. The per-origin Multi-Entity login was RETIRED (2026-09-24): a
+// Multi-Entity Owner signs in with a username, only the shared login resolves
+// one, `MultiEntityOwnerLoginScreen` was deleted and /multi-entity/login now
+// renders `PlatformOriginRedirect target="sharedLogin"` with no credential
+// field. The title survives only as dead copy in
+// multi-entity-owner.constants.ts, which nothing references, so it is
+// tree-shaken out of the bundle. Its ABSENCE is the shipped, verified
+// behaviour - do not "restore" this expectation.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -37,8 +47,12 @@ const EXPECT = {
     absent: ["meLogin", "meHome"],
   },
   multi_entity: {
-    present: ["meLogin", "meHome"],
-    absent: ["platformLogin", "electionDayLogin", "electionOwnerLogin"],
+    // `meHome` - the dashboard heading - is what proves this IS the
+    // Multi-Entity surface. `meLogin` joins the absent list: the retired login
+    // screen must not reappear here either, which is a stricter assertion than
+    // requiring it, not a looser one.
+    present: ["meHome"],
+    absent: ["meLogin", "platformLogin", "electionDayLogin", "electionOwnerLogin"],
   },
 };
 

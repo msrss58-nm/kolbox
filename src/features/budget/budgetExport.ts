@@ -11,8 +11,19 @@
  * Every part and every file is checksum-verified here BEFORE it is written;
  * `export_verify` then confirms on the server that everything was served by
  * this export and the Budget data has not changed since it started.
+ *
+ * The TRANSPORT is injected rather than chosen here, because there are now two
+ * principals who may produce this export: the workspace's own Election Owner,
+ * and - for a deletion the Platform Owner performs - the Platform console,
+ * through its own endpoint. Both drive THIS driver, so there is exactly one
+ * implementation of what a deletion export is, one set of checksums and one
+ * verification. Neither caller may add a step or skip one.
  */
-import { BudgetApiError, budgetCall, type BudgetExportManifest, type BudgetExportPart, type BudgetExportStatus } from "./budgetClient";
+import { BudgetApiError, type BudgetExportManifest, type BudgetExportPart, type BudgetExportStatus } from "./budgetClient";
+
+/** How one export step reaches the server. Takes the op name and its arguments
+ * and resolves with the server's `data` payload, or throws. */
+export type BudgetExportCall = <T>(op: string, args: Record<string, unknown>) => Promise<T>;
 
 interface WritableLike {
   write(data: BufferSource | string): Promise<void>;
@@ -72,8 +83,9 @@ interface ExportedVersionRow {
 export async function runDeletionExport(
   root: DirectoryHandleLike,
   onProgress: (p: ExportProgress) => void,
+  call: BudgetExportCall,
 ): Promise<BudgetExportStatus> {
-  const manifest = await budgetCall<BudgetExportManifest>("export_start", {}, "owner");
+  const manifest = await call<BudgetExportManifest>("export_start", {});
   const dir = await root.getDirectoryHandle(
     `kolbox-budget-export-${manifest.createdAt.slice(0, 10)}-${manifest.exportId.slice(0, 8)}`,
     { create: true },
@@ -94,8 +106,8 @@ export async function runDeletionExport(
     if (table.parts.length === 0) continue;
     const tableDir = await dataDir.getDirectoryHandle(table.name, { create: true });
     for (const p of table.parts) {
-      const got = await budgetCall<BudgetExportPart>(
-        "export_part", { exportId: manifest.exportId, table: table.name, part: p.part }, "owner",
+      const got = await call<BudgetExportPart>(
+        "export_part", { exportId: manifest.exportId, table: table.name, part: p.part },
       );
       const bytes = encoder.encode(got.rowsJson);
       if ((await sha256Hex(bytes)) !== p.sha256) throw new BudgetApiError("CHECKSUM_MISMATCH", 0);
@@ -111,8 +123,8 @@ export async function runDeletionExport(
   }
 
   for (const version of versions) {
-    const link = await budgetCall<{ url: string }>(
-      "export_document", { exportId: manifest.exportId, versionId: version.id }, "owner",
+    const link = await call<{ url: string }>(
+      "export_document", { exportId: manifest.exportId, versionId: version.id },
     );
     let res: Response;
     try {
@@ -129,8 +141,8 @@ export async function runDeletionExport(
     onProgress({ done: ++done, total });
   }
 
-  const status = await budgetCall<BudgetExportStatus>(
-    "export_verify", { exportId: manifest.exportId, parts, documents }, "owner",
+  const status = await call<BudgetExportStatus>(
+    "export_verify", { exportId: manifest.exportId, parts, documents },
   );
   await writeFile(dir, "verification.json", JSON.stringify({
     exportId: manifest.exportId,

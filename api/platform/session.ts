@@ -167,7 +167,18 @@ const POST_OP_KEYS: Record<string, readonly string[]> = {
   // own name as the operator typed it - the DATABASE compares it, so the
   // confirmation is a boundary and not a browser courtesy.
   delete_workspace: ["workspaceId", "confirmName"],
+  // Permanently deletes every record the activity log shows. `confirm` is the
+  // deliberate word the database also requires.
+  purge_activity_log: ["confirm"],
+  // One step of a workspace's Budget DELETION EXPORT, driven by the console
+  // exactly as the Election Owner's own export client drives it.
+  workspace_budget_export: ["workspaceId", "step", "args"],
 };
+
+/** The only export steps reachable through the Platform surface. The database
+ * dispatches on the same fixed set; this keeps anything else from even being
+ * sent. */
+const BUDGET_EXPORT_STEPS = new Set(["status", "start", "part", "document", "verify"]);
 
 const GET_OPS = new Set<string>([
   "multi_entity_state",
@@ -175,6 +186,9 @@ const GET_OPS = new Set<string>([
   "workspace_modules",
   "owner_account",
   "activity",
+  // What deleting a workspace would destroy, and whether the Budget guard
+  // would allow it. Read-only.
+  "deletion_preview",
 ]);
 
 // Stage 9: syntactic shape of a module key. The database is the authority on
@@ -353,6 +367,41 @@ function mapRpcError(message: string): { status: number; code: string } {
     m.includes("BUDGET_PURGE_INCOMPLETE")
   ) {
     return { status: 500, code: "SERVER_ERROR" };
+  }
+  // --- The activity-log purge ---------------------------------------------
+  // The deliberate word was not the right one. 409 for the same reason
+  // WORKSPACE_NAME_MISMATCH is: the request is well-formed and authorized.
+  if (m.includes("PURGE_NOT_CONFIRMED")) {
+    return { status: 409, code: "PURGE_NOT_CONFIRMED" };
+  }
+  // The purge ran and the log still had rows, so it rolled itself back.
+  if (m.includes("PURGE_INCOMPLETE")) {
+    return { status: 500, code: "SERVER_ERROR" };
+  }
+  // --- The Platform-driven Budget deletion export --------------------------
+  // Checked BEFORE the bare EXPORT_STALE below, which its text contains.
+  if (m.includes("INVALID_STEP")) {
+    return { status: 400, code: "INVALID_REQUEST" };
+  }
+  // The Budget data changed while the export was running, so this export can
+  // never verify. The operator's move is to start a new one.
+  if (m.includes("EXPORT_STALE")) {
+    return { status: 409, code: "BUDGET_EXPORT_STALE" };
+  }
+  // Not every part and document was served by THIS export and confirmed.
+  if (m.includes("EXPORT_INCOMPLETE")) {
+    return { status: 409, code: "BUDGET_EXPORT_INCOMPLETE" };
+  }
+  // The Budget ops' own argument and lookup refusals, kept as the shapes the
+  // client already understands rather than leaked as Postgres text.
+  if (m.includes("INVALID_INPUT")) {
+    return { status: 400, code: "INVALID_REQUEST" };
+  }
+  if (m.includes("NOT_FOUND")) {
+    return { status: 404, code: "NOT_FOUND" };
+  }
+  if (m.includes("FORBIDDEN")) {
+    return { status: 403, code: "FORBIDDEN" };
   }
   if (m.includes("INVALID_MODULE_AVAILABILITY")) {
     return { status: 400, code: "INVALID_REQUEST" };
@@ -2287,6 +2336,182 @@ async function handleSetOwnerProfile(
 }
 
 /**
+ * Permanently deletes every record the activity log shows.
+ *
+ * Every table it reads is RLS-on with zero policies, no role holds DELETE on
+ * any of them, and each one refuses UPDATE and DELETE by trigger - so this is
+ * not a grant and not a TRUNCATE. It is one privileged function that the four
+ * immutability triggers have been taught to recognise, for DELETE only, and
+ * which records the purge in an immutable table of its own that the log does
+ * NOT read. So the log genuinely reads empty afterwards and the fact that
+ * someone emptied it is still on the record.
+ */
+async function handlePurgeActivityLog(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const confirm = str(body.confirm).trim();
+  if (!confirm) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_purge_activity_log", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_confirm: confirm,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  const row = rpcRow<Record<string, unknown>>(data) ?? {};
+  res.status(200).json({ purged: Number(row.purged ?? 0) });
+}
+
+/**
+ * What deleting a workspace would destroy, before the operator decides to.
+ *
+ * Read-only in the strongest sense: the row counts come from the same catalog
+ * sweep the deletion itself uses, and whether the Budget guard would allow the
+ * deletion comes from the Budget side's OWN status function - never from a
+ * second opinion formed here or in the browser.
+ */
+async function handleDeletionPreview(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const workspaceId = str(parseQuery(req.url).workspaceId);
+  if (!UUID_PATTERN.test(workspaceId)) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+  const { data, error } = await supabase.rpc("platform_workspace_deletion_preview", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_workspace_id: workspaceId,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  res.status(200).json(rpcRow<Record<string, unknown>>(data) ?? {});
+}
+
+/** The private bucket the Budget documents live in, and the life of one export
+ * link. Restated here rather than imported: `api/` files do not import each
+ * other's constants, and api/budget/actions.ts owns the same two values for the
+ * Election Owner's side of this identical flow. */
+const DOCUMENTS_BUCKET = "budget-documents";
+const SIGNED_LINK_SECONDS = 60;
+
+/**
+ * One step of a workspace's Budget DELETION EXPORT, driven by the Platform
+ * Owner instead of the workspace's own Election Owner.
+ *
+ * It adds NO export logic. Every step goes to the existing Budget export op
+ * through one fixed database dispatcher - same manifest, same per-part
+ * checksums, same serve records, same verification rules - and the delete guard
+ * is untouched and still the only thing that decides whether a workspace
+ * holding Budget data may be deleted.
+ *
+ * `document` is the one step with a second half: the database returns where the
+ * stored file lives and records that this export served it, and this handler
+ * turns that into a short-lived signed link, exactly as the Election Owner's
+ * endpoint does. The bytes never pass through here - the console fetches them
+ * from Storage and checks them against their recorded sha256 before writing
+ * them to the folder the operator picked.
+ */
+async function handleWorkspaceBudgetExport(
+  req: MinimalRequest,
+  res: MinimalResponse,
+  platformOwnerAuthUserId: string,
+): Promise<void> {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const workspaceId = str(body.workspaceId);
+  const step = str(body.step);
+  const rawArgs = body.args;
+  const args =
+    rawArgs === undefined || rawArgs === null
+      ? {}
+      : typeof rawArgs === "object" && !Array.isArray(rawArgs)
+        ? (rawArgs as Record<string, unknown>)
+        : null;
+  if (!UUID_PATTERN.test(workspaceId) || !BUDGET_EXPORT_STEPS.has(step) || args === null) {
+    sendError(res, 400, "INVALID_REQUEST");
+    return;
+  }
+
+  let supabase: ReturnType<typeof getServiceClient>;
+  try {
+    supabase = getServiceClient();
+  } catch {
+    sendError(res, 500, "SERVER_CONFIG_MISSING");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("platform_budget_export", {
+    p_platform_owner_auth_user_id: platformOwnerAuthUserId,
+    p_workspace_id: workspaceId,
+    p_step: step,
+    p_args: args,
+  });
+  if (error) {
+    const { status, code } = mapRpcError(error.message ?? "");
+    sendError(res, status, code);
+    return;
+  }
+  const row = rpcRow<Record<string, unknown>>(data) ?? {};
+
+  if (step !== "document") {
+    res.status(200).json(row);
+    return;
+  }
+
+  const storagePath = str(row.storagePath);
+  const fileName = str(row.fileName);
+  if (!storagePath || !fileName) {
+    sendError(res, 500, "SERVER_ERROR");
+    return;
+  }
+  const signed = await supabase.storage
+    .from(DOCUMENTS_BUCKET)
+    .createSignedUrl(storagePath, SIGNED_LINK_SECONDS);
+  if (signed.error || !signed.data?.signedUrl) {
+    sendError(res, 502, "STORAGE_ERROR");
+    return;
+  }
+  // The storage PATH is deliberately not returned - the console needs the link,
+  // not the layout of the private bucket.
+  res.status(200).json({
+    url: signed.data.signedUrl,
+    expiresIn: SIGNED_LINK_SECONDS,
+    fileName,
+    mimeType: row.mimeType ?? null,
+    sha256: row.sha256 ?? null,
+    sizeBytes: row.sizeBytes ?? null,
+  });
+}
+
+/**
  * Deletes one election system permanently.
  *
  * Everything that matters happens in ONE database transaction inside
@@ -2683,6 +2908,10 @@ export default async function handler(
       await handleActivityList(req, res, verified.authUserId);
       return;
     }
+    if (getOp === "deletion_preview") {
+      await handleDeletionPreview(req, res, verified.authUserId);
+      return;
+    }
     // Default GET payload is deliberately unchanged - the Platform Owner client
     // shape-guards on exactly these two keys.
     res.status(200).json({
@@ -2722,6 +2951,12 @@ export default async function handler(
       return;
     case "delete_workspace":
       await handleDeleteWorkspace(req, res, verified.authUserId);
+      return;
+    case "purge_activity_log":
+      await handlePurgeActivityLog(req, res, verified.authUserId);
+      return;
+    case "workspace_budget_export":
+      await handleWorkspaceBudgetExport(req, res, verified.authUserId);
       return;
     case "set_module_availability":
       await handleSetModuleAvailability(req, res, verified.authUserId);
