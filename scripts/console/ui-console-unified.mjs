@@ -530,10 +530,10 @@ try {
   // =======================================================================
   section("CX. THE APPROVAL DIALOG CANNOT BE CLOSED BY ACCIDENT");
   // =======================================================================
-  // It is a long form. A stray click on the backdrop used to discard every
-  // value typed into it, so the backdrop no longer dismisses it at all: the X
-  // in the header and the Cancel button are the two deliberate ways out, and
-  // neither creates anything.
+  // It is a long form, and both IMPLICIT dismissal gestures used to discard
+  // every value typed into it. Neither does anything now: a click on the
+  // backdrop and the Escape key are both inert, and the X in the header and the
+  // Cancel button are the ONLY two ways out. Neither of them creates anything.
   {
     const approvalsBefore = psql(
       "select count(*)::text from public.election_workspace_pending_owner_access;",
@@ -562,6 +562,19 @@ try {
     );
     check(
       "CX2 ... and nothing typed into it was lost",
+      (await f1.getByLabel("שם הבעלים").inputValue()) === typed,
+      await f1.getByLabel("שם הבעלים").inputValue(),
+    );
+    // Escape, the other implicit gesture, with focus inside the dialog - which
+    // is where the modal puts it on open, so this is the realistic keypress.
+    await po.keyboard.press("Escape");
+    await po.waitForTimeout(600);
+    check(
+      "CX2b the Escape key does NOT close the dialog either",
+      await po.getByRole("dialog").isVisible(),
+    );
+    check(
+      "CX2c ... and nothing typed into it was lost to that keypress",
       (await f1.getByLabel("שם הבעלים").inputValue()) === typed,
       await f1.getByLabel("שם הבעלים").inputValue(),
     );
@@ -596,6 +609,17 @@ try {
         "select count(*)::text from public.election_workspace_pending_owner_access;",
       ).trim() === approvalsBefore,
     );
+    // The fifth case: submission itself is untouched. The control is still the
+    // dialog's primary action and still enabled; section D immediately below
+    // drives it end to end and asserts the approval it produces.
+    const f3 = await openDialog();
+    check(
+      "CX8 the submit button is still the primary action, enabled and unchanged",
+      (await f3.getByRole("button", { name: "אישור ויצירת קישור" }).isEnabled()) &&
+        (await f3.getByRole("button", { name: "אישור ויצירת קישור" }).isVisible()),
+    );
+    await po.getByTestId("approve-owner-cancel").click();
+    await po.getByRole("dialog").waitFor({ state: "detached", timeout: 10000 });
   }
 
   // =======================================================================

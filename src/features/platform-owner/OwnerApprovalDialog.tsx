@@ -162,14 +162,15 @@ export function OwnerApprovalDialog({
   };
 
   return (
-    // A click outside does NOT close this one: it is a long form, and a
-    // misplaced click would discard everything typed into it. The X in the
-    // header and the Cancel button below are the two deliberate ways out.
+    // Neither a click outside nor Escape closes this one: it is a long form,
+    // and either gesture would discard everything typed into it by accident.
+    // The X in the header and the Cancel button below are the ONLY two ways
+    // out, and both are a deliberate act.
     <Modal
       open
       wide
       title={text.title}
-      dismissOnBackdrop={false}
+      dismissImplicitly={false}
       onClose={approving ? () => {} : onClose}
     >
       {!created && (

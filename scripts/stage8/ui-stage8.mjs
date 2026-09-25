@@ -428,8 +428,10 @@ try {
     afterAdopt.length === 1 && afterAdopt[0].id === leftover[0].id,
   );
   await page.getByRole("button", { name: "אישור בעלים נוסף" }).click();
-  // Close the approval dialog before acting on the list behind it.
-  await page.keyboard.press("Escape");
+  // Close the approval dialog before acting on the list behind it. Escape
+  // deliberately does nothing for THIS dialog now (a stray keypress must not
+  // discard a long form), so dismiss it the way a user would.
+  await page.getByTestId("approve-owner-cancel").click();
   await page.getByRole("dialog").waitFor({ state: "detached", timeout: 5000 });
 
   section("RE-ISSUE (active) -> RENEW (expired) -> CONSUMED is read-only");

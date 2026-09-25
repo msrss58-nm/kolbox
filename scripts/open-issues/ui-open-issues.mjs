@@ -454,8 +454,9 @@ const systemRows = () => po.locator('[data-testid="workspaces-list"] > li').coun
       .then(() => true, () => false),
   );
   // The approval dialog stays open on purpose after a success (it shows the
-  // link); close it before navigating, or it swallows every later click.
-  await po.keyboard.press("Escape");
+  // link); close it before navigating, or it swallows every later click. Escape
+  // deliberately does nothing here now, so use the success step's own button.
+  await po.getByRole("button", { name: "סיום" }).click();
   await po.locator(".fixed.inset-0").first().waitFor({ state: "detached", timeout: 15000 });
 }
 

@@ -22,7 +22,7 @@ export function Modal({
   children,
   wide = false,
   dismissible = true,
-  dismissOnBackdrop = true,
+  dismissImplicitly = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -36,13 +36,15 @@ export function Modal({
    * after handling one of its own actions. Defaults to `true` (today's
    * behavior, unchanged for every existing caller). */
   dismissible?: boolean;
-  /** When `false`, a click on the backdrop does NOT close the modal, while the
-   * X button and Escape keep working. For a dialog whose form is long enough
-   * that a misplaced click outside it would throw away typed input - losing it
-   * to a stray click is not a decision the user made. Narrower than
-   * `dismissible={false}`, which removes every way out. Defaults to `true`
-   * (today's behaviour, unchanged for every existing caller). */
-  dismissOnBackdrop?: boolean;
+  /** When `false`, neither of the IMPLICIT dismissal gestures closes the modal
+   * - a click on the backdrop and the Escape key both do nothing - while the X
+   * button keeps working, so the modal still has an explicit way out (and a
+   * caller can add its own Cancel button beside its submit). For a dialog whose
+   * form is long enough that throwing away typed input needs to be something
+   * the user actually chose, not a stray click or a reflexive keypress.
+   * Narrower than `dismissible={false}`, which removes the X as well. Defaults
+   * to `true` (today's behaviour, unchanged for every existing caller). */
+  dismissImplicitly?: boolean;
 }) {
   // `onClose` is excluded from the registration effect's deps (a ref carries
   // its latest value instead) - callers routinely pass a fresh inline
@@ -85,7 +87,7 @@ export function Modal({
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (!dismissible) return;
+      if (!dismissible || !dismissImplicitly) return;
       if (openModalStack[openModalStack.length - 1] !== id) return;
       onCloseRef.current();
     };
@@ -96,7 +98,7 @@ export function Modal({
       if (openModalStack.length === 0) document.body.style.overflow = "";
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
-  }, [open, dismissible]);
+  }, [open, dismissible, dismissImplicitly]);
 
   if (!open) return null;
 
@@ -111,7 +113,7 @@ export function Modal({
   // already uses - makes backdrop dismissal correct regardless of which
   // DOM element the click physically landed on.
   const handleBackdropClick = () => {
-    if (!dismissible || !dismissOnBackdrop) return;
+    if (!dismissible || !dismissImplicitly) return;
     if (openModalStack[openModalStack.length - 1] !== idRef.current) return;
     onClose();
   };
