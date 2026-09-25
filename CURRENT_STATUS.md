@@ -5186,9 +5186,9 @@ The deployed `33b85d6` was verified working against the migrated database BEFORE
 
 ---
 
-## Voter Management made available in the module catalog — 2026-09-25 (LOCAL only — NOT applied to Production, NOT committed)
+## Voter Management made available in the module catalog — 2026-09-25 (ROLLED OUT to Production the same day — see the checkpoint that follows this section)
 
-**Status: local implementation complete and fully verified; Production is unchanged.** One new migration, `supabase/migrations/20261001000000_platform_voter_management_available.sql`, sets `public.platform_modules.available = true` for `voter_management` and changes nothing else. It has been replayed and exercised **only** on the isolated `kolboxs5` scratch stack. Production has not been migrated, nothing was pushed or deployed, and nothing was committed. `availability_switchable` stays `false`.
+**Status: CLOSED / PASS - live in Production since 2026-09-25 as `1645d7b`. The text of this section is the local build record, written before the rollout; the checkpoint after it is the Production record.** One new migration, `supabase/migrations/20261001000000_platform_voter_management_available.sql`, sets `public.platform_modules.available = true` for `voter_management` and changes nothing else. It has been replayed and exercised **only** on the isolated `kolboxs5` scratch stack. Production has not been migrated, nothing was pushed or deployed, and nothing was committed. `availability_switchable` stays `false`.
 
 **The approved decision.** The flag is not cosmetic, and that was established before it was changed. The two principals compute their effective modules in different places:
 
@@ -5225,4 +5225,28 @@ The user approved exactly that consequence on the state as it then stood: `לו�
 
 1. **There is no console kill switch for this value.** `availability_switchable` stays `false`, so `platform_set_module_availability` refuses `voter_management` with `MODULE_AVAILABILITY_FIXED` and the only way to undo it is another migration and a deploy. Gate 4's stated reason for marking the module fixed — that a switch "would change nothing at runtime" — is now out of date, since the Owner path does honour the flag; making it switchable is a separate decision, deliberately not taken here.
 2. **Voter Management still has no server-side backend.** Its screens are per-browser `MockApi`/localStorage. The follow-up stage that gives it a worker runtime should add a `voter_management_workspace_entitled(uuid)` predicate (available AND entitlement, mirroring `budget_workspace_entitled`), report the key from `election_day_workspace_worker_modules`, and set `availability_switchable` then.
-3. **Nothing is live.** Production still reads `voter_management.available = false`. Reaching the approved end state needs `supabase db push --linked` (→ 114/114) after a commit and push; no deploy is required for behaviour, since no application code changed — the two Election Owners' next session read picks it up from the database.
+3. ~~**Nothing is live.**~~ **Superseded — this was rolled out on 2026-09-25; see the checkpoint below.** Production now reads `voter_management.available = true`.
+
+---
+
+## Production checkpoint — `voter_management` availability LIVE — 2026-09-25
+
+**CLOSED / PASS.** The change described in the section above is applied to Production. Executed in the approved order: docs reconciliation -> final checks -> commit -> push -> remote-HEAD verification -> `supabase db push --linked` -> Production verification. Nothing outside that order was run; the activity log was read but **never purged**.
+
+**Commit.** `1645d7b26ecb4ed21c8dcb4930336e278b61897d` — "feat: offer Voter Management in the module catalog" — 7 files, +199/-18: the migration, the four affected suites, `CURRENT_STATUS.md`, `task-plan.md`. Pushed `bcea29d..1645d7b`; this also carried the earlier docs commit `3deb242`. `git ls-remote origin refs/heads/master` = `1645d7b`, local `HEAD` = `1645d7b`, **0 ahead / 0 behind**.
+
+**Migration.** Dry run listed exactly one file, `20261001000000_platform_voter_management_available.sql`, and the apply reported exactly that one — no seeds, no roles. Production afterwards: **114 applied / 0 pending / 0 drift** (zero remote-only entries, zero local/remote mismatches), latest `20261001000000`.
+
+**Production state, verified read-only after the apply:**
+
+- Catalog: `voter_management` **`available=true, availability_switchable=false`**; `election_day` `true/false`; `budget` `true/true` — the other two untouched.
+- **0 workspaces**, **0 Election Owners**, **0 approvals**, **0 entitlement rows** (`entitled_workspaces = 0` for all three modules). So the value is live and currently reaches nobody: it governs whatever workspace is granted the entitlement next, under the four-part rule in the section above.
+- No orphans, no pending cleanup: every readable workspace-scoped table 0, `budget-documents` bucket 0 objects, `pending_auth_cleanup: []`, `pending_provisioning_orphans: []`. `election_day_login_attempts` holds 2 rate-limit buckets, which carry no `workspace_id`.
+- Auth unchanged by the rollout: 3 users and `auth_identities` = 3 — the Platform Owner plus both Multi-Entity seats.
+- **The migration wrote no audit row**, as designed: the activity log still returns the same 3 entitlement rows and zero availability-audit rows, because this is not `platform_set_module_availability`.
+
+**Surfaces.** All four serve `1645d7b`, confirmed by `/api/health`: `kolbox-gamma` (election), `kolbox-platform` (platform), `kolbox-multi-entity` (multi_entity), `kolbox-auth` (auth). The election and multi_entity surfaces were still on `bcea29d` for the first minutes after the push and were polled to convergence rather than treated as a mismatch; no application code changed, so the deploy is a no-op for behaviour.
+
+**Protected files.** The 15 protected scripts remain dirty and untouched at exactly **+138/-45** throughout; they were never staged, and after the commit the working tree contains nothing else.
+
+**Residual, carried forward:** there is still no console kill switch for this value while `availability_switchable` is `false` — undoing it needs another migration and a push. Voter Management still has no server-side worker runtime, and its screens remain per-browser `MockApi`/localStorage.
